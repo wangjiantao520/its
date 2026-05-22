@@ -2,6 +2,7 @@
 
 import {
   Calculator,
+  Database,
   FileText,
   Home,
   Settings,
@@ -48,6 +49,11 @@ const navItems = [
     title: '历史记录',
     url: '/history',
     icon: History,
+  },
+  {
+    title: '数据库管理',
+    url: '/database',
+    icon: Database,
   },
 ];
 
