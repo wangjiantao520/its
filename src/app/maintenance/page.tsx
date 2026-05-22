@@ -1,463 +1,757 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { Plus, Trash2, Save, FileDown, Eye } from 'lucide-react';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Badge } from '@/components/ui/badge';
+import { 
+  Calculator, 
+  FileSpreadsheet, 
+  Download, 
+  Plus, 
+  Trash2, 
+  Save,
+  Printer,
+  Settings,
+  Database,
+  DollarSign,
+  Clock,
+  Shield,
+  Wrench,
+  CheckCircle2,
+  AlertCircle,
+} from 'lucide-react';
+import {
+  MOCK_DEVICE_QUOTAS,
+  DeviceQuota,
+  MaintenanceQuoteResult,
+  calculateMaintenanceQuote,
+  DepreciationLevel,
+  RegionType,
+  ServiceTimeType,
+  SLAConfig,
+  DEFAULT_SLA_CONFIG,
+  MAINTENANCE_LEVEL_CONFIG,
+  ENGINEER_PRICES,
+  DEPRECIATION_FACTORS,
+  SERVICE_TIME_FACTORS,
+  REGION_FACTORS,
+  MULTI_YEAR_DISCOUNTS,
+} from '@/lib/maintenance-quota';
 
-// 模拟设备数据
-const mockDevices = [
-  { id: 1, type: '台式电脑', brand: '联想', model: 'ThinkCentre M90t', originalValue: 4000, maintenanceFactorMin: 0.06, maintenanceFactorMax: 0.15, laborMinutes: 15 },
-  { id: 2, type: '笔记本电脑', brand: '戴尔', model: 'Latitude 5420', originalValue: 5000, maintenanceFactorMin: 0.06, maintenanceFactorMax: 0.15, laborMinutes: 20 },
-  { id: 3, type: '打印机', brand: '惠普', model: 'LaserJet Pro', originalValue: 2000, maintenanceFactorMin: 0.08, maintenanceFactorMax: 0.12, laborMinutes: 30 },
-  { id: 4, type: '交换机', brand: '华为', model: 'S5735-L48T4S-A', originalValue: 8000, maintenanceFactorMin: 0.06, maintenanceFactorMax: 0.10, laborMinutes: 20 },
-  { id: 5, type: '监控摄像头', brand: '海康威视', model: 'DS-2CD3T46WD-I3', originalValue: 600, maintenanceFactorMin: 0.10, maintenanceFactorMax: 0.15, laborMinutes: 25 },
-  { id: 6, type: 'NVR', brand: '海康威视', model: 'DS-7916N-R4', originalValue: 3000, maintenanceFactorMin: 0.08, maintenanceFactorMax: 0.12, laborMinutes: 20 },
-];
-
-// 维保系数配置
-const maintenanceFactors = [
-  { ageRange: '0-2年', factor: 0.06, description: '新设备，维保系数6%' },
-  { ageRange: '2-5年', factor: 0.10, description: '中等年限设备，维保系数10%' },
-  { ageRange: '5年以上', factor: 0.15, description: '老旧设备，维保系数15%' },
-];
-
-// 人工单价配置
-const laborPrices = [
-  { level: '初级', unitPrice: 200, unit: '人天' },
-  { level: '中级', unitPrice: 300, unit: '人天' },
-  { level: '高级', unitPrice: 400, unit: '人天' },
-  { level: '专家', unitPrice: 500, unit: '人天' },
-];
-
-interface MaintenanceDeviceItem {
-  id: number;
-  deviceId: number;
-  quantity: number;
-  ageYears: number;
-}
-
-export default function MaintenancePage() {
+export default function MaintenanceQuotePage() {
+  const [activeTab, setActiveTab] = useState('new');
+  const [quoteDate, setQuoteDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [customerName, setCustomerName] = useState('');
-  const [contractYears, setContractYears] = useState(1);
-  const [quoteMethod, setQuoteMethod] = useState('factor');
-  const [laborLevel, setLaborLevel] = useState('中级');
-  const [deviceItems, setDeviceItems] = useState<MaintenanceDeviceItem[]>([]);
-  const [nextItemId, setNextItemId] = useState(1);
+  const [projectName, setProjectName] = useState('');
+  const [contractYears, setContractYears] = useState<string>('1');
+  const [region, setRegion] = useState<RegionType>('城区');
+  
+  // SLA配置
+  const [slaConfig, setSlaConfig] = useState<SLAConfig>(DEFAULT_SLA_CONFIG);
 
-  const addDeviceItem = (deviceId: number) => {
-    setDeviceItems([...deviceItems, { id: nextItemId, deviceId, quantity: 1, ageYears: 2 }]);
-    setNextItemId(nextItemId + 1);
+  // 设备选择和数量
+  const [selectedDevices, setSelectedDevices] = useState<Array<{
+    quota: DeviceQuota;
+    quantity: number;
+    depreciationLevel: DepreciationLevel;
+    inWarranty: boolean;
+  }>>([]);
+
+  // 计算结果
+  const [quoteResult, setQuoteResult] = useState<MaintenanceQuoteResult | null>(null);
+
+  // 添加设备
+  const handleAddDevice = (quota: DeviceQuota) => {
+    const existing = selectedDevices.find(d => d.quota.id === quota.id);
+    if (existing) {
+      setSelectedDevices(selectedDevices.map(d => 
+        d.quota.id === quota.id 
+          ? { ...d, quantity: d.quantity + 1 }
+          : d
+      ));
+    } else {
+      setSelectedDevices([...selectedDevices, {
+        quota,
+        quantity: 1,
+        depreciationLevel: '全新',
+        inWarranty: false,
+      }]);
+    }
   };
 
-  const removeDeviceItem = (itemId: number) => {
-    setDeviceItems(deviceItems.filter(item => item.id !== itemId));
+  // 更新设备数量
+  const handleUpdateQuantity = (index: number, quantity: number) => {
+    const newDevices = [...selectedDevices];
+    newDevices[index].quantity = Math.max(0, quantity);
+    if (newDevices[index].quantity === 0) {
+      newDevices.splice(index, 1);
+    }
+    setSelectedDevices(newDevices);
   };
 
-  const updateQuantity = (itemId: number, quantity: number) => {
-    setDeviceItems(deviceItems.map(item =>
-      item.id === itemId ? { ...item, quantity } : item
-    ));
+  // 更新成新率
+  const handleUpdateDepreciation = (index: number, level: DepreciationLevel) => {
+    const newDevices = [...selectedDevices];
+    newDevices[index].depreciationLevel = level;
+    setSelectedDevices(newDevices);
   };
 
-  const updateAgeYears = (itemId: number, ageYears: number) => {
-    setDeviceItems(deviceItems.map(item =>
-      item.id === itemId ? { ...item, ageYears } : item
-    ));
+  // 更新在保状态
+  const handleUpdateWarranty = (index: number, inWarranty: boolean) => {
+    const newDevices = [...selectedDevices];
+    newDevices[index].inWarranty = inWarranty;
+    setSelectedDevices(newDevices);
   };
 
-  const getMaintenanceFactor = (ageYears: number) => {
-    if (ageYears <= 2) return 0.06;
-    if (ageYears <= 5) return 0.10;
-    return 0.15;
+  // 移除设备
+  const handleRemoveDevice = (index: number) => {
+    const newDevices = [...selectedDevices];
+    newDevices.splice(index, 1);
+    setSelectedDevices(newDevices);
   };
 
-  const calculateTotals = () => {
-    let totalMaintenanceFee = 0;
-    let details: Array<{
-      deviceType: string;
-      quantity: number;
-      originalValue: number;
-      ageYears: number;
-      factor?: number;
-      annualFee: number;
-    }> = [];
+  // 计算报价
+  const handleCalculate = () => {
+    if (selectedDevices.length === 0) return;
 
-    deviceItems.forEach((item) => {
-      const device = mockDevices.find(d => d.id === item.deviceId);
-      if (!device) return;
-
-      const originalValueTotal = device.originalValue * item.quantity;
-      const factor = getMaintenanceFactor(item.ageYears);
-      const annualFee = quoteMethod === 'factor'
-        ? originalValueTotal * factor
-        : calculateByHours(device, item.quantity);
-
-      details.push({
-        deviceType: device.type,
-        quantity: item.quantity,
-        originalValue: originalValueTotal,
-        ageYears: item.ageYears,
-        factor: quoteMethod === 'factor' ? factor : undefined,
-        annualFee,
-      });
-
-      totalMaintenanceFee += annualFee;
-    });
-
-    const taxRate = 0.13;
-    const taxAmount = totalMaintenanceFee * taxRate;
-    const total = totalMaintenanceFee + taxAmount;
-
-    return {
-      details,
-      totalMaintenanceFee,
-      taxAmount,
-      total,
-    };
+    const result = calculateMaintenanceQuote(
+      selectedDevices,
+      slaConfig,
+      parseInt(contractYears),
+      region
+    );
+    setQuoteResult(result);
   };
 
-  const calculateByHours = (device: typeof mockDevices[0], quantity: number) => {
-    const laborConfig = laborPrices.find(l => l.level === laborLevel);
-    if (!laborConfig) return 0;
-    const laborPricePerHour = laborConfig.unitPrice / 8;
-    const laborHours = (device.laborMinutes * quantity) / 60;
-    const laborFee = laborHours * laborPricePerHour;
-    const materialFee = laborFee * 0.1;
-    return laborFee + materialFee;
-  };
+  // 自动计算
+  useEffect(() => {
+    if (selectedDevices.length > 0) {
+      handleCalculate();
+    } else {
+      setQuoteResult(null);
+    }
+  }, [selectedDevices, slaConfig, contractYears, region]);
 
-  const totals = calculateTotals();
+  // 格式化金额
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat('zh-CN', {
+      style: 'currency',
+      currency: 'CNY',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(amount);
+  };
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">维保报价</h1>
-        <p className="text-muted-foreground mt-1">创建和管理维保报价单</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">维保报价</h1>
+          <p className="text-slate-500 mt-1">基于设备维保定额库的专业报价系统</p>
+        </div>
+        <div className="flex gap-3">
+          <Button variant="outline" className="flex items-center gap-2">
+            <FileSpreadsheet className="h-4 w-4" />
+            导出Excel
+          </Button>
+          <Button className="flex items-center gap-2 bg-blue-700 hover:bg-blue-800">
+            <Calculator className="h-4 w-4" />
+            计算报价
+          </Button>
+        </div>
       </div>
 
-      <Tabs defaultValue="create" className="w-full">
-        <TabsList>
-          <TabsTrigger value="create">新建报价</TabsTrigger>
-          <TabsTrigger value="config">维保系数配置</TabsTrigger>
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+        <TabsList className="bg-white border border-slate-200">
+          <TabsTrigger value="new" className="flex items-center gap-2">
+            <Calculator className="h-4 w-4" />
+            新建报价
+          </TabsTrigger>
+          <TabsTrigger value="database" className="flex items-center gap-2">
+            <Database className="h-4 w-4" />
+            设备定额库
+          </TabsTrigger>
+          <TabsTrigger value="sla" className="flex items-center gap-2">
+            <Settings className="h-4 w-4" />
+            SLA参数配置
+          </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="create" className="space-y-6 mt-6">
-          {/* 基本信息 */}
-          <Card>
-            <CardHeader>
-              <CardTitle>基本信息</CardTitle>
-              <CardDescription>填写客户和合同基本信息</CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="customerName">客户名称</Label>
-                <Input
-                  id="customerName"
-                  placeholder="请输入客户名称"
-                  value={customerName}
-                  onChange={(e) => setCustomerName(e.target.value)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="contractYears">合同年限（年）</Label>
-                <Input
-                  id="contractYears"
-                  type="number"
-                  value={contractYears}
-                  onChange={(e) => setContractYears(parseInt(e.target.value) || 1)}
-                />
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* 设备清单 */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle>设备清单</CardTitle>
-                  <CardDescription>添加需要维保的设备</CardDescription>
+        {/* 新建报价 */}
+        <TabsContent value="new" className="space-y-6">
+          <div className="grid gap-6 lg:grid-cols-3">
+            {/* 基本信息 */}
+            <Card className="lg:col-span-1">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <FileSpreadsheet className="h-5 w-5 text-blue-600" />
+                  基本信息
+                </CardTitle>
+                <CardDescription>填写报价单的基本信息</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="quoteDate">报价日期</Label>
+                  <Input
+                    id="quoteDate"
+                    type="date"
+                    value={quoteDate}
+                    onChange={(e) => setQuoteDate(e.target.value)}
+                  />
                 </div>
-                <Select onValueChange={(value) => addDeviceItem(parseInt(value))}>
-                  <SelectTrigger className="w-[200px]">
-                    <SelectValue placeholder="添加设备" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {mockDevices.map((device) => (
-                      <SelectItem key={device.id} value={device.id.toString()}>
-                        {device.type} - {device.brand} {device.model}
-                      </SelectItem>
+                <div className="space-y-2">
+                  <Label htmlFor="customerName">客户名称</Label>
+                  <Input
+                    id="customerName"
+                    placeholder="请输入客户名称"
+                    value={customerName}
+                    onChange={(e) => setCustomerName(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="projectName">项目名称</Label>
+                  <Input
+                    id="projectName"
+                    placeholder="请输入项目名称"
+                    value={projectName}
+                    onChange={(e) => setProjectName(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="contractYears">合同年限</Label>
+                  <Select value={contractYears} onValueChange={setContractYears}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="选择合同年限" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="1">1年</SelectItem>
+                      <SelectItem value="2">2年 (95折)</SelectItem>
+                      <SelectItem value="3">3年 (9折)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="region">服务地区</Label>
+                  <Select value={region} onValueChange={(v) => setRegion(v as RegionType)}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="选择服务地区" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="城区">城区 (系数1.0)</SelectItem>
+                      <SelectItem value="市区县城郊区">市区县城郊区 (系数1.1)</SelectItem>
+                      <SelectItem value="乡镇">乡镇 (系数1.5)</SelectItem>
+                      <SelectItem value="农村">农村 (系数2.0)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* 设备清单 */}
+            <Card className="lg:col-span-2">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Database className="h-5 w-5 text-blue-600" />
+                  设备清单
+                </CardTitle>
+                <CardDescription>添加维保设备并设置参数</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* 设备选择器 */}
+                <div className="space-y-2">
+                  <Label>从定额库选择设备</Label>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 max-h-48 overflow-y-auto p-1">
+                    {MOCK_DEVICE_QUOTAS.map((quota) => (
+                      <Button
+                        key={quota.id}
+                        variant="outline"
+                        className="justify-start text-left h-auto py-2 px-3"
+                        onClick={() => handleAddDevice(quota)}
+                      >
+                        <div className="flex flex-col items-start">
+                          <span className="font-medium text-sm">{quota.name}</span>
+                          <span className="text-xs text-slate-500">{quota.model}</span>
+                          <Badge variant="outline" className="mt-1 text-xs">
+                            {MAINTENANCE_LEVEL_CONFIG[quota.level].name}
+                          </Badge>
+                        </div>
+                      </Button>
                     ))}
-                  </SelectContent>
-                </Select>
-              </div>
+                  </div>
+                </div>
+
+                {/* 已选设备列表 */}
+                {selectedDevices.length > 0 && (
+                  <div className="mt-6">
+                    <div className="border rounded-lg">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>设备名称</TableHead>
+                            <TableHead>规格型号</TableHead>
+                            <TableHead>数量</TableHead>
+                            <TableHead>成新率</TableHead>
+                            <TableHead>在保状态</TableHead>
+                            <TableHead>单价</TableHead>
+                            <TableHead>小计</TableHead>
+                            <TableHead className="w-12"></TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {selectedDevices.map((item, index) => (
+                            <TableRow key={item.quota.id}>
+                              <TableCell className="font-medium">{item.quota.name}</TableCell>
+                              <TableCell className="text-slate-500">{item.quota.model}</TableCell>
+                              <TableCell>
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  value={item.quantity}
+                                  onChange={(e) => handleUpdateQuantity(index, parseInt(e.target.value) || 0)}
+                                  className="w-20"
+                                />
+                              </TableCell>
+                              <TableCell>
+                                <Select
+                                  value={item.depreciationLevel}
+                                  onValueChange={(v) => handleUpdateDepreciation(index, v as DepreciationLevel)}
+                                >
+                                  <SelectTrigger className="w-28">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="全新">全新</SelectItem>
+                                    <SelectItem value="较新">较新</SelectItem>
+                                    <SelectItem value="一般">一般</SelectItem>
+                                    <SelectItem value="偏旧">偏旧</SelectItem>
+                                    <SelectItem value="老旧">老旧</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </TableCell>
+                              <TableCell>
+                                <Switch
+                                  checked={item.inWarranty}
+                                  onCheckedChange={(checked) => handleUpdateWarranty(index, checked)}
+                                />
+                              </TableCell>
+                              <TableCell>{formatCurrency(item.quota.cityPrice)}</TableCell>
+                              <TableCell className="font-medium">
+                                {formatCurrency(item.quota.cityPrice * item.quantity)}
+                              </TableCell>
+                              <TableCell>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => handleRemoveDevice(index)}
+                                >
+                                  <Trash2 className="h-4 w-4 text-red-500" />
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* 计算结果 */}
+            {quoteResult && (
+              <Card className="lg:col-span-3">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Calculator className="h-5 w-5 text-green-600" />
+                    报价计算结果
+                  </CardTitle>
+                  <CardDescription>基于维保定额库的专业报价</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid gap-6 lg:grid-cols-3">
+                    {/* 费用明细 */}
+                    <div className="lg:col-span-2">
+                      <h3 className="text-lg font-semibold mb-4">费用明细</h3>
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>设备名称</TableHead>
+                            <TableHead>数量</TableHead>
+                            <TableHead>巡检费</TableHead>
+                            <TableHead>上门费</TableHead>
+                            <TableHead>故障处理费</TableHead>
+                            <TableHead>其他费用</TableHead>
+                            <TableHead className="text-right">单价</TableHead>
+                            <TableHead className="text-right">小计</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {quoteResult.deviceItems.map((item, index) => (
+                            <TableRow key={index}>
+                              <TableCell className="font-medium">{item.quota.name}</TableCell>
+                              <TableCell>{item.quantity}</TableCell>
+                              <TableCell>{formatCurrency(item.inspectionFee)}</TableCell>
+                              <TableCell>{formatCurrency(item.onSiteFee)}</TableCell>
+                              <TableCell>{formatCurrency(item.faultHandlingFee)}</TableCell>
+                              <TableCell>{formatCurrency(item.toolAmortization + item.consumableFee + item.sparePartReserve)}</TableCell>
+                              <TableCell className="text-right">{formatCurrency(item.cityPrice)}</TableCell>
+                              <TableCell className="text-right font-medium">{formatCurrency(item.totalAfterDiscount)}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+
+                    {/* 汇总信息 */}
+                    <div className="space-y-4">
+                      <Card>
+                        <CardHeader className="pb-2">
+                          <CardTitle className="text-lg">报价汇总</CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-3">
+                          <div className="flex justify-between text-sm">
+                            <span className="text-slate-500">设备数量</span>
+                            <span className="font-medium">{selectedDevices.reduce((sum, d) => sum + d.quantity, 0)} 台</span>
+                          </div>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-slate-500">不含税金额</span>
+                            <span className="font-medium">{formatCurrency(quoteResult.subtotal)}</span>
+                          </div>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-slate-500">税额 (13%)</span>
+                            <span className="font-medium">{formatCurrency(quoteResult.taxAmount)}</span>
+                          </div>
+                          <div className="h-px bg-slate-200" />
+                          <div className="flex justify-between">
+                            <span className="font-semibold">含税总价</span>
+                            <span className="text-xl font-bold text-blue-700">{formatCurrency(quoteResult.total)}</span>
+                          </div>
+                        </CardContent>
+                      </Card>
+
+                      <Card>
+                        <CardHeader className="pb-2">
+                          <CardTitle className="text-lg">多年期报价</CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-2">
+                          <div className="flex justify-between text-sm">
+                            <span className="text-slate-500">1年期总价</span>
+                            <span className="font-medium">{formatCurrency(quoteResult.totalByYear[1])}</span>
+                          </div>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-slate-500">2年期总价 (95折)</span>
+                            <span className="font-medium text-orange-600">{formatCurrency(quoteResult.totalByYear[2])}</span>
+                          </div>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-slate-500">3年期总价 (9折)</span>
+                            <span className="font-medium text-green-600">{formatCurrency(quoteResult.totalByYear[3])}</span>
+                          </div>
+                        </CardContent>
+                      </Card>
+
+                      <div className="flex gap-2">
+                        <Button className="flex-1 bg-blue-700 hover:bg-blue-800">
+                          <Save className="h-4 w-4 mr-2" />
+                          保存报价
+                        </Button>
+                        <Button variant="outline" className="flex-1">
+                          <Printer className="h-4 w-4 mr-2" />
+                          打印
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        </TabsContent>
+
+        {/* 设备定额库 */}
+        <TabsContent value="database" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Database className="h-5 w-5 text-blue-600" />
+                维保设备定额库
+              </CardTitle>
+              <CardDescription>政企设备维保定额标准数据库</CardDescription>
             </CardHeader>
             <CardContent>
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="w-[50px]">操作</TableHead>
-                    <TableHead>设备类型</TableHead>
-                    <TableHead>品牌</TableHead>
-                    <TableHead className="w-[100px]">数量</TableHead>
-                    <TableHead className="w-[100px]">使用年限</TableHead>
-                    <TableHead className="w-[120px]">原值</TableHead>
-                    <TableHead className="w-[120px]">维保费</TableHead>
+                    <TableHead>设备分类</TableHead>
+                    <TableHead>设备名称</TableHead>
+                    <TableHead>规格型号</TableHead>
+                    <TableHead>维保分档</TableHead>
+                    <TableHead>工程师等级</TableHead>
+                    <TableHead className="text-right">城区报价</TableHead>
+                    <TableHead>核心维保内容</TableHead>
+                    <TableHead className="w-12"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {deviceItems.map((item) => {
-                    const device = mockDevices.find(d => d.id === item.deviceId);
-                    if (!device) return null;
-                    const originalValueTotal = device.originalValue * item.quantity;
-                    const factor = getMaintenanceFactor(item.ageYears);
-                    const annualFee = quoteMethod === 'factor'
-                      ? originalValueTotal * factor
-                      : calculateByHours(device, item.quantity);
-                    return (
-                      <TableRow key={item.id}>
-                        <TableCell>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => removeDeviceItem(item.id)}
-                          >
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
-                        </TableCell>
-                        <TableCell>{device.type}</TableCell>
-                        <TableCell>{device.brand}</TableCell>
-                        <TableCell>
-                          <Input
-                            type="number"
-                            value={item.quantity}
-                            onChange={(e) => updateQuantity(item.id, parseInt(e.target.value) || 0)}
-                            className="w-full"
-                          />
-                        </TableCell>
-                        <TableCell>
-                          <Input
-                            type="number"
-                            value={item.ageYears}
-                            onChange={(e) => updateAgeYears(item.id, parseFloat(e.target.value) || 0)}
-                            className="w-full"
-                          />
-                        </TableCell>
-                        <TableCell>¥{originalValueTotal.toFixed(2)}</TableCell>
-                        <TableCell>¥{annualFee.toFixed(2)}</TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-
-          {/* 报价方法选择 */}
-          <Card>
-            <CardHeader>
-              <CardTitle>维保报价方法</CardTitle>
-              <CardDescription>选择维保报价计算方式</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <RadioGroup
-                defaultValue={quoteMethod}
-                onValueChange={setQuoteMethod}
-                className="grid gap-4"
-              >
-                <div className="flex items-start space-x-3 space-y-0">
-                  <RadioGroupItem value="factor" id="factor" />
-                  <div className="grid gap-1.5 leading-none">
-                    <Label htmlFor="factor">比例系数法</Label>
-                    <p className="text-sm text-muted-foreground">
-                      按设备原值 × 维保系数计算（0-2年6%，2-5年10%，5年以上15%）
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-start space-x-3 space-y-0">
-                  <RadioGroupItem value="hours" id="hours" />
-                  <div className="grid gap-1.5 leading-none">
-                    <Label htmlFor="hours">成本核算法</Label>
-                    <p className="text-sm text-muted-foreground">
-                      按设备维护时长 × 人工单价计算
-                    </p>
-                  </div>
-                </div>
-              </RadioGroup>
-
-              {quoteMethod === 'hours' && (
-                <div className="space-y-2">
-                  <Label htmlFor="laborLevel">人工等级</Label>
-                  <Select value={laborLevel} onValueChange={setLaborLevel}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="选择人工等级" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {laborPrices.map((labor) => (
-                        <SelectItem key={labor.level} value={labor.level}>
-                          {labor.level} - ¥{labor.unitPrice}/{labor.unit}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* 汇总计算 */}
-          <Card>
-            <CardHeader>
-              <CardTitle>报价汇总</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>设备类型</TableHead>
-                    <TableHead>数量</TableHead>
-                    <TableHead>原值</TableHead>
-                    <TableHead>使用年限</TableHead>
-                    {quoteMethod === 'factor' && <TableHead>维保系数</TableHead>}
-                    <TableHead>年度维保费</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {totals.details.map((detail, index) => (
-                    <TableRow key={index}>
-                      <TableCell>{detail.deviceType}</TableCell>
-                      <TableCell>{detail.quantity}</TableCell>
-                      <TableCell>¥{detail.originalValue.toFixed(2)}</TableCell>
-                      <TableCell>{detail.ageYears}年</TableCell>
-                      {quoteMethod === 'factor' && detail.factor && (
-                        <TableCell>{(detail.factor * 100).toFixed(0)}%</TableCell>
-                      )}
-                      <TableCell>¥{detail.annualFee.toFixed(2)}</TableCell>
+                  {MOCK_DEVICE_QUOTAS.map((quota) => (
+                    <TableRow key={quota.id}>
+                      <TableCell className="font-medium">{quota.category}</TableCell>
+                      <TableCell>{quota.name}</TableCell>
+                      <TableCell className="text-slate-500">{quota.model}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                          {quota.level}档 - {MAINTENANCE_LEVEL_CONFIG[quota.level].name}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>{quota.engineerLevel}</TableCell>
+                      <TableCell className="text-right font-medium text-blue-700">
+                        {formatCurrency(quota.cityPrice)}
+                      </TableCell>
+                      <TableCell className="max-w-xs truncate text-slate-500 text-sm">
+                        {quota.coreMaintenanceContent}
+                      </TableCell>
+                      <TableCell>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleAddDevice(quota)}
+                        >
+                          <Plus className="h-4 w-4 text-blue-600" />
+                        </Button>
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
-              <div className="border-t pt-4">
-                <div className="flex items-center justify-between">
-                  <div className="space-y-1">
-                    <p className="text-sm text-muted-foreground">维保费合计</p>
-                    <p className="text-lg">¥{totals.totalMaintenanceFee.toFixed(2)}/年</p>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-sm text-muted-foreground">税额 (13%)</p>
-                    <p className="text-lg">¥{totals.taxAmount.toFixed(2)}</p>
-                  </div>
-                  <div className="text-right space-y-1">
-                    <p className="text-sm text-muted-foreground">总价</p>
-                    <p className="text-3xl font-bold text-primary">
-                      ¥{totals.total.toFixed(2)}/年
-                    </p>
-                  </div>
-                </div>
-              </div>
             </CardContent>
-            <CardFooter className="flex justify-end gap-4">
-              <Button variant="outline">
-                <Save className="h-4 w-4 mr-2" />
-                保存草稿
-              </Button>
-              <Button variant="outline">
-                <Eye className="h-4 w-4 mr-2" />
-                预览报价单
-              </Button>
-              <Button>
-                <FileDown className="h-4 w-4 mr-2" />
-                导出PDF
-              </Button>
-            </CardFooter>
           </Card>
         </TabsContent>
 
-        <TabsContent value="config" className="mt-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>维保系数配置</CardTitle>
-              <CardDescription>管理设备维保系数和人工单价</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div>
-                <h3 className="text-lg font-semibold mb-4">维保系数配置</h3>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>设备使用年限区间</TableHead>
-                      <TableHead>维保系数</TableHead>
-                      <TableHead>说明</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {maintenanceFactors.map((factor, index) => (
-                      <TableRow key={index}>
-                        <TableCell>{factor.ageRange}</TableCell>
-                        <TableCell>{(factor.factor * 100).toFixed(0)}%</TableCell>
-                        <TableCell>{factor.description}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+        {/* SLA参数配置 */}
+        <TabsContent value="sla" className="space-y-6">
+          <div className="grid gap-6 lg:grid-cols-2">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Settings className="h-5 w-5 text-blue-600" />
+                  SLA服务级别配置
+                </CardTitle>
+                <CardDescription>配置维保服务等级协议参数</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-2">
+                      <Shield className="h-4 w-4" />
+                      运维团队经验
+                    </Label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[
+                        { label: '有经验', value: 1.2 },
+                        { label: '类似经验', value: 1.0 },
+                        { label: '无经验', value: 0.8 },
+                      ].map((option) => (
+                        <Button
+                          key={option.value}
+                          variant={slaConfig.teamExperience === option.value ? 'default' : 'outline'}
+                          onClick={() => setSlaConfig({ ...slaConfig, teamExperience: option.value })}
+                          className={slaConfig.teamExperience === option.value ? 'bg-blue-700' : ''}
+                        >
+                          {option.label}
+                          <span className="ml-1 text-xs opacity-70">({option.value})</span>
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
 
-              <div>
-                <h3 className="text-lg font-semibold mb-4">人工单价配置</h3>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>人员等级</TableHead>
-                      <TableHead>单价</TableHead>
-                      <TableHead>单位</TableHead>
-                      <TableHead>说明</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {laborPrices.map((labor, index) => (
-                      <TableRow key={index}>
-                        <TableCell>{labor.level}</TableCell>
-                        <TableCell>¥{labor.unitPrice}</TableCell>
-                        <TableCell>{labor.unit}</TableCell>
-                        <TableCell></TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-2">
+                      <AlertCircle className="h-4 w-4" />
+                      安全等级
+                    </Label>
+                    <div className="grid grid-cols-5 gap-2">
+                      {[
+                        { level: '第一级', value: 0.9 },
+                        { level: '第二级', value: 0.95 },
+                        { level: '第三级', value: 1.0 },
+                        { level: '第四级', value: 1.05 },
+                        { level: '第五级', value: 1.1 },
+                      ].map((option) => (
+                        <Button
+                          key={option.value}
+                          variant={slaConfig.securityLevel === option.value ? 'default' : 'outline'}
+                          onClick={() => setSlaConfig({ ...slaConfig, securityLevel: option.value })}
+                          className={slaConfig.securityLevel === option.value ? 'bg-blue-700' : ''}
+                        >
+                          {option.level}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
 
-              <div>
-                <h3 className="text-lg font-semibold mb-4">设备维护时长库</h3>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>设备类型</TableHead>
-                      <TableHead>品牌</TableHead>
-                      <TableHead>型号</TableHead>
-                      <TableHead>标准维护时长</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {mockDevices.map((device) => (
-                      <TableRow key={device.id}>
-                        <TableCell>{device.type}</TableCell>
-                        <TableCell>{device.brand}</TableCell>
-                        <TableCell>{device.model}</TableCell>
-                        <TableCell>{device.laborMinutes}分钟</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            </CardContent>
-          </Card>
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-2">
+                      <Wrench className="h-4 w-4" />
+                      支持方式
+                    </Label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[
+                        { label: '非现场支持', value: 0.89 },
+                        { label: '现场支持为主', value: 1.0 },
+                        { label: '纯现场支持', value: 1.1 },
+                      ].map((option) => (
+                        <Button
+                          key={option.value}
+                          variant={slaConfig.supportMode === option.value ? 'default' : 'outline'}
+                          onClick={() => setSlaConfig({ ...slaConfig, supportMode: option.value })}
+                          className={slaConfig.supportMode === option.value ? 'bg-blue-700' : ''}
+                        >
+                          {option.label}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-2">
+                      <Clock className="h-4 w-4" />
+                      故障恢复时间
+                    </Label>
+                    <div className="grid grid-cols-4 gap-2">
+                      {[
+                        { label: '≤4小时', value: 1.2 },
+                        { label: '≤24小时', value: 1.0 },
+                        { label: '≤48小时', value: 0.9 },
+                        { label: '≤72小时', value: 0.85 },
+                      ].map((option) => (
+                        <Button
+                          key={option.value}
+                          variant={slaConfig.faultRecoveryTime === option.value ? 'default' : 'outline'}
+                          onClick={() => setSlaConfig({ ...slaConfig, faultRecoveryTime: option.value })}
+                          className={slaConfig.faultRecoveryTime === option.value ? 'bg-blue-700' : ''}
+                        >
+                          {option.label}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>服务时间</Label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {(['5×8', '7×8', '7×24'] as ServiceTimeType[]).map((type) => (
+                        <Button
+                          key={type}
+                          variant={slaConfig.serviceTime === type ? 'default' : 'outline'}
+                          onClick={() => setSlaConfig({ ...slaConfig, serviceTime: type })}
+                          className={slaConfig.serviceTime === type ? 'bg-blue-700' : ''}
+                        >
+                          {type}服务
+                          <span className="ml-1 text-xs opacity-70">
+                            (×{SERVICE_TIME_FACTORS[type]})
+                          </span>
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+              <CardFooter className="border-t bg-slate-50">
+                <div className="flex items-center justify-between w-full">
+                  <div>
+                    <span className="text-sm text-slate-500">当前SLA总系数：</span>
+                    <span className="ml-2 text-lg font-bold text-blue-700">
+                      {(slaConfig.teamExperience * slaConfig.securityLevel * slaConfig.supportMode * 
+                        slaConfig.faultRecoveryTime * slaConfig.arrivalTime * slaConfig.responseTime * 
+                        SERVICE_TIME_FACTORS[slaConfig.serviceTime]).toFixed(4)}
+                    </span>
+                  </div>
+                  <Button
+                    variant="outline"
+                    onClick={() => setSlaConfig(DEFAULT_SLA_CONFIG)}
+                  >
+                    重置默认
+                  </Button>
+                </div>
+              </CardFooter>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <DollarSign className="h-5 w-5 text-green-600" />
+                  基础参数说明
+                </CardTitle>
+                <CardDescription>维保报价系统的核心参数配置</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="space-y-4">
+                  <div>
+                    <h4 className="font-medium text-slate-900 mb-2">维保分档说明</h4>
+                    <div className="space-y-2">
+                      {Object.entries(MAINTENANCE_LEVEL_CONFIG).map(([level, config]) => (
+                        <div key={level} className="flex items-start gap-3 p-3 bg-slate-50 rounded-lg">
+                          <Badge variant="outline" className="shrink-0">
+                            {level}档
+                          </Badge>
+                          <div>
+                            <div className="font-medium">{config.name}</div>
+                            <div className="text-sm text-slate-500">{config.description}</div>
+                            <div className="text-xs text-slate-400 mt-1">
+                              年故障数基准值: {config.baseFaultCount}次
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <h4 className="font-medium text-slate-900 mb-2">工程师等级单价</h4>
+                    <div className="grid grid-cols-3 gap-2">
+                      {Object.entries(ENGINEER_PRICES).map(([level, price]) => (
+                        <div key={level} className="p-3 bg-slate-50 rounded-lg text-center">
+                          <div className="font-medium">{level}</div>
+                          <div className="text-lg font-bold text-blue-700">{formatCurrency(price)}</div>
+                          <div className="text-xs text-slate-500">/天</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <h4 className="font-medium text-slate-900 mb-2">成新率系数</h4>
+                    <div className="grid grid-cols-5 gap-2">
+                      {Object.entries(DEPRECIATION_FACTORS).map(([level, factor]) => (
+                        <div key={level} className="p-2 bg-slate-50 rounded-lg text-center">
+                          <div className="font-medium text-sm">{level}</div>
+                          <div className="text-lg font-bold text-orange-600">×{factor}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <h4 className="font-medium text-slate-900 mb-2">地区系数</h4>
+                    <div className="grid grid-cols-2 gap-2">
+                      {Object.entries(REGION_FACTORS).map(([region, factor]) => (
+                        <div key={region} className="p-2 bg-slate-50 rounded-lg flex justify-between items-center">
+                          <span className="font-medium text-sm">{region}</span>
+                          <span className="text-lg font-bold text-blue-700">×{factor}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
         </TabsContent>
       </Tabs>
     </div>
