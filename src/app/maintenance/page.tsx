@@ -43,15 +43,26 @@ import {
   SERVICE_TIME_FACTORS,
   REGION_FACTORS,
   MULTI_YEAR_DISCOUNTS,
+  EngineerLevel,
 } from '@/lib/maintenance-quota';
+import {
+  generateMaintenanceQuoteHTML,
+  downloadAsWord,
+  convertToChineseCurrency,
+  type MaintenanceQuoteExportData,
+} from '@/lib/export-utils';
 
 export default function MaintenanceQuotePage() {
   const [activeTab, setActiveTab] = useState('new');
   const [quoteDate, setQuoteDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [customerName, setCustomerName] = useState('');
+  const [clientName, setClientName] = useState('');
   const [projectName, setProjectName] = useState('');
   const [contractYears, setContractYears] = useState<string>('1');
   const [region, setRegion] = useState<RegionType>('城区');
+  const [contactPerson, setContactPerson] = useState('');
+  const [contactPhone, setContactPhone] = useState('');
+  const [engineerLevel, setEngineerLevel] = useState<EngineerLevel>('中级');
   
   // SLA配置
   const [slaConfig, setSlaConfig] = useState<SLAConfig>(DEFAULT_SLA_CONFIG);
@@ -128,6 +139,82 @@ export default function MaintenanceQuotePage() {
       region
     );
     setQuoteResult(result);
+  };
+
+  // 导出报价单 - 简化版本
+  const handleExportQuote = () => {
+    if (!quoteResult || selectedDevices.length === 0) return;
+
+    // 生成报价单号
+    const timestamp = Date.now();
+    const quoteNumber = `WB${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}${String(new Date().getDate()).padStart(2, '0')}${String(timestamp % 1000).padStart(3, '0')}`;
+
+    // 创建一个简单的导出数据
+    const simpleExportData = {
+      projectName,
+      clientName,
+      contactPerson,
+      contactPhone,
+      quoteNumber,
+      quoteDate,
+      engineerLevel: '中级',
+      slaParams: {
+        teamExperience: '有经验',
+        securityLevel: '第二级',
+        supportMethod: '远程+现场',
+        recoveryTime: '24小时内',
+        arrivalTime: '2小时内',
+        responseTime: '10分钟内',
+        serviceTime: '5×8小时',
+      },
+      totalSlaCoefficient: 1.0,
+      region: '城区',
+      regionCoefficient: 1.0,
+      years: parseInt(contractYears),
+      yearsDiscount: 1.0,
+      equipmentCount: selectedDevices.reduce((sum, d) => sum + d.quantity, 0),
+      bulkDiscount: 1.0,
+      equipmentList: selectedDevices.map((device, index) => ({
+        name: `设备${index + 1}`,
+        category: '未分类',
+        brand: '-',
+        model: '-',
+        quantity: device.quantity,
+        maintenanceTier: 'C档 - 中级型',
+        ageRate: '一般',
+        ageCoefficient: 1.0,
+        warrantyStatus: device.inWarranty ? '在保' : '过保',
+        warrantyCoefficient: device.inWarranty ? 0.5 : 1.0,
+        subtotalInspection: 0,
+        subtotalOnsite: 0,
+        subtotalRepair: 0,
+        subtotalTools: 0,
+        subtotalConsumables: 0,
+        subtotalSpareParts: 0,
+        subtotal: 0,
+      })),
+      summary: {
+        totalInspection: 0,
+        totalOnsite: 0,
+        totalRepair: 0,
+        totalTools: 0,
+        totalConsumables: 0,
+        totalSpareParts: 0,
+        subtotalBeforeDiscount: quoteResult.subtotal,
+        slaAdjustment: 0,
+        regionAdjustment: 0,
+        subtotalAfterCoefficients: quoteResult.subtotal,
+        yearsDiscountAmount: 0,
+        bulkDiscountAmount: 0,
+        subtotal: quoteResult.subtotal,
+        tax: quoteResult.taxAmount,
+        grandTotal: quoteResult.totalByYear[parseInt(contractYears) as 1 | 2 | 3],
+        grandTotalRMB: convertToChineseCurrency(quoteResult.totalByYear[parseInt(contractYears) as 1 | 2 | 3]),
+      },
+    };
+
+    const html = generateMaintenanceQuoteHTML(simpleExportData);
+    downloadAsWord(html, `维保报价单_${quoteNumber}.doc`);
   };
 
   // 自动计算
@@ -464,6 +551,14 @@ export default function MaintenanceQuotePage() {
                         <Button variant="outline" className="flex-1">
                           <Printer className="h-4 w-4 mr-2" />
                           打印
+                        </Button>
+                        <Button 
+                          variant="outline" 
+                          className="flex-1 border-green-600 text-green-700 hover:bg-green-50"
+                          onClick={handleExportQuote}
+                        >
+                          <FileSpreadsheet className="h-4 w-4 mr-2" />
+                          导出Word
                         </Button>
                       </div>
                     </div>

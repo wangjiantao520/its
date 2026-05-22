@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -8,7 +8,13 @@ import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Plus, Trash2, Save, FileDown, Eye } from 'lucide-react';
+import { Plus, Trash2, Save, FileDown, Eye, FileSpreadsheet } from 'lucide-react';
+import {
+  generateEngineeringQuoteHTML,
+  downloadAsWord,
+  convertToChineseCurrency,
+  type EngineeringQuoteExportData,
+} from '@/lib/export-utils';
 
 // 模拟定额数据
 const mockQuotas = [
@@ -29,11 +35,14 @@ interface QuoteItem {
 export default function EngineeringPage() {
   const [customerName, setCustomerName] = useState('');
   const [projectName, setProjectName] = useState('');
+  const [contactPerson, setContactPerson] = useState('');
+  const [contactPhone, setContactPhone] = useState('');
   const [managementFeeRate, setManagementFeeRate] = useState(8);
   const [profitRate, setProfitRate] = useState(10);
   const [regulatoryFeeRate, setRegulatoryFeeRate] = useState(3);
   const [quoteItems, setQuoteItems] = useState<QuoteItem[]>([]);
   const [nextItemId, setNextItemId] = useState(1);
+  const quoteRandomRef = useRef(Math.floor(Math.random() * 1000));
 
   const addQuoteItem = (quotaId: number) => {
     setQuoteItems([...quoteItems, { id: nextItemId, quotaId, quantity: 1 }]);
@@ -87,6 +96,54 @@ export default function EngineeringPage() {
 
   const totals = calculateTotals();
 
+  // 导出工程报价单
+  const handleExportEngineeringQuote = () => {
+    if (quoteItems.length === 0) return;
+
+    // 生成报价单号
+    const quoteNumber = `GC${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}${String(new Date().getDate()).padStart(2, '0')}${String(quoteRandomRef.current).padStart(3, '0')}`;
+
+    const exportData: EngineeringQuoteExportData = {
+      projectName,
+      clientName: customerName,
+      contactPerson,
+      contactPhone,
+      quoteNumber,
+      quoteDate: new Date().toISOString().split('T')[0],
+      items: quoteItems.map(item => {
+        const quota = mockQuotas.find(q => q.id === item.quotaId);
+        if (!quota) return { name: '', unit: '', quantity: 0, unitPrice: 0, amount: 0 };
+        const baseFee = quota.laborCost + quota.materialCost + quota.machineryCost;
+        const unitPrice = baseFee * (1 + managementFeeRate / 100 + profitRate / 100 + regulatoryFeeRate / 100);
+        return {
+          name: quota.name,
+          unit: quota.unit,
+          quantity: item.quantity,
+          unitPrice: unitPrice,
+          amount: unitPrice * item.quantity,
+        };
+      }).filter(item => item.name),
+      rates: {
+        managementRate: managementFeeRate,
+        profitRate: profitRate,
+        regulatoryRate: regulatoryFeeRate,
+        taxRate: 13,
+      },
+      summary: {
+        subtotal: totals.subtotal,
+        managementFee: totals.managementFee,
+        profit: totals.profit,
+        regulatoryFee: totals.regulatoryFee,
+        tax: totals.taxAmount,
+        grandTotal: totals.total,
+        grandTotalRMB: convertToChineseCurrency(totals.total),
+      },
+    };
+
+    const html = generateEngineeringQuoteHTML(exportData);
+    downloadAsWord(html, `工程报价单_${quoteNumber}.doc`);
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -126,6 +183,24 @@ export default function EngineeringPage() {
                   placeholder="请输入项目名称"
                   value={projectName}
                   onChange={(e) => setProjectName(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="contactPerson">联系人</Label>
+                <Input
+                  id="contactPerson"
+                  placeholder="请输入联系人"
+                  value={contactPerson}
+                  onChange={(e) => setContactPerson(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="contactPhone">联系电话</Label>
+                <Input
+                  id="contactPhone"
+                  placeholder="请输入联系电话"
+                  value={contactPhone}
+                  onChange={(e) => setContactPhone(e.target.value)}
                 />
               </div>
             </CardContent>
@@ -304,9 +379,16 @@ export default function EngineeringPage() {
                 <Eye className="h-4 w-4 mr-2" />
                 预览报价单
               </Button>
-              <Button>
+              <Button variant="outline">
                 <FileDown className="h-4 w-4 mr-2" />
                 导出PDF
+              </Button>
+              <Button 
+                className="bg-green-700 hover:bg-green-800"
+                onClick={handleExportEngineeringQuote}
+              >
+                <FileSpreadsheet className="h-4 w-4 mr-2" />
+                导出Word
               </Button>
             </CardFooter>
           </Card>
