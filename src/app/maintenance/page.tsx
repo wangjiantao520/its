@@ -247,7 +247,6 @@ export default function MaintenanceQuotePage() {
       const result = calculateFullMaintenanceQuote(
         fullDevices,
         slaConfig,
-        parseInt(contractYears),
         region
       );
       setFullQuoteResult(result);
@@ -961,47 +960,6 @@ export default function MaintenanceQuotePage() {
                           </div>
                         </CardContent>
                       </Card>
-
-                      {((useFullData && fullQuoteResult) || (!useFullData && quoteResult)) && (
-                        <Card>
-                          <CardHeader className="pb-2">
-                            <CardTitle className="text-lg">多年期报价</CardTitle>
-                          </CardHeader>
-                          <CardContent className="space-y-2">
-                            {useFullData && fullQuoteResult ? (
-                              <>
-                                <div className="flex justify-between text-sm">
-                                  <span className="text-slate-500">1年期总价</span>
-                                  <span className="font-medium">{formatCurrencyLocal(fullQuoteResult.totalByYear[1])}</span>
-                                </div>
-                                <div className="flex justify-between text-sm">
-                                  <span className="text-slate-500">2年期总价 (95折)</span>
-                                  <span className="font-medium text-orange-600">{formatCurrencyLocal(fullQuoteResult.totalByYear[2])}</span>
-                                </div>
-                                <div className="flex justify-between text-sm">
-                                  <span className="text-slate-500">3年期总价 (9折)</span>
-                                  <span className="font-medium text-green-600">{formatCurrencyLocal(fullQuoteResult.totalByYear[3])}</span>
-                                </div>
-                              </>
-                            ) : quoteResult ? (
-                              <>
-                                <div className="flex justify-between text-sm">
-                                  <span className="text-slate-500">1年期总价</span>
-                                  <span className="font-medium">{formatCurrencyLocal(quoteResult.totalByYear[1])}</span>
-                                </div>
-                                <div className="flex justify-between text-sm">
-                                  <span className="text-slate-500">2年期总价 (95折)</span>
-                                  <span className="font-medium text-orange-600">{formatCurrencyLocal(quoteResult.totalByYear[2])}</span>
-                                </div>
-                                <div className="flex justify-between text-sm">
-                                  <span className="text-slate-500">3年期总价 (9折)</span>
-                                  <span className="font-medium text-green-600">{formatCurrencyLocal(quoteResult.totalByYear[3])}</span>
-                                </div>
-                              </>
-                            ) : null}
-                          </CardContent>
-                        </Card>
-                      )}
 
                       <div className="flex gap-2">
                         <Button className="flex-1 bg-blue-700 hover:bg-blue-800">
