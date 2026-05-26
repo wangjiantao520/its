@@ -4,6 +4,7 @@ import './globals.css';
 import { AppLayout } from '@/components/layout/app-layout';
 import { FontPreload } from '@/components/font-preload';
 import { UserProvider } from '@/contexts/user-context';
+import { AuthProtected } from '@/components/auth-protected';
 
 export const metadata: Metadata = {
   title: {
@@ -28,7 +29,9 @@ export default function RootLayout({
         <FontPreload />
         {isDev && <Inspector />}
         <UserProvider>
-          <AppLayout>{children}</AppLayout>
+          <AuthProtected>
+            <AppLayout>{children}</AppLayout>
+          </AuthProtected>
         </UserProvider>
       </body>
     </html>

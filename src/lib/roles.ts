@@ -3,6 +3,11 @@ import type { FullDeviceQuota, MaintenanceLevel, EngineerLevel, DepreciationLeve
 export type { MaintenanceLevel, EngineerLevel, DepreciationLevel };
 
 export type UserRole = 'its_member' | 'admin';
+export type Role = UserRole;
+export const ROLE = {
+  ITS_MEMBER: 'its_member' as Role,
+  ADMIN: 'admin' as Role
+};
 
 export interface User {
   id: string;

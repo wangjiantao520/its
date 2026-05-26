@@ -50,7 +50,12 @@ const DEPRECIATION_LEVELS: { value: DepreciationLevel; label: string }[] = [
 ];
 
 export default function DeviceImportPage() {
-  const { user } = useUser();
+  const { user, isLoggedIn } = useUser();
+
+  // 如果未登录，不渲染内容
+  if (!isLoggedIn || !user) {
+    return null;
+  }
   const [devices, setDevices] = useState<Partial<DeviceImportItem>[]>([]);
   const [currentDevice, setCurrentDevice] = useState<Partial<DeviceImportItem>>({
     category: '',

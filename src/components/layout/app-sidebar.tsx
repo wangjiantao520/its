@@ -11,8 +11,9 @@ import {
   Upload,
   CheckSquare,
   User,
+  LogOut,
 } from 'lucide-react';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import {
   Sidebar,
   SidebarContent,
@@ -27,14 +28,8 @@ import {
 } from '@/components/ui/sidebar';
 import Link from 'next/link';
 import { useUser } from '@/contexts/user-context';
-import { UserRole } from '@/lib/roles';
+import { UserRole, Role } from '@/lib/roles';
 import { Button } from '@/components/ui/button';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 
 // ITS成员的导航项
 const itsMemberNavItems = [
@@ -96,9 +91,20 @@ const adminNavItems = [
 
 export function AppSidebar() {
   const pathname = usePathname();
-  const { user, setUserRole } = useUser();
+  const router = useRouter();
+  const { user, logout, isLoggedIn } = useUser();
+
+  // 如果未登录，不显示侧边栏
+  if (!isLoggedIn || !user) {
+    return null;
+  }
 
   const navItems = user.role === 'admin' ? adminNavItems : itsMemberNavItems;
+
+  const handleLogout = () => {
+    logout();
+    router.push('/login');
+  };
 
   return (
     <Sidebar variant="inset" className="border-r">
@@ -147,21 +153,15 @@ export function AppSidebar() {
               {user.role === 'admin' ? '管理员' : 'ITS成员'}
             </span>
           </div>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" className="w-full">
-                切换角色
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent>
-              <DropdownMenuItem onClick={() => setUserRole('its_member')}>
-                ITS成员
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setUserRole('admin')}>
-                管理员
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <Button 
+            variant="outline" 
+            size="sm" 
+            className="w-full"
+            onClick={handleLogout}
+          >
+            <LogOut className="h-4 w-4 mr-2" />
+            退出登录
+          </Button>
         </div>
         <div className="text-xs text-muted-foreground">
           <p>版本 1.0.0</p>

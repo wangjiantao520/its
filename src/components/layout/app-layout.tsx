@@ -5,6 +5,7 @@ import { AppSidebar } from '@/components/layout/app-sidebar';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '@/components/ui/breadcrumb';
 import { usePathname } from 'next/navigation';
+import { useUser } from '@/contexts/user-context';
 
 interface AppLayoutProps {
   children: ReactNode;
@@ -20,7 +21,13 @@ const pathNameMap: Record<string, string> = {
 
 export function AppLayout({ children }: AppLayoutProps) {
   const pathname = usePathname();
+  const { isLoggedIn } = useUser();
   const currentPage = pathNameMap[pathname] || '页面';
+
+  // 如果是登录页面，只显示内容，不显示侧边栏
+  if (pathname === '/login' || !isLoggedIn) {
+    return <>{children}</>;
+  }
 
   return (
     <SidebarProvider>
