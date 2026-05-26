@@ -50,6 +50,10 @@ export interface QuoteResult {
   serviceTime: string;
   securityLevel: string;
   region: string;
+  contractYears: number;
+  year1Total: number;
+  year2Total: number;
+  year3Total: number;
   details: {
     deviceNames: string[];
     totalInspectionFee: number;
@@ -173,7 +177,8 @@ export function generateQuoteFromSurvey(
   surveyData: SurveyFormData, 
   region: '城区' | '市区县城郊区' | '乡镇' | '农村' = '城区',
   serviceTime: '5×8' | '7×8' | '7×24' = '5×8',
-  securityLevel: '1级' | '2级' | '3级' | '4级' | '5级' = '3级'
+  securityLevel: '1级' | '2级' | '3级' | '4级' | '5级' = '3级',
+  contractYears: 1 | 2 | 3 = 1
 ): QuoteResult {
   const selectedDevices: FullDeviceQuota[] = [];
   const deviceNames: string[] = [];
@@ -190,11 +195,14 @@ export function generateQuoteFromSurvey(
   let totalToolFee = 0;
   let totalConsumableFee = 0;
   let totalSparePartFee = 0;
-  let totalPrice = 0;
+  let year1Total = 0;
+  let year2Total = 0;
+  let year3Total = 0;
   
   selectedDevices.forEach(device => {
-    const price = getDevicePriceByRegion(device, region);
-    totalPrice += price;
+    year1Total += device.year1TotalPrice || device.cityPrice || 0;
+    year2Total += device.year2TotalPrice || (device.cityPrice * 0.95) || 0;
+    year3Total += device.year3TotalPrice || (device.cityPrice * 0.9) || 0;
     totalInspectionFee += device.inspectionFeeAnnual || 0;
     totalOnSiteFee += device.onSiteFeeAnnual || 0;
     totalFaultHandlingFee += device.faultHandlingFeeTotal || 0;
@@ -203,6 +211,19 @@ export function generateQuoteFromSurvey(
     totalSparePartFee += device.sparePartReserve || 0;
   });
   
+  let totalPrice = 0;
+  switch (contractYears) {
+    case 1:
+      totalPrice = year1Total;
+      break;
+    case 2:
+      totalPrice = year2Total;
+      break;
+    case 3:
+      totalPrice = year3Total;
+      break;
+  }
+  
   return {
     totalPrice,
     deviceCount: selectedDevices.length,
@@ -210,6 +231,10 @@ export function generateQuoteFromSurvey(
     serviceTime,
     securityLevel,
     region,
+    contractYears,
+    year1Total,
+    year2Total,
+    year3Total,
     details: {
       deviceNames,
       totalInspectionFee,
