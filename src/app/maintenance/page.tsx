@@ -272,12 +272,12 @@ export default function MaintenanceQuotePage() {
     }
   };
 
-  // 监听合同年限变化，自动重新计算报价
+  // 监听合同年限或设备变化，自动重新计算报价
   useEffect(() => {
     if (selectedDevices.length > 0 && (quoteResult || fullQuoteResult)) {
       handleCalculate();
     }
-  }, [contractYears]);
+  }, [contractYears, selectedDevices]);
 
   // 导出报价单 - 简化版本
   const handleExportQuote = () => {
@@ -778,19 +778,6 @@ export default function MaintenanceQuotePage() {
                       <CardDescription>
                         {useFullData ? '完全复刻Excel公式，支持4个地区报价' : '基于维保定额库的专业报价'}
                       </CardDescription>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-slate-500">合同年限：</span>
-                      <Select value={contractYears} onValueChange={setContractYears}>
-                        <SelectTrigger className="w-32">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="1">1年期</SelectItem>
-                          <SelectItem value="2">2年期（95折）</SelectItem>
-                          <SelectItem value="3">3年期（9折）</SelectItem>
-                        </SelectContent>
-                      </Select>
                     </div>
                   </div>
                 </CardHeader>
