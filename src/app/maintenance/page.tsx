@@ -28,6 +28,8 @@ import {
   AlertCircle,
   MapPin,
   List,
+  ChevronUp,
+  ChevronDown,
 } from 'lucide-react';
 // 旧数据结构（保持向后兼容）
 import {
@@ -134,6 +136,9 @@ export default function MaintenanceQuotePage() {
   
   // 查勘问询
   const [surveyAnswers, setSurveyAnswers] = useState<SurveyAnswer[]>([]);
+
+  // 价格详情展开状态
+  const [expandedRegion, setExpandedRegion] = useState<string | null>(null);
 
   // 添加设备（支持新老两种数据结构）
   const handleAddDevice = (quota: DeviceQuota | FullDeviceQuota) => {
@@ -788,14 +793,74 @@ export default function MaintenanceQuotePage() {
                               <div key={region} className="p-3 bg-slate-50 rounded-lg">
                                 <div className="flex justify-between items-center">
                                   <span className="font-medium">{region}</span>
-                                  <span className="text-lg font-bold text-blue-700">
-                                    {formatCurrencyLocal(data.total)}
-                                  </span>
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-lg font-bold text-blue-700">
+                                      {formatCurrencyLocal(data.total)}
+                                    </span>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => setExpandedRegion(expandedRegion === region ? null : region)}
+                                      className="h-7 px-2"
+                                    >
+                                      {expandedRegion === region ? (
+                                        <ChevronUp className="h-4 w-4" />
+                                      ) : (
+                                        <ChevronDown className="h-4 w-4" />
+                                      )}
+                                    </Button>
+                                  </div>
                                 </div>
                                 <div className="text-xs text-slate-500 mt-1">
                                   不含税: {formatCurrencyLocal(data.subtotal)} · 
                                   税额: {formatCurrencyLocal(data.taxAmount)}
                                 </div>
+                                
+                                {/* 展开的详细内容 */}
+                                {expandedRegion === region && (
+                                  <div className="mt-3 p-3 bg-white rounded border border-slate-200">
+                                    <div className="space-y-2 text-sm">
+                                      <div className="font-medium mb-2">价格构成说明：</div>
+                                      <div className="text-slate-600">
+                                        <p><strong>1. 地区系数：</strong>该地区系数为 {FULL_REGION_FACTORS[region as keyof typeof FULL_REGION_FACTORS]}，根据地区服务成本计算</p>
+                                        <p><strong>2. 计算方式：</strong>价格 = ∑(单台设备价格 × 数量) × 地区系数 × SLA系数</p>
+                                        <p><strong>3. 税率：</strong>按国家规定的13%增值税率计算</p>
+                                      </div>
+                                      <div className="mt-2 pt-2 border-t">
+                                        <div className="text-xs text-slate-500">
+                                          设备明细：
+                                        </div>
+                                        <div className="mt-1 space-y-1">
+                                          {fullQuoteResult.deviceItems.map((item, idx) => {
+                                            // 获取该地区的设备价格
+                                            let regionPrice = 0;
+                                            switch (region) {
+                                              case '城区':
+                                                regionPrice = item.cityPrice;
+                                                break;
+                                              case '市区县城郊区':
+                                                regionPrice = item.urbanPrice;
+                                                break;
+                                              case '乡镇':
+                                                regionPrice = item.townPrice;
+                                                break;
+                                              case '农村':
+                                                regionPrice = item.ruralPrice;
+                                                break;
+                                            }
+                                            
+                                            return (
+                                              <div key={idx} className="flex justify-between text-xs">
+                                                <span>{item.quota.name} × {item.quantity}</span>
+                                                <span className="font-medium">{formatCurrencyLocal(regionPrice * item.quantity)}</span>
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
                               </div>
                             ))}
                           </CardContent>
