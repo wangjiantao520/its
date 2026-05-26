@@ -1,12 +1,15 @@
 'use client';
 
+import { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Search, FileText, Eye, Copy, FileDown, Calendar } from 'lucide-react';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Search, FileText, Eye, Copy, FileDown, Calendar, Trash2, Download, FileSpreadsheet } from 'lucide-react';
+import * as XLSX from 'xlsx';
 
 // 模拟历史报价记录
 const mockQuoteRecords = [
@@ -85,6 +88,69 @@ const statusColors: Record<string, string> = {
 };
 
 export default function HistoryPage() {
+  const [records, setRecords] = useState(mockQuoteRecords);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [recordToDelete, setRecordToDelete] = useState<number | null>(null);
+
+  // 导出单条记录为Excel
+  const exportSingleRecord = (record: typeof mockQuoteRecords[0]) => {
+    const data = [
+      {
+        '报价单号': record.quoteNo,
+        '报价类型': record.quoteType,
+        '客户名称': record.customerName,
+        '项目名称': record.projectName,
+        '总价': record.totalAmount,
+        '税额': record.taxAmount,
+        '不含税金额': record.netAmount,
+        '状态': record.status,
+        '创建时间': record.createdAt,
+        '创建人': record.createdBy,
+      },
+    ];
+    
+    const worksheet = XLSX.utils.json_to_sheet(data);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, '报价记录');
+    XLSX.writeFile(workbook, `${record.quoteNo}_${record.customerName}.xlsx`);
+  };
+
+  // 导出所有记录为Excel
+  const exportAllRecords = () => {
+    const data = records.map(record => ({
+      '报价单号': record.quoteNo,
+      '报价类型': record.quoteType,
+      '客户名称': record.customerName,
+      '项目名称': record.projectName,
+      '总价': record.totalAmount,
+      '税额': record.taxAmount,
+      '不含税金额': record.netAmount,
+      '状态': record.status,
+      '创建时间': record.createdAt,
+      '创建人': record.createdBy,
+    }));
+    
+    const worksheet = XLSX.utils.json_to_sheet(data);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, '报价记录');
+    XLSX.writeFile(workbook, '历史报价记录.xlsx');
+  };
+
+  // 确认删除记录
+  const confirmDelete = (id: number) => {
+    setRecordToDelete(id);
+    setDeleteDialogOpen(true);
+  };
+
+  // 执行删除
+  const executeDelete = () => {
+    if (recordToDelete) {
+      setRecords(records.filter(record => record.id !== recordToDelete));
+      setDeleteDialogOpen(false);
+      setRecordToDelete(null);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -97,7 +163,7 @@ export default function HistoryPage() {
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div>
               <CardTitle>报价记录</CardTitle>
-              <CardDescription>共 {mockQuoteRecords.length} 条记录</CardDescription>
+              <CardDescription>共 {records.length} 条记录</CardDescription>
             </div>
             <div className="flex flex-col gap-2 md:flex-row">
               <div className="flex items-center gap-2">
@@ -129,6 +195,10 @@ export default function HistoryPage() {
                   <SelectItem value="expired">已失效</SelectItem>
                 </SelectContent>
               </Select>
+              <Button onClick={exportAllRecords} variant="outline" className="flex items-center gap-2">
+                <FileSpreadsheet className="h-4 w-4" />
+                导出全部
+              </Button>
             </div>
           </div>
         </CardHeader>
@@ -144,11 +214,11 @@ export default function HistoryPage() {
                 <TableHead>状态</TableHead>
                 <TableHead>创建时间</TableHead>
                 <TableHead>创建人</TableHead>
-                <TableHead className="w-[180px]">操作</TableHead>
+                <TableHead className="w-[220px]">操作</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {mockQuoteRecords.map((record) => (
+              {records.map((record) => (
                 <TableRow key={record.id}>
                   <TableCell className="font-mono">{record.quoteNo}</TableCell>
                   <TableCell>
@@ -181,8 +251,22 @@ export default function HistoryPage() {
                       <Button variant="ghost" size="icon" title="复制">
                         <Copy className="h-4 w-4" />
                       </Button>
-                      <Button variant="ghost" size="icon" title="导出">
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        title="导出Excel"
+                        onClick={() => exportSingleRecord(record)}
+                      >
                         <FileDown className="h-4 w-4" />
+                      </Button>
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        title="删除"
+                        onClick={() => confirmDelete(record.id)}
+                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                      >
+                        <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
                   </TableCell>
@@ -192,6 +276,26 @@ export default function HistoryPage() {
           </Table>
         </CardContent>
       </Card>
+
+      {/* 删除确认对话框 */}
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>确认删除</DialogTitle>
+            <DialogDescription>
+              确定要删除这条报价记录吗？此操作无法撤销。
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>
+              取消
+            </Button>
+            <Button variant="destructive" onClick={executeDelete}>
+              确认删除
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* 统计卡片 */}
       <div className="grid gap-4 md:grid-cols-4">
@@ -203,7 +307,7 @@ export default function HistoryPage() {
             <FileText className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{mockQuoteRecords.length}</div>
+            <div className="text-2xl font-bold">{records.length}</div>
           </CardContent>
         </Card>
         <Card>
@@ -215,7 +319,7 @@ export default function HistoryPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {mockQuoteRecords.filter(r => r.status === '已成交').length}
+              {records.filter(r => r.status === '已成交').length}
             </div>
           </CardContent>
         </Card>
@@ -228,7 +332,7 @@ export default function HistoryPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {mockQuoteRecords.filter(r => r.quoteType === '工程报价').length}
+              {records.filter(r => r.quoteType === '工程报价').length}
             </div>
           </CardContent>
         </Card>
@@ -241,7 +345,7 @@ export default function HistoryPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {mockQuoteRecords.filter(r => r.quoteType === '维保报价').length}
+              {records.filter(r => r.quoteType === '维保报价').length}
             </div>
           </CardContent>
         </Card>
