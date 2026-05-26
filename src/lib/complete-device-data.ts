@@ -6028,17 +6028,26 @@ export const FULL_DEVICE_QUOTAS = [
     "sparePartFeeDetail": 220,
     "coreMaintenanceContent": "读卡精度、人脸比对、数据上传、系统调试"
   }
-];
+] as FullDeviceQuota[];
 
-export function getDeviceCategories() {
+export function getDeviceCategories(): string[] {
   const categories = new Set(FULL_DEVICE_QUOTAS.map(d => d.category));
   return Array.from(categories);
 }
 
-export function getDevicesByCategory(category) {
+export function getDevicesByCategory(category: string): FullDeviceQuota[] {
   return FULL_DEVICE_QUOTAS.filter(d => d.category === category);
 }
 
-export function getDeviceById(id) {
+export function getDeviceById(id: string): FullDeviceQuota | undefined {
   return FULL_DEVICE_QUOTAS.find(d => d.id === id);
+}
+
+export function searchDevices(query: string): FullDeviceQuota[] {
+  const lowerQuery = query.toLowerCase();
+  return FULL_DEVICE_QUOTAS.filter(d => 
+    d.name.toLowerCase().includes(lowerQuery) ||
+    d.model.toLowerCase().includes(lowerQuery) ||
+    d.category.toLowerCase().includes(lowerQuery)
+  );
 }

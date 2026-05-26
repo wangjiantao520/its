@@ -99,6 +99,9 @@ export default function MaintenanceQuotePage() {
   // 使用新的完整数据结构的标志
   const [useFullData, setUseFullData] = useState(true);
   
+  // 设备分类筛选
+  const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  
   // SLA配置（使用新数据结构）
   const [slaConfig, setSlaConfig] = useState<SLAConfig>(DEFAULT_SLA_CONFIG);
 
@@ -471,44 +474,82 @@ export default function MaintenanceQuotePage() {
                   
                   {/* 设备分类筛选（仅新版） */}
                   {useFullData && (
-                    <div className="flex gap-2 flex-wrap mb-2">
-                      {getDeviceCategories().map((category) => (
+                    <div className="space-y-2 mb-2">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-sm font-medium">设备分类</Label>
                         <Button 
-                          key={category} 
-                          variant="outline" 
+                          variant="ghost" 
+                          size="sm" 
+                          className="h-7 text-xs"
+                          onClick={() => setSelectedCategory('all')}
+                        >
+                          显示全部
+                        </Button>
+                      </div>
+                      <div className="flex gap-2 flex-wrap">
+                        <Button 
+                          key="all" 
+                          variant={selectedCategory === 'all' ? 'default' : 'outline'} 
                           size="sm"
                           className="text-xs"
+                          onClick={() => setSelectedCategory('all')}
                         >
-                          {category}
+                          全部
                         </Button>
-                      ))}
+                        {getDeviceCategories().map((category) => (
+                          <Button 
+                            key={category} 
+                            variant={selectedCategory === category ? 'default' : 'outline'} 
+                            size="sm"
+                            className="text-xs"
+                            onClick={() => setSelectedCategory(category)}
+                          >
+                            {category}
+                          </Button>
+                        ))}
+                      </div>
                     </div>
                   )}
                   
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 max-h-48 overflow-y-auto p-1">
                     {useFullData ? (
-                      // 新版：使用完整设备数据
-                      FULL_DEVICE_QUOTAS.map((quota) => (
-                        <Button
-                          key={quota.id}
-                          variant="outline"
-                          className="justify-start text-left h-auto py-2 px-3"
-                          onClick={() => handleAddFullDevice(quota)}
-                        >
-                          <div className="flex flex-col items-start">
-                            <span className="font-medium text-sm">{quota.name}</span>
-                            <span className="text-xs text-slate-500">{quota.model}</span>
-                            <div className="flex gap-1 mt-1">
-                              <Badge variant="outline" className="text-xs">
-                                {quota.levelName}
-                              </Badge>
-                              <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700">
-                                {formatCurrencyLocal(quota.cityPrice)}
-                              </Badge>
-                            </div>
-                          </div>
-                        </Button>
-                      ))
+                      // 新版：使用完整设备数据（按分类筛选）
+                      (() => {
+                        const filteredDevices = selectedCategory === 'all' 
+                          ? FULL_DEVICE_QUOTAS 
+                          : FULL_DEVICE_QUOTAS.filter(d => d.category === selectedCategory);
+                        
+                        return (
+                          <>
+                            {filteredDevices.length === 0 && (
+                              <div className="col-span-full text-center py-4 text-slate-500 text-sm">
+                                该分类下暂无设备
+                              </div>
+                            )}
+                            {filteredDevices.map((quota) => (
+                              <Button
+                                key={quota.id}
+                                variant="outline"
+                                className="justify-start text-left h-auto py-2 px-3"
+                                onClick={() => handleAddFullDevice(quota as FullDeviceQuota)}
+                              >
+                                <div className="flex flex-col items-start">
+                                  <span className="font-medium text-sm">{quota.name}</span>
+                                  <span className="text-xs text-slate-500">{quota.model}</span>
+                                  <div className="flex gap-1 mt-1">
+                                    <Badge variant="outline" className="text-xs">
+                                      {quota.levelName}
+                                    </Badge>
+                                    <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700">
+                                      {formatCurrencyLocal(quota.cityPrice)}
+                                    </Badge>
+                                  </div>
+                                </div>
+                              </Button>
+                            ))}
+                          </>
+                        );
+                      })()
                     ) : (
                       // 旧版：保持向后兼容
                       MOCK_DEVICE_QUOTAS.map((quota) => (

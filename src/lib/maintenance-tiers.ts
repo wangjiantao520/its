@@ -1,4 +1,3 @@
-
 // 维保分档数据（基于Excel"设备与受理人员分档"工作表）
 export interface MaintenanceTier {
   tier: string;        // 维保分档：A档/B档/C档/D档/E档
@@ -70,12 +69,12 @@ export const ENGINEER_PRICES: EngineerPrice[] = [
 
 // 根据分档获取维保分档信息
 export function getMaintenanceTier(tier: string): MaintenanceTier | undefined {
-  return MAINTENANCE_TIERS.find(t =&gt; t.tier === tier || t.tier.replace('档', '') === tier);
+  return MAINTENANCE_TIERS.find(t => t.tier === tier || t.tier.replace('档', '') === tier);
 }
 
 // 根据等级获取工程师工费
 export function getEngineerDailyRate(level: string): number {
-  const price = ENGINEER_PRICES.find(p =&gt; p.level === level);
+  const price = ENGINEER_PRICES.find(p => p.level === level);
   return price ? price.dailyRate : 543; // 默认中级工程师
 }
 
@@ -114,4 +113,3 @@ export function suggestMaintenanceTier(deviceName: string): MaintenanceTier {
   // 默认返回B档
   return MAINTENANCE_TIERS[1];
 }
-
