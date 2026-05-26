@@ -109,12 +109,12 @@ export default function DeviceReviewPage() {
                 <TableBody>
                   {pendingImports.map((item) => (
                     <TableRow key={item.id}>
-                      <TableCell className="font-medium">{item.deviceName}</TableCell>
-                      <TableCell>{item.quantity}</TableCell>
+                      <TableCell className="font-medium">{item.name}</TableCell>
+                      <TableCell>{item.deviceCount}</TableCell>
                       <TableCell>{item.contractYears}年</TableCell>
                       <TableCell>{item.needSparePart ? '是' : '否'}</TableCell>
-                      <TableCell>{item.depreciationLevel}</TableCell>
-                      <TableCell>{item.inWarranty ? '是' : '否'}</TableCell>
+                      <TableCell>{item.depreciationLevelDescription || '-'}</TableCell>
+                      <TableCell>{item.inWarrantyFactor === 0.5 ? '是' : '否'}</TableCell>
                       <TableCell>{item.submittedBy}</TableCell>
                       <TableCell>{item.submittedAt.toLocaleString()}</TableCell>
                       <TableCell>
@@ -168,8 +168,8 @@ export default function DeviceReviewPage() {
                 <TableBody>
                   {reviewedImports.map((item) => (
                     <TableRow key={item.id}>
-                      <TableCell className="font-medium">{item.deviceName}</TableCell>
-                      <TableCell>{item.quantity}</TableCell>
+                      <TableCell className="font-medium">{item.name}</TableCell>
+                      <TableCell>{item.deviceCount}</TableCell>
                       <TableCell>{item.contractYears}年</TableCell>
                       <TableCell>{item.submittedBy}</TableCell>
                       <TableCell>{item.submittedAt.toLocaleString()}</TableCell>
@@ -211,11 +211,11 @@ export default function DeviceReviewPage() {
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
                   <span className="text-muted-foreground">设备名称：</span>
-                  <span className="font-medium">{selectedItem.deviceName}</span>
+                  <span className="font-medium">{selectedItem.name}</span>
                 </div>
                 <div>
                   <span className="text-muted-foreground">数量：</span>
-                  <span className="font-medium">{selectedItem.quantity}</span>
+                  <span className="font-medium">{selectedItem.deviceCount}</span>
                 </div>
                 <div>
                   <span className="text-muted-foreground">合同年限：</span>
