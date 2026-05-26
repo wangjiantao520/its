@@ -53,7 +53,6 @@ import {
   FULL_DEVICE_QUOTAS,
   getDeviceCategories,
   getDevicesByCategory,
-  searchDevices,
 } from '@/lib/complete-device-data';
 import {
   calculateFullMaintenanceQuote,

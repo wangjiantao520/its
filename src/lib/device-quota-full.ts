@@ -1,5 +1,4 @@
-
-// 完整的设备定额数据结构（包含Excel的65列）
+// 完整的设备定额数据结构（包含Excel的全部65列）
 export type MaintenanceLevel = 'A' | 'B' | 'C' | 'D' | 'E';
 
 export type EngineerLevel = '初级' | '中级' | '高级';
@@ -10,86 +9,122 @@ export type ServiceTimeType = '5×8' | '7×8' | '7×24';
 
 export type RegionType = '城区' | '市区县城郊区' | '乡镇' | '农村';
 
-// 完整的设备定额数据结构（基于Excel的65列）
+// 完整的设备定额数据结构（基于Excel的全部65列）
 export interface FullDeviceQuota {
-  // ===== 基础信息 =====
+  // ===== Excel索引0-4: 基础信息 =====
   id: string;
-  serialNumber: number; // 序号
-  category: string; // 设备分类
-  subCategory?: string; // 设备子分类
-  name: string; // 设备名称
-  brand?: string; // 品牌
-  model: string; // 规格/型号
-  specification?: string; // 技术参数/规格说明
-  unit: string; // 单位（台/套/个等）
+  serialNumber: number; // 序号（补充字段）
+  category: string; // 索引0: 设备分类
+  name: string; // 索引1: 设备名称
+  model: string; // 索引2: 规格/型号
+  level: MaintenanceLevel; // 索引3: 维保分档（简易型A档，基础型B档，中级型C档，高级型D档，专家型E档）
+  levelName: string; // 维保分档名称（补充字段）
+  levelDescription?: string; // 维保分档说明（兼容旧字段）
+  engineerLevel: EngineerLevel; // 索引4: 进场工程师等级（初级404元/天；中级543元/天；高级700元/天）
   
-  // ===== 维保分档 =====
-  level: MaintenanceLevel; // 维保分档（A-E）
-  levelName: string; // 维保分档名称
-  engineerLevel: EngineerLevel; // 工程师等级
-  levelDescription?: string; // 维保分档说明
+  // ===== Excel索引5-6: 设备相关 =====
+  deviceCount?: number; // 索引5: 设备数量
+  needSparePart?: boolean; // 索引6: 是否需要备件
   
-  // ===== 巡检费相关 =====
-  inspectionLaborFee: number; // 巡检人工费（元）
-  inspectionPersonCount: number; // 巡检人数
-  inspectionDuration: number; // 巡检时长（分钟）
-  inspectionTimesPerYear: number; // 年基础服务次数
-  inspectionContent: string; // 巡检内容
-  inspectionFeeAnnual: number; // 年巡检费小计
+  // ===== Excel索引7-9: 运维团队经验系数 =====
+  teamExperienceWithFactor?: number; // 索引7: 运维团队经验-有系数1.2
+  teamExperienceSimilarFactor?: number; // 索引8: 运维团队经验-类似系数1
+  teamExperienceWithoutFactor?: number; // 索引9: 运维团队经验-无系数0.8
   
-  // ===== 上门费相关 =====
-  trafficFee: number; // 交通费（来回，元）
-  singleTripDuration: number; // 单趟上门时长（分钟）
-  connectionDuration: number; // 上门后衔接时长（分钟）
-  onSiteConnectionLaborFee: number; // 上门衔接工时费（元）
-  onSiteFeeAnnual: number; // 年上门费小计
+  // ===== Excel索引10-14: 安全等级系数 =====
+  securityLevel1Factor?: number; // 索引10: 安全等级-第一级系数0.9
+  securityLevel2Factor?: number; // 索引11: 安全等级-第二级系数0.95
+  securityLevel3Factor?: number; // 索引12: 安全等级-第三级系数1
+  securityLevel4Factor?: number; // 索引13: 安全等级-第四级系数1.05
+  securityLevel5Factor?: number; // 索引14: 安全等级-第五级系数1.1
   
-  // ===== 故障处理费相关 =====
-  inWarrantyFactor: number; // 是否在保系数（0.5/1.0）
-  baseFaultCount: number; // 年故障数基准值
-  depreciationFactor: number; // 成新率系数
-  faultServiceCount: number; // 故障服务次数
-  faultHandlerCount: number; // 故障受理人数
-  faultHandlingDuration: number; // 故障受理时长（分钟）
-  faultHandlingLaborFee: number; // 故障处理工时费（元）
-  faultHandlingFeeTotal: number; // 故障处理费合计（元）
+  // ===== Excel索引15-17: 支持方式系数 =====
+  supportModeOffsiteFactor?: number; // 索引15: 支持方式-非现场支持为主系数0.89
+  supportModeOnsiteFactor?: number; // 索引16: 支持方式-现场支持为主系数1
+  supportModePureOnsiteFactor?: number; // 索引17: 支持方式-纯现场支持系数1.1
   
-  // ===== 工具仪表相关 =====
-  toolAmortization: number; // 工具仪表摊销（元）
-  toolDetails: string; // 维保涉及工具仪表明细
+  // ===== Excel索引18-21: 故障恢复时间系数 =====
+  faultRecoveryTime4hFactor?: number; // 索引18: 故障恢复时间-≤4h系数1.2
+  faultRecoveryTime24hFactor?: number; // 索引19: 故障恢复时间-≤24h系数1
+  faultRecoveryTime48hFactor?: number; // 索引20: 故障恢复时间-≤48h系数0.9
+  faultRecoveryTime72hFactor?: number; // 索引21: 故障恢复时间-≤72h系数0.85
   
-  // ===== 耗材相关 =====
-  consumableFee: number; // 耗材费（元）
-  consumableDetails: string; // 耗材明细
+  // ===== Excel索引22-23: 到场时间系数 =====
+  arrivalTime2hFactor?: number; // 索引22: 到场时间-2小时系数1.2
+  arrivalTime8hFactor?: number; // 索引23: 到场时间-8小时系数1
   
-  // ===== 备件相关 =====
-  sparePartReserve: number; // 备件风险准备金（元）
-  sparePartBasis: string; // 备件准备金测算依据
+  // ===== Excel索引24-25: 响应时间系数 =====
+  responseTime10minFactor?: number; // 索引24: 响应时间-10分钟系数1.1
+  responseTime30minFactor?: number; // 索引25: 响应时间-30分钟系数1
   
-  // ===== 维保内容 =====
-  coreMaintenanceContent: string; // 核心维保内容
-  maintenanceScope?: string; // 维保范围说明
-  specialRequirements?: string; // 特殊要求
+  // ===== Excel索引26-28: 服务时间系数 =====
+  serviceTime5x8Factor?: number; // 索引26: 服务时间5×8服务系数1
+  serviceTime7x8Factor?: number; // 索引27: 服务时间-7×8服务系数1.2
+  serviceTime7x24Factor?: number; // 索引28: 服务时间-7×24服务系数1.6
   
-  // ===== 报价相关（4个地区） =====
-  cityPrice: number; // 城区报价（元）
-  urbanPrice: number; // 市区县城郊区报价（元）
-  townPrice: number; // 乡镇报价（元）
-  ruralPrice: number; // 农村报价（元）
+  // ===== Excel索引29: SLA总系数 =====
+  slaTotalFactor?: number; // 索引29: SLA总系数
   
-  // ===== 费用明细分解 =====
-  inspectionFeeDetail: number; // 巡检费明细
-  onSiteFeeDetail: number; // 上门费明细
-  faultHandlingFeeDetail: number; // 故障处理费明细
-  toolFeeDetail: number; // 工具费明细
-  consumableFeeDetail: number; // 耗材费明细
-  sparePartFeeDetail: number; // 备件费明细
+  // ===== Excel索引30-34: 巡检费相关 =====
+  inspectionLaborFee: number; // 索引30: 巡检人工费
+  inspectionPersonCount: number; // 索引31: 巡检人数
+  inspectionDuration: number; // 索引32: 巡检时长（分钟）
+  inspectionTimesPerYear: number; // 索引33: 年基础服务次数
+  inspectionContent: string; // 索引34: 巡检内容
+  inspectionFeeAnnual: number; // 年巡检费小计（兼容旧字段）
   
-  // ===== 其他字段 =====
-  remarks?: string; // 备注
-  isActive?: boolean; // 是否启用
-  lastUpdated?: string; // 最后更新时间
-  dataSource?: string; // 数据来源
+  // ===== Excel索引35-39: 上门费相关 =====
+  onSiteFeeAnnual: number; // 索引35: 故障上门服务费（等于交费通+上门衔接工时费乘以服务次数）
+  trafficFee: number; // 索引36: 交通费（来回\元）
+  singleTripDuration: number; // 索引37: 单趟上门时长（分钟）
+  connectionDuration: number; // 索引38: 上门后衔接时长（分钟）
+  onSiteConnectionLaborFee: number; // 索引39: 上门衔接工时费（元）（等于上门时长+衔接时长的和乘于相应档的工时费）
+  
+  // ===== Excel索引40-47: 故障处理费相关 =====
+  faultHandlingFeeTotal: number; // 索引40: 故障处理费
+  faultHandlingLaborFee: number; // 故障处理工时费（兼容旧字段）
+  inWarrantyFactor: number; // 索引41: 是否在保系数（在原厂保0.5；过保1;在保则只是协助处理）
+  depreciationLevelDescription?: string; // 索引42: 成新率(全新0–1年、较新1–3年、一般3–5年、偏旧5–8年及老旧8年以上)
+  baseFaultCount: number; // 索引43: 年故障数-基准值（A档1，B档2，C档2.4，D档1.8，E档0.8）
+  depreciationFactor: number; // 索引44: 成新率系数（全新0.6,较新0.8，一般1，偏旧1.3,老旧1.6）
+  faultServiceCount: number; // 索引45: 故障服务次数(年故障数基准值*成新率系数)
+  faultHandlerCount: number; // 索引46: 故障受理人数
+  faultHandlingDuration: number; // 索引47: 故障受理时长(分钟)
+  
+  // ===== Excel索引48-51: 工具仪表与耗材 =====
+  toolAmortization: number; // 索引48: 工具仪表摊销（元）
+  toolDetails: string; // 索引49: 维保涉及工具仪表明细
+  consumableFee: number; // 索引50: 耗材费
+  consumableDetails: string; // 索引51: 维护中涉及到的基础、简单耗材及小配件等
+  
+  // ===== Excel索引52-53: 备件相关 =====
+  sparePartReserve: number; // 索引52: 备件风险准备金（元）
+  sparePartBasis: string; // 索引53: 备件准备金测算依据
+  
+  // ===== Excel索引54-57: 报价相关 =====
+  cityPrice: number; // 索引54: 城区报价(元·年)
+  faultHandlingFeeDetail: number; // 索引55: 其中故障处理费(元·年)
+  bulkDiscountNote?: string; // 索引56: 批量让利≥50台9折，也可以再考虑大于100台，大于200台等同类设备的进行阶段让利
+  serviceTimeNote?: string; // 索引57: 7×8服务系数1.2；7×24服务系数1.6
+  
+  // ===== Excel索引58-60: 多年期总价 =====
+  year1TotalPrice?: number; // 索引58: 1年期总价
+  year2TotalPrice?: number; // 索引59: 2年期总价(95折)
+  year3TotalPrice?: number; // 索引60: 3年期总价(9折)
+  
+  // ===== Excel索引61-63: 其他地区总价 =====
+  urbanPrice: number; // 索引61: 市区县城郊区总价(元/台·年)系数1.1
+  townPrice: number; // 索引62: 乡镇总价(元/台·年)系数1.5
+  ruralPrice: number; // 索引63: 农村总价(元/台·年)系数2.0
+  
+  // ===== Excel索引64: 维保内容 =====
+  coreMaintenanceContent: string; // 索引64: 核心维保内容
+  
+  // ===== 补充的其他字段 =====
+  unit?: string; // 单位（台/套/个等，补充字段）
+  isActive?: boolean; // 是否启用（补充字段）
+  lastUpdated?: string; // 最后更新时间（补充字段）
+  dataSource?: string; // 数据来源（补充字段）
 }
 
 // 维保档次配置（完整）
@@ -124,7 +159,7 @@ export const FULL_MAINTENANCE_LEVEL_CONFIG = {
   },
   E: { 
     name: '专家型', 
-    baseFaultCount: 1.2, 
+    baseFaultCount: 0.8, 
     description: '大型精密设备、需要专业工程师',
     faultCountMultiplier: 2.0,
     complexityFactor: 2.0
@@ -201,4 +236,3 @@ export const MULTI_YEAR_DISCOUNTS = {
   2: 0.95,
   3: 0.9,
 };
-
