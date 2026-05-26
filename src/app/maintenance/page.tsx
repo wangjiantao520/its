@@ -27,6 +27,7 @@ import {
   CheckCircle2,
   AlertCircle,
   MapPin,
+  List,
 } from 'lucide-react';
 // 旧数据结构（保持向后兼容）
 import {
@@ -73,6 +74,8 @@ import {
   type FullDeviceQuota,
 } from '@/lib/device-quota-full';
 import { ValueAddedServicesSelector } from '@/components/value-added-services-selector';
+import { SurveyQuestionnaire } from '@/components/survey-questionnaire';
+import type { SurveyAnswer } from '@/lib/survey-questions';
 import { VALUE_ADDED_SERVICES, calculateValueAddedServicesTotal, type ValueAddedService } from '@/lib/value-added-services';
 import {
   generateMaintenanceQuoteHTML,
@@ -110,6 +113,9 @@ export default function MaintenanceQuotePage() {
   // 计算结果（支持新老两种）
   const [quoteResult, setQuoteResult] = useState<MaintenanceQuoteResult | null>(null);
   const [fullQuoteResult, setFullQuoteResult] = useState<FullMaintenanceQuoteResult | null>(null);
+  
+  // 查勘问询
+  const [surveyAnswers, setSurveyAnswers] = useState<SurveyAnswer[]>([]);
 
   // 添加设备（支持新老两种数据结构）
   const handleAddDevice = (quota: DeviceQuota | FullDeviceQuota) => {
@@ -341,6 +347,10 @@ export default function MaintenanceQuotePage() {
           <TabsTrigger value="new" className="flex items-center gap-2">
             <Calculator className="h-4 w-4" />
             新建报价
+          </TabsTrigger>
+          <TabsTrigger value="survey" className="flex items-center gap-2">
+            <List className="h-4 w-4" />
+            查勘问询
           </TabsTrigger>
           <TabsTrigger value="database" className="flex items-center gap-2">
             <Database className="h-4 w-4" />
@@ -1145,6 +1155,16 @@ export default function MaintenanceQuotePage() {
               </CardContent>
             </Card>
           </div>
+        </TabsContent>
+
+        {/* 查勘问询 */}
+        <TabsContent value="survey" className="space-y-6">
+          <SurveyQuestionnaire
+            initialAnswers={surveyAnswers}
+            onSave={(answers) => {
+              setSurveyAnswers(answers);
+            }}
+          />
         </TabsContent>
 
         {/* 增值服务 */}
