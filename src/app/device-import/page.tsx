@@ -12,8 +12,6 @@ import { Badge } from '@/components/ui/badge';
 import { Plus, Trash2, Save, AlertCircle } from 'lucide-react';
 import { useUser } from '@/contexts/user-context';
 import { addDeviceImport, getDeviceImports, DeviceImportItem, ImportStatus } from '@/lib/roles';
-import { FULL_DEVICE_QUOTAS } from '@/lib/complete-device-data';
-import type { FullDeviceQuota } from '@/lib/device-quota-full';
 
 interface DeviceFormItem {
   deviceName: string;
@@ -43,11 +41,6 @@ export default function DeviceImportPage() {
     
     if (!device.deviceName) {
       errors.push('设备名称不能为空');
-    } else {
-      const foundDevice = FULL_DEVICE_QUOTAS.find(q => q.name === device.deviceName);
-      if (!foundDevice) {
-        errors.push(`设备"${device.deviceName}"不在定额库中`);
-      }
     }
     
     if (device.quantity < 1) {
@@ -171,21 +164,12 @@ export default function DeviceImportPage() {
                 <Label htmlFor="deviceName">
                   设备名称 <span className="text-red-500">*</span>
                 </Label>
-                <Select 
-                  value={newDevice.deviceName} 
-                  onValueChange={(value) => setNewDevice({ ...newDevice, deviceName: value })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="选择设备" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {FULL_DEVICE_QUOTAS.map((quota: FullDeviceQuota) => (
-                      <SelectItem key={quota.id} value={quota.name}>
-                        {quota.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Input 
+                  id="deviceName"
+                  placeholder="请输入设备名称"
+                  value={newDevice.deviceName}
+                  onChange={(e) => setNewDevice({ ...newDevice, deviceName: e.target.value })}
+                />
               </div>
               
               <div className="space-y-2">
@@ -209,7 +193,7 @@ export default function DeviceImportPage() {
                   value={newDevice.contractYears.toString()} 
                   onValueChange={(value) => setNewDevice({ ...newDevice, contractYears: parseInt(value) })}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger id="contractYears">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -239,7 +223,7 @@ export default function DeviceImportPage() {
                   value={newDevice.depreciationLevel} 
                   onValueChange={(value) => setNewDevice({ ...newDevice, depreciationLevel: value })}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger id="depreciationLevel">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
