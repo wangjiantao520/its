@@ -95,7 +95,7 @@ export function AppSidebar() {
       <SidebarFooter className="border-t p-4">
         <div className="text-xs text-muted-foreground">
           <p>版本 1.0.0</p>
-          <p className="mt-1">© 2024 宁德移动</p>
+          <p className="mt-1">© 2024 ITS</p>
         </div>
       </SidebarFooter>
     </Sidebar>
