@@ -8994,3 +8994,18 @@ export function getDevicesByCategory(category: string) {
 export function getDeviceById(id: string) {
   return FULL_DEVICE_QUOTAS.find(d => d.id === id);
 }
+
+export function getDevicePriceByRegion(device: FullDeviceQuota, region: '城区' | '市区县城郊区' | '乡镇' | '农村'): number {
+  switch (region) {
+    case '城区':
+      return device.cityPrice;
+    case '市区县城郊区':
+      return device.urbanPrice;
+    case '乡镇':
+      return device.townPrice;
+    case '农村':
+      return device.ruralPrice;
+    default:
+      return device.cityPrice;
+  }
+}
