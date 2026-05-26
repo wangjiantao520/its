@@ -45,6 +45,8 @@ import {
   MULTI_YEAR_DISCOUNTS,
   EngineerLevel,
 } from '@/lib/maintenance-quota';
+import { ValueAddedServicesSelector } from '@/components/value-added-services-selector';
+import { VALUE_ADDED_SERVICES, calculateValueAddedServicesTotal, type ValueAddedService } from '@/lib/value-added-services';
 import {
   generateMaintenanceQuoteHTML,
   downloadAsWord,
@@ -847,6 +849,11 @@ export default function MaintenanceQuotePage() {
               </CardContent>
             </Card>
           </div>
+        </TabsContent>
+
+        {/* 增值服务 */}
+        <TabsContent value="value-added" className="space-y-6">
+          <ValueAddedServicesSelector />
         </TabsContent>
       </Tabs>
     </div>

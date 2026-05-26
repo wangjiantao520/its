@@ -11,11 +11,7 @@ import {
   calculateValueAddedServicesTotal
 } from '@/lib/value-added-services';
 
-interface ValueAddedServicesSelectorProps {
-  onServicesChange?: (services: ValueAddedService[], total: number) => void;
-}
-
-export function ValueAddedServicesSelector({ onServicesChange }: ValueAddedServicesSelectorProps) {
+export function ValueAddedServicesSelector() {
   const [services, setServices] = useState<ValueAddedService[]>(
     VALUE_ADDED_SERVICES.map(s => ({ ...s }))
   );
@@ -29,9 +25,6 @@ export function ValueAddedServicesSelector({ onServicesChange }: ValueAddedServi
     });
     
     setServices(updatedServices);
-    
-    const total = calculateValueAddedServicesTotal(updatedServices);
-    onServicesChange?.(updatedServices, total);
   };
 
   const selectedCount = services.filter(s => s.selected).length;
