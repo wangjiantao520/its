@@ -26,17 +26,19 @@ import {
   Wrench,
   CheckCircle2,
   AlertCircle,
+  MapPin,
 } from 'lucide-react';
+// 旧数据结构（保持向后兼容）
 import {
   MOCK_DEVICE_QUOTAS,
   DeviceQuota,
   MaintenanceQuoteResult,
   calculateMaintenanceQuote,
-  DepreciationLevel,
-  RegionType,
-  ServiceTimeType,
-  SLAConfig,
-  DEFAULT_SLA_CONFIG,
+  DepreciationLevel as OldDepreciationLevel,
+  RegionType as OldRegionType,
+  ServiceTimeType as OldServiceTimeType,
+  SLAConfig as OldSLAConfig,
+  DEFAULT_SLA_CONFIG as OLD_DEFAULT_SLA_CONFIG,
   MAINTENANCE_LEVEL_CONFIG,
   ENGINEER_PRICES,
   DEPRECIATION_FACTORS,
@@ -45,6 +47,31 @@ import {
   MULTI_YEAR_DISCOUNTS,
   EngineerLevel,
 } from '@/lib/maintenance-quota';
+// 新完整数据结构
+import {
+  FULL_DEVICE_QUOTAS,
+  getDeviceCategories,
+  getDevicesByCategory,
+  searchDevices,
+} from '@/lib/device-data-full';
+import {
+  calculateFullMaintenanceQuote,
+  calculateFullDeviceQuote,
+  formatCurrency,
+  formatCurrencyDisplay,
+  type FullMaintenanceQuoteResult,
+  type FullDeviceQuoteItemResult,
+} from '@/lib/maintenance-calculator-full';
+import {
+  DepreciationLevel,
+  RegionType,
+  ServiceTimeType,
+  SLAConfig,
+  DEFAULT_SLA_CONFIG,
+  FULL_MAINTENANCE_LEVEL_CONFIG,
+  REGION_FACTORS as FULL_REGION_FACTORS,
+  type FullDeviceQuota,
+} from '@/lib/device-quota-full';
 import { ValueAddedServicesSelector } from '@/components/value-added-services-selector';
 import { VALUE_ADDED_SERVICES, calculateValueAddedServicesTotal, type ValueAddedService } from '@/lib/value-added-services';
 import {
@@ -66,22 +93,45 @@ export default function MaintenanceQuotePage() {
   const [contactPhone, setContactPhone] = useState('');
   const [engineerLevel, setEngineerLevel] = useState<EngineerLevel>('中级');
   
-  // SLA配置
+  // 使用新的完整数据结构的标志
+  const [useFullData, setUseFullData] = useState(true);
+  
+  // SLA配置（使用新数据结构）
   const [slaConfig, setSlaConfig] = useState<SLAConfig>(DEFAULT_SLA_CONFIG);
 
-  // 设备选择和数量
+  // 设备选择和数量（支持新老两种数据结构）
   const [selectedDevices, setSelectedDevices] = useState<Array<{
-    quota: DeviceQuota;
+    quota: DeviceQuota | FullDeviceQuota;
     quantity: number;
     depreciationLevel: DepreciationLevel;
     inWarranty: boolean;
   }>>([]);
 
-  // 计算结果
+  // 计算结果（支持新老两种）
   const [quoteResult, setQuoteResult] = useState<MaintenanceQuoteResult | null>(null);
+  const [fullQuoteResult, setFullQuoteResult] = useState<FullMaintenanceQuoteResult | null>(null);
 
-  // 添加设备
-  const handleAddDevice = (quota: DeviceQuota) => {
+  // 添加设备（支持新老两种数据结构）
+  const handleAddDevice = (quota: DeviceQuota | FullDeviceQuota) => {
+    const existing = selectedDevices.find(d => d.quota.id === quota.id);
+    if (existing) {
+      setSelectedDevices(selectedDevices.map(d => 
+        d.quota.id === quota.id 
+          ? { ...d, quantity: d.quantity + 1 }
+          : d
+      ));
+    } else {
+      setSelectedDevices([...selectedDevices, {
+        quota,
+        quantity: 1,
+        depreciationLevel: '全新',
+        inWarranty: false,
+      }]);
+    }
+  };
+
+  // 添加完整设备
+  const handleAddFullDevice = (quota: FullDeviceQuota) => {
     const existing = selectedDevices.find(d => d.quota.id === quota.id);
     if (existing) {
       setSelectedDevices(selectedDevices.map(d => 
@@ -130,17 +180,45 @@ export default function MaintenanceQuotePage() {
     setSelectedDevices(newDevices);
   };
 
-  // 计算报价
+  // 计算报价（支持新老两种模式）
   const handleCalculate = () => {
     if (selectedDevices.length === 0) return;
 
-    const result = calculateMaintenanceQuote(
-      selectedDevices,
-      slaConfig,
-      parseInt(contractYears),
-      region
-    );
-    setQuoteResult(result);
+    if (useFullData) {
+      // 使用新的完整计算逻辑
+      const fullDevices = selectedDevices.map(item => ({
+        quota: item.quota as FullDeviceQuota,
+        quantity: item.quantity,
+        depreciationLevel: item.depreciationLevel,
+        inWarranty: item.inWarranty,
+      }));
+      
+      const result = calculateFullMaintenanceQuote(
+        fullDevices,
+        slaConfig,
+        parseInt(contractYears),
+        region
+      );
+      setFullQuoteResult(result);
+      setQuoteResult(null);
+    } else {
+      // 使用旧的计算逻辑（向后兼容）
+      const oldDevices = selectedDevices.map(item => ({
+        quota: item.quota as DeviceQuota,
+        quantity: item.quantity,
+        depreciationLevel: item.depreciationLevel as OldDepreciationLevel,
+        inWarranty: item.inWarranty,
+      }));
+      
+      const result = calculateMaintenanceQuote(
+        oldDevices,
+        slaConfig as unknown as OldSLAConfig,
+        parseInt(contractYears),
+        region as OldRegionType
+      );
+      setQuoteResult(result);
+      setFullQuoteResult(null);
+    }
   };
 
   // 导出报价单 - 简化版本
@@ -225,11 +303,12 @@ export default function MaintenanceQuotePage() {
       handleCalculate();
     } else {
       setQuoteResult(null);
+      setFullQuoteResult(null);
     }
-  }, [selectedDevices, slaConfig, contractYears, region]);
+  }, [selectedDevices, slaConfig, contractYears, region, useFullData]);
 
-  // 格式化金额
-  const formatCurrency = (amount: number) => {
+  // 格式化金额（使用新的格式化函数）
+  const formatCurrencyLocal = (amount: number) => {
     return new Intl.NumberFormat('zh-CN', {
       style: 'currency',
       currency: 'CNY',
@@ -271,7 +350,30 @@ export default function MaintenanceQuotePage() {
             <Settings className="h-4 w-4" />
             SLA参数配置
           </TabsTrigger>
+          <TabsTrigger value="value-added" className="flex items-center gap-2">
+            <CheckCircle2 className="h-4 w-4" />
+            增值服务
+          </TabsTrigger>
         </TabsList>
+        
+        {/* 数据模式切换 */}
+        <div className="flex items-center justify-between bg-white p-3 rounded-lg border border-slate-200">
+          <div className="flex items-center gap-2">
+            <Switch
+              checked={useFullData}
+              onCheckedChange={setUseFullData}
+            />
+            <Label className="font-medium">使用完整计算逻辑</Label>
+            <Badge variant="outline" className={useFullData ? "bg-green-50 text-green-700 border-green-200" : "bg-slate-50 text-slate-600"}>
+              {useFullData ? "新版 (完整65列)" : "旧版 (兼容)"}
+            </Badge>
+          </div>
+          {useFullData && (
+            <div className="text-sm text-slate-500">
+              支持4个地区报价 · 完全复刻Excel公式
+            </div>
+          )}
+        </div>
 
         {/* 新建报价 */}
         <TabsContent value="new" className="space-y-6">
@@ -353,26 +455,69 @@ export default function MaintenanceQuotePage() {
                 <CardDescription>添加维保设备并设置参数</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                {/* 设备选择器 */}
+                {/* 设备选择器（支持新老数据） */}
                 <div className="space-y-2">
                   <Label>从定额库选择设备</Label>
+                  
+                  {/* 设备分类筛选（仅新版） */}
+                  {useFullData && (
+                    <div className="flex gap-2 flex-wrap mb-2">
+                      {getDeviceCategories().map((category) => (
+                        <Button 
+                          key={category} 
+                          variant="outline" 
+                          size="sm"
+                          className="text-xs"
+                        >
+                          {category}
+                        </Button>
+                      ))}
+                    </div>
+                  )}
+                  
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 max-h-48 overflow-y-auto p-1">
-                    {MOCK_DEVICE_QUOTAS.map((quota) => (
-                      <Button
-                        key={quota.id}
-                        variant="outline"
-                        className="justify-start text-left h-auto py-2 px-3"
-                        onClick={() => handleAddDevice(quota)}
-                      >
-                        <div className="flex flex-col items-start">
-                          <span className="font-medium text-sm">{quota.name}</span>
-                          <span className="text-xs text-slate-500">{quota.model}</span>
-                          <Badge variant="outline" className="mt-1 text-xs">
-                            {MAINTENANCE_LEVEL_CONFIG[quota.level].name}
-                          </Badge>
-                        </div>
-                      </Button>
-                    ))}
+                    {useFullData ? (
+                      // 新版：使用完整设备数据
+                      FULL_DEVICE_QUOTAS.map((quota) => (
+                        <Button
+                          key={quota.id}
+                          variant="outline"
+                          className="justify-start text-left h-auto py-2 px-3"
+                          onClick={() => handleAddFullDevice(quota)}
+                        >
+                          <div className="flex flex-col items-start">
+                            <span className="font-medium text-sm">{quota.name}</span>
+                            <span className="text-xs text-slate-500">{quota.model}</span>
+                            <div className="flex gap-1 mt-1">
+                              <Badge variant="outline" className="text-xs">
+                                {quota.levelName}
+                              </Badge>
+                              <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700">
+                                {formatCurrencyLocal(quota.cityPrice)}
+                              </Badge>
+                            </div>
+                          </div>
+                        </Button>
+                      ))
+                    ) : (
+                      // 旧版：保持向后兼容
+                      MOCK_DEVICE_QUOTAS.map((quota) => (
+                        <Button
+                          key={quota.id}
+                          variant="outline"
+                          className="justify-start text-left h-auto py-2 px-3"
+                          onClick={() => handleAddDevice(quota)}
+                        >
+                          <div className="flex flex-col items-start">
+                            <span className="font-medium text-sm">{quota.name}</span>
+                            <span className="text-xs text-slate-500">{quota.model}</span>
+                            <Badge variant="outline" className="mt-1 text-xs">
+                              {MAINTENANCE_LEVEL_CONFIG[quota.level].name}
+                            </Badge>
+                          </div>
+                        </Button>
+                      ))
+                    )}
                   </div>
                 </div>
 
@@ -388,7 +533,17 @@ export default function MaintenanceQuotePage() {
                             <TableHead>数量</TableHead>
                             <TableHead>成新率</TableHead>
                             <TableHead>在保状态</TableHead>
-                            <TableHead>单价</TableHead>
+                            {/* 新版：显示4个地区报价表头 */}
+                            {useFullData && (
+                              <>
+                                <TableHead className="text-right">城区</TableHead>
+                                <TableHead className="text-right text-xs">市区</TableHead>
+                              </>
+                            )}
+                            {/* 旧版：只显示单价 */}
+                            {!useFullData && (
+                              <TableHead>单价</TableHead>
+                            )}
                             <TableHead>小计</TableHead>
                             <TableHead className="w-12"></TableHead>
                           </TableRow>
@@ -430,9 +585,25 @@ export default function MaintenanceQuotePage() {
                                   onCheckedChange={(checked) => handleUpdateWarranty(index, checked)}
                                 />
                               </TableCell>
-                              <TableCell>{formatCurrency(item.quota.cityPrice)}</TableCell>
+                              {/* 新版：显示4个地区报价 */}
+                              {useFullData && 'cityPrice' in item.quota && (
+                                <>
+                                  <TableCell className="text-right">
+                                    <Badge variant="outline" className="bg-blue-50 text-blue-700">
+                                      {formatCurrencyLocal((item.quota as FullDeviceQuota).cityPrice)}
+                                    </Badge>
+                                  </TableCell>
+                                  <TableCell className="text-right text-xs text-slate-500">
+                                    {formatCurrencyLocal((item.quota as FullDeviceQuota).urbanPrice)}
+                                  </TableCell>
+                                </>
+                              )}
+                              {/* 旧版：只显示城区报价 */}
+                              {!useFullData && (
+                                <TableCell>{formatCurrencyLocal(item.quota.cityPrice)}</TableCell>
+                              )}
                               <TableCell className="font-medium">
-                                {formatCurrency(item.quota.cityPrice * item.quantity)}
+                                {formatCurrencyLocal(item.quota.cityPrice * item.quantity)}
                               </TableCell>
                               <TableCell>
                                 <Button
@@ -453,15 +624,20 @@ export default function MaintenanceQuotePage() {
               </CardContent>
             </Card>
 
-            {/* 计算结果 */}
-            {quoteResult && (
+            {/* 计算结果 - 支持新老两种模式 */}
+            {(quoteResult || fullQuoteResult) && (
               <Card className="lg:col-span-3">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <Calculator className="h-5 w-5 text-green-600" />
                     报价计算结果
+                    {useFullData && (
+                      <Badge className="bg-green-100 text-green-700">完整计算逻辑</Badge>
+                    )}
                   </CardTitle>
-                  <CardDescription>基于维保定额库的专业报价</CardDescription>
+                  <CardDescription>
+                    {useFullData ? '完全复刻Excel公式，支持4个地区报价' : '基于维保定额库的专业报价'}
+                  </CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="grid gap-6 lg:grid-cols-3">
@@ -482,24 +658,69 @@ export default function MaintenanceQuotePage() {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {quoteResult.deviceItems.map((item, index) => (
-                            <TableRow key={index}>
-                              <TableCell className="font-medium">{item.quota.name}</TableCell>
-                              <TableCell>{item.quantity}</TableCell>
-                              <TableCell>{formatCurrency(item.inspectionFee)}</TableCell>
-                              <TableCell>{formatCurrency(item.onSiteFee)}</TableCell>
-                              <TableCell>{formatCurrency(item.faultHandlingFee)}</TableCell>
-                              <TableCell>{formatCurrency(item.toolAmortization + item.consumableFee + item.sparePartReserve)}</TableCell>
-                              <TableCell className="text-right">{formatCurrency(item.cityPrice)}</TableCell>
-                              <TableCell className="text-right font-medium">{formatCurrency(item.totalAfterDiscount)}</TableCell>
-                            </TableRow>
-                          ))}
+                          {useFullData && fullQuoteResult ? (
+                            // 新版：完整计算结果
+                            fullQuoteResult.deviceItems.map((item, index) => (
+                              <TableRow key={index}>
+                                <TableCell className="font-medium">{item.quota.name}</TableCell>
+                                <TableCell>{item.quantity}</TableCell>
+                                <TableCell>{formatCurrencyLocal(item.inspectionFee)}</TableCell>
+                                <TableCell>{formatCurrencyLocal(item.onSiteFee)}</TableCell>
+                                <TableCell>{formatCurrencyLocal(item.faultHandlingFee)}</TableCell>
+                                <TableCell>{formatCurrencyLocal(item.toolAmortization + item.consumableFee + item.sparePartReserve)}</TableCell>
+                                <TableCell className="text-right">{formatCurrencyLocal(item.cityPrice)}</TableCell>
+                                <TableCell className="text-right font-medium">{formatCurrencyLocal(item.totalAfterDiscount)}</TableCell>
+                              </TableRow>
+                            ))
+                          ) : quoteResult ? (
+                            // 旧版：保持向后兼容
+                            quoteResult.deviceItems.map((item, index) => (
+                              <TableRow key={index}>
+                                <TableCell className="font-medium">{item.quota.name}</TableCell>
+                                <TableCell>{item.quantity}</TableCell>
+                                <TableCell>{formatCurrencyLocal(item.inspectionFee)}</TableCell>
+                                <TableCell>{formatCurrencyLocal(item.onSiteFee)}</TableCell>
+                                <TableCell>{formatCurrencyLocal(item.faultHandlingFee)}</TableCell>
+                                <TableCell>{formatCurrencyLocal(item.toolAmortization + item.consumableFee + item.sparePartReserve)}</TableCell>
+                                <TableCell className="text-right">{formatCurrencyLocal(item.cityPrice)}</TableCell>
+                                <TableCell className="text-right font-medium">{formatCurrencyLocal(item.totalAfterDiscount)}</TableCell>
+                              </TableRow>
+                            ))
+                          ) : null}
                         </TableBody>
                       </Table>
                     </div>
 
                     {/* 汇总信息 */}
                     <div className="space-y-4">
+                      {/* 新版：4个地区报价展示 */}
+                      {useFullData && fullQuoteResult && (
+                        <Card>
+                          <CardHeader className="pb-2">
+                            <CardTitle className="text-lg flex items-center gap-2">
+                              <MapPin className="h-4 w-4" />
+                              分地区报价
+                            </CardTitle>
+                          </CardHeader>
+                          <CardContent className="space-y-2">
+                            {Object.entries(fullQuoteResult.totalByRegion).map(([region, data]) => (
+                              <div key={region} className="p-3 bg-slate-50 rounded-lg">
+                                <div className="flex justify-between items-center">
+                                  <span className="font-medium">{region}</span>
+                                  <span className="text-lg font-bold text-blue-700">
+                                    {formatCurrencyLocal(data.total)}
+                                  </span>
+                                </div>
+                                <div className="text-xs text-slate-500 mt-1">
+                                  不含税: {formatCurrencyLocal(data.subtotal)} · 
+                                  税额: {formatCurrencyLocal(data.taxAmount)}
+                                </div>
+                              </div>
+                            ))}
+                          </CardContent>
+                        </Card>
+                      )}
+
                       <Card>
                         <CardHeader className="pb-2">
                           <CardTitle className="text-lg">报价汇总</CardTitle>
@@ -507,43 +728,78 @@ export default function MaintenanceQuotePage() {
                         <CardContent className="space-y-3">
                           <div className="flex justify-between text-sm">
                             <span className="text-slate-500">设备数量</span>
-                            <span className="font-medium">{selectedDevices.reduce((sum, d) => sum + d.quantity, 0)} 台</span>
+                            <span className="font-medium">
+                              {(fullQuoteResult?.totalDevices || selectedDevices.reduce((sum, d) => sum + d.quantity, 0))} 台
+                            </span>
                           </div>
                           <div className="flex justify-between text-sm">
                             <span className="text-slate-500">不含税金额</span>
-                            <span className="font-medium">{formatCurrency(quoteResult.subtotal)}</span>
+                            <span className="font-medium">
+                              {formatCurrencyLocal(fullQuoteResult?.subtotalAfterDiscount || quoteResult?.subtotal || 0)}
+                            </span>
                           </div>
                           <div className="flex justify-between text-sm">
                             <span className="text-slate-500">税额 (13%)</span>
-                            <span className="font-medium">{formatCurrency(quoteResult.taxAmount)}</span>
+                            <span className="font-medium">
+                              {formatCurrencyLocal(fullQuoteResult?.taxAmount || quoteResult?.taxAmount || 0)}
+                            </span>
                           </div>
+                          {fullQuoteResult && fullQuoteResult.bulkDiscountAmount > 0 && (
+                            <div className="flex justify-between text-sm text-green-600">
+                              <span>批量优惠</span>
+                              <span className="font-medium">-{formatCurrencyLocal(fullQuoteResult.bulkDiscountAmount)}</span>
+                            </div>
+                          )}
                           <div className="h-px bg-slate-200" />
                           <div className="flex justify-between">
                             <span className="font-semibold">含税总价</span>
-                            <span className="text-xl font-bold text-blue-700">{formatCurrency(quoteResult.total)}</span>
+                            <span className="text-xl font-bold text-blue-700">
+                              {formatCurrencyLocal(fullQuoteResult?.finalTotal || quoteResult?.total || 0)}
+                            </span>
                           </div>
                         </CardContent>
                       </Card>
 
-                      <Card>
-                        <CardHeader className="pb-2">
-                          <CardTitle className="text-lg">多年期报价</CardTitle>
-                        </CardHeader>
-                        <CardContent className="space-y-2">
-                          <div className="flex justify-between text-sm">
-                            <span className="text-slate-500">1年期总价</span>
-                            <span className="font-medium">{formatCurrency(quoteResult.totalByYear[1])}</span>
-                          </div>
-                          <div className="flex justify-between text-sm">
-                            <span className="text-slate-500">2年期总价 (95折)</span>
-                            <span className="font-medium text-orange-600">{formatCurrency(quoteResult.totalByYear[2])}</span>
-                          </div>
-                          <div className="flex justify-between text-sm">
-                            <span className="text-slate-500">3年期总价 (9折)</span>
-                            <span className="font-medium text-green-600">{formatCurrency(quoteResult.totalByYear[3])}</span>
-                          </div>
-                        </CardContent>
-                      </Card>
+                      {((useFullData && fullQuoteResult) || (!useFullData && quoteResult)) && (
+                        <Card>
+                          <CardHeader className="pb-2">
+                            <CardTitle className="text-lg">多年期报价</CardTitle>
+                          </CardHeader>
+                          <CardContent className="space-y-2">
+                            {useFullData && fullQuoteResult ? (
+                              <>
+                                <div className="flex justify-between text-sm">
+                                  <span className="text-slate-500">1年期总价</span>
+                                  <span className="font-medium">{formatCurrencyLocal(fullQuoteResult.totalByYear[1])}</span>
+                                </div>
+                                <div className="flex justify-between text-sm">
+                                  <span className="text-slate-500">2年期总价 (95折)</span>
+                                  <span className="font-medium text-orange-600">{formatCurrencyLocal(fullQuoteResult.totalByYear[2])}</span>
+                                </div>
+                                <div className="flex justify-between text-sm">
+                                  <span className="text-slate-500">3年期总价 (9折)</span>
+                                  <span className="font-medium text-green-600">{formatCurrencyLocal(fullQuoteResult.totalByYear[3])}</span>
+                                </div>
+                              </>
+                            ) : quoteResult ? (
+                              <>
+                                <div className="flex justify-between text-sm">
+                                  <span className="text-slate-500">1年期总价</span>
+                                  <span className="font-medium">{formatCurrencyLocal(quoteResult.totalByYear[1])}</span>
+                                </div>
+                                <div className="flex justify-between text-sm">
+                                  <span className="text-slate-500">2年期总价 (95折)</span>
+                                  <span className="font-medium text-orange-600">{formatCurrencyLocal(quoteResult.totalByYear[2])}</span>
+                                </div>
+                                <div className="flex justify-between text-sm">
+                                  <span className="text-slate-500">3年期总价 (9折)</span>
+                                  <span className="font-medium text-green-600">{formatCurrencyLocal(quoteResult.totalByYear[3])}</span>
+                                </div>
+                              </>
+                            ) : null}
+                          </CardContent>
+                        </Card>
+                      )}
 
                       <div className="flex gap-2">
                         <Button className="flex-1 bg-blue-700 hover:bg-blue-800">
@@ -596,34 +852,74 @@ export default function MaintenanceQuotePage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {MOCK_DEVICE_QUOTAS.map((quota) => (
-                    <TableRow key={quota.id}>
-                      <TableCell className="font-medium">{quota.category}</TableCell>
-                      <TableCell>{quota.name}</TableCell>
-                      <TableCell className="text-slate-500">{quota.model}</TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
-                          {quota.level}档 - {MAINTENANCE_LEVEL_CONFIG[quota.level].name}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>{quota.engineerLevel}</TableCell>
-                      <TableCell className="text-right font-medium text-blue-700">
-                        {formatCurrency(quota.cityPrice)}
-                      </TableCell>
-                      <TableCell className="max-w-xs truncate text-slate-500 text-sm">
-                        {quota.coreMaintenanceContent}
-                      </TableCell>
-                      <TableCell>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleAddDevice(quota)}
-                        >
-                          <Plus className="h-4 w-4 text-blue-600" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {useFullData ? (
+                    // 新版：使用完整设备数据
+                    FULL_DEVICE_QUOTAS.map((quota) => (
+                      <TableRow key={quota.id}>
+                        <TableCell className="font-medium">{quota.category}</TableCell>
+                        <TableCell>{quota.name}</TableCell>
+                        <TableCell className="text-slate-500">{quota.model}</TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                            {quota.level}档 - {quota.levelName}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>{quota.engineerLevel}</TableCell>
+                        <TableCell className="text-right">
+                          <div className="space-y-1">
+                            <div className="font-medium text-blue-700">
+                              {formatCurrencyLocal(quota.cityPrice)}
+                            </div>
+                            <div className="text-xs text-slate-500">
+                              市区: {formatCurrencyLocal(quota.urbanPrice)}
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell className="max-w-xs truncate text-slate-500 text-sm">
+                          {quota.coreMaintenanceContent}
+                        </TableCell>
+                        <TableCell>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleAddFullDevice(quota)}
+                          >
+                            <Plus className="h-4 w-4 text-blue-600" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  ) : (
+                    // 旧版：保持向后兼容
+                    MOCK_DEVICE_QUOTAS.map((quota) => (
+                      <TableRow key={quota.id}>
+                        <TableCell className="font-medium">{quota.category}</TableCell>
+                        <TableCell>{quota.name}</TableCell>
+                        <TableCell className="text-slate-500">{quota.model}</TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                            {quota.level}档 - {MAINTENANCE_LEVEL_CONFIG[quota.level].name}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>{quota.engineerLevel}</TableCell>
+                        <TableCell className="text-right font-medium text-blue-700">
+                          {formatCurrencyLocal(quota.cityPrice)}
+                        </TableCell>
+                        <TableCell className="max-w-xs truncate text-slate-500 text-sm">
+                          {quota.coreMaintenanceContent}
+                        </TableCell>
+                        <TableCell>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleAddDevice(quota)}
+                          >
+                            <Plus className="h-4 w-4 text-blue-600" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
                 </TableBody>
               </Table>
             </CardContent>
