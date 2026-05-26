@@ -99,8 +99,8 @@ export default function MaintenanceQuotePage() {
   // 使用新的完整数据结构的标志
   const [useFullData, setUseFullData] = useState(true);
   
-  // 设备分类筛选
-  const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  // 设备分类筛选 - 支持多选
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   
   // SLA配置（使用新数据结构）
   const [slaConfig, setSlaConfig] = useState<SLAConfig>(DEFAULT_SLA_CONFIG);
@@ -472,40 +472,55 @@ export default function MaintenanceQuotePage() {
                 <div className="space-y-2">
                   <Label>从定额库选择设备</Label>
                   
-                  {/* 设备分类筛选（仅新版） */}
+                  {/* 设备分类筛选（仅新版） - 多选模式 */}
                   {useFullData && (
                     <div className="space-y-2 mb-2">
                       <div className="flex items-center justify-between">
                         <Label className="text-sm font-medium">设备分类</Label>
-                        <Button 
-                          variant="ghost" 
-                          size="sm" 
-                          className="h-7 text-xs"
-                          onClick={() => setSelectedCategory('all')}
-                        >
-                          显示全部
-                        </Button>
-                      </div>
-                      <div className="flex gap-2 flex-wrap">
-                        <Button 
-                          key="all" 
-                          variant={selectedCategory === 'all' ? 'default' : 'outline'} 
-                          size="sm"
-                          className="text-xs"
-                          onClick={() => setSelectedCategory('all')}
-                        >
-                          全部
-                        </Button>
-                        {getDeviceCategories().map((category) => (
+                        <div className="flex gap-2">
                           <Button 
-                            key={category} 
-                            variant={selectedCategory === category ? 'default' : 'outline'} 
-                            size="sm"
-                            className="text-xs"
-                            onClick={() => setSelectedCategory(category)}
+                            variant="ghost" 
+                            size="sm" 
+                            className="h-7 text-xs"
+                            onClick={() => setSelectedCategories([])}
                           >
-                            {category}
+                            清除选择
                           </Button>
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            className="h-7 text-xs"
+                            onClick={() => setSelectedCategories(getDeviceCategories())}
+                          >
+                            全选
+                          </Button>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                        {getDeviceCategories().map((category) => (
+                          <label 
+                            key={category} 
+                            className="flex items-center gap-2 p-2 border rounded-md hover:bg-slate-50 cursor-pointer"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedCategories.includes(category)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedCategories([...selectedCategories, category]);
+                                } else {
+                                  setSelectedCategories(selectedCategories.filter(c => c !== category));
+                                }
+                              }}
+                              className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-600"
+                            />
+                            <span className="text-sm">
+                              {category}
+                              <span className="text-xs text-slate-500 ml-1">
+                                ({getDevicesByCategory(category).length})
+                              </span>
+                            </span>
+                          </label>
                         ))}
                       </div>
                     </div>
@@ -513,17 +528,17 @@ export default function MaintenanceQuotePage() {
                   
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 max-h-48 overflow-y-auto p-1">
                     {useFullData ? (
-                      // 新版：使用完整设备数据（按分类筛选）
+                      // 新版：使用完整设备数据（按分类筛选 - 多选）
                       (() => {
-                        const filteredDevices = selectedCategory === 'all' 
+                        const filteredDevices = selectedCategories.length === 0 
                           ? FULL_DEVICE_QUOTAS 
-                          : FULL_DEVICE_QUOTAS.filter(d => d.category === selectedCategory);
+                          : FULL_DEVICE_QUOTAS.filter(d => selectedCategories.includes(d.category));
                         
                         return (
                           <>
                             {filteredDevices.length === 0 && (
                               <div className="col-span-full text-center py-4 text-slate-500 text-sm">
-                                该分类下暂无设备
+                                {selectedCategories.length === 0 ? '请选择设备分类' : '所选分类下暂无设备'}
                               </div>
                             )}
                             {filteredDevices.map((quota) => (
