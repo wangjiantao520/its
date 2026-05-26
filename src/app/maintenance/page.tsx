@@ -105,6 +105,22 @@ export default function MaintenanceQuotePage() {
   // SLA配置（使用新数据结构）
   const [slaConfig, setSlaConfig] = useState<SLAConfig>(DEFAULT_SLA_CONFIG);
 
+  // 根据地区获取设备价格
+  const getDevicePriceByRegion = (quota: FullDeviceQuota, currentRegion: RegionType) => {
+    switch (currentRegion) {
+      case '城区':
+        return quota.cityPrice;
+      case '市区县城郊区':
+        return quota.urbanPrice;
+      case '乡镇':
+        return quota.townPrice;
+      case '农村':
+        return quota.ruralPrice;
+      default:
+        return quota.cityPrice;
+    }
+  };
+
   // 设备选择和数量（支持新老两种数据结构）
   const [selectedDevices, setSelectedDevices] = useState<Array<{
     quota: DeviceQuota | FullDeviceQuota;
@@ -556,7 +572,7 @@ export default function MaintenanceQuotePage() {
                                       {quota.levelName}
                                     </Badge>
                                     <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700">
-                                      {formatCurrencyLocal(quota.cityPrice)}
+                                      {formatCurrencyLocal(getDevicePriceByRegion(quota as FullDeviceQuota, region))}
                                     </Badge>
                                   </div>
                                 </div>
