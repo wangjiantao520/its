@@ -54,7 +54,7 @@ import {
   getDeviceCategories,
   getDevicesByCategory,
   searchDevices,
-} from '@/lib/device-data-full';
+} from '@/lib/complete-device-data';
 import {
   calculateFullMaintenanceQuote,
   calculateFullDeviceQuote,
