@@ -1,97 +1,63 @@
-
 /**
  * 单套工具年覆盖设备量
  */
 
 export interface ToolCoverage {
-  id: string;
-  toolName: string;
-  toolType: string;
+  level: 'A' | 'B' | 'C' | 'D' | 'E';
+  levelName: string;
+  coreLogic: string;
+  keyParameter: string;
+  calculationDerivation: string;
   annualCoverage: number;
-  applicableEquipment: string[];
-  coverageDescription: string;
 }
 
 export const TOOL_COVERAGE_DATA: ToolCoverage[] = [
   {
-    id: 'coverage-1',
-    toolName: '网络测试仪',
-    toolType: '网络诊断',
-    annualCoverage: 200,
-    applicableEquipment: ['网络交换机', '路由器', '防火墙'],
-    coverageDescription: '单套网络测试仪年可覆盖200台网络设备的测试和诊断'
+    level: 'A',
+    levelName: 'A档（简易型）',
+    coreLogic: '工具通用性极强，几乎适配所有基础设备，单次维保耗时极短，工具可高频复用',
+    keyParameter: '日均服务设备数：1台/0.5小时→8台/工作日；年有效作业天数：250天（扣除周末/节假日）；工具复用系数：1（无等待/闲置）',
+    calculationDerivation: '8×250×1=200台/年',
+    annualCoverage: 200
   },
   {
-    id: 'coverage-2',
-    toolName: '光纤熔接机',
-    toolType: '光纤施工',
-    annualCoverage: 50,
-    applicableEquipment: ['光纤链路', '光模块'],
-    coverageDescription: '单套光纤熔接机年可覆盖50个光纤熔接项目'
+    level: 'B',
+    levelName: 'B档（基础型）',
+    coreLogic: '工具通用性较强，覆盖办公/基础网络设备，单次维保耗时略长，工具复用率稍降',
+    keyParameter: '日均服务设备数：1台/0.67小时→6台/工作日；年有效作业天数：250天；工具复用系数：1',
+    calculationDerivation: '6×250×1=150台/年',
+    annualCoverage: 150
   },
   {
-    id: 'coverage-3',
-    toolName: '服务器诊断工具',
-    toolType: '服务器维护',
-    annualCoverage: 100,
-    applicableEquipment: ['机架式服务器', '塔式服务器', '刀片服务器'],
-    coverageDescription: '单套服务器诊断工具年可覆盖100台服务器的诊断'
+    level: 'C',
+    levelName: 'C档（中级型）',
+    coreLogic: '工具适配性强，聚焦精密办公/轻专业设备，单次维保需专业调试，耗时增加',
+    keyParameter: '日均服务设备数：1台/1小时→4台/工作日；年有效作业天数：250天；工具复用系数：1',
+    calculationDerivation: '4×250×1=100台/年',
+    annualCoverage: 100
   },
   {
-    id: 'coverage-4',
-    toolName: '万用表套装',
-    toolType: '电气测量',
-    annualCoverage: 500,
-    applicableEquipment: ['各类电子设备', '电源设备'],
-    coverageDescription: '单套万用表套装年可覆盖500台设备的电气测量'
+    level: 'D',
+    levelName: 'D档（高级型）',
+    coreLogic: '工具专用性极强，仅适配精密机电/网络设备，单次维保需深度调试，工具闲置率上升',
+    keyParameter: '日均服务设备数：1台/1.67小时→2.4台/工作日；年有效作业天数：250天；工具复用系数：1',
+    calculationDerivation: '2.4×250×1=60台/年',
+    annualCoverage: 60
   },
   {
-    id: 'coverage-5',
-    toolName: '示波器',
-    toolType: '信号分析',
-    annualCoverage: 80,
-    applicableEquipment: ['视频会议设备', '音响设备', '信号设备'],
-    coverageDescription: '单套示波器年可覆盖80台信号设备的分析'
-  },
-  {
-    id: 'coverage-6',
-    toolName: '笔记本电脑（维护专用）',
-    toolType: '通用工具',
-    annualCoverage: 300,
-    applicableEquipment: ['各类IT设备'],
-    coverageDescription: '单套维护专用笔记本年可支持300台设备的维护工作'
-  },
-  {
-    id: 'coverage-7',
-    toolName: '线缆测试仪',
-    toolType: '线缆诊断',
-    annualCoverage: 150,
-    applicableEquipment: ['网络线缆', '综合布线系统'],
-    coverageDescription: '单套线缆测试仪年可覆盖150条线缆的测试'
-  },
-  {
-    id: 'coverage-8',
-    toolName: '标签打印机',
-    toolType: '标识工具',
-    annualCoverage: 1000,
-    applicableEquipment: ['所有需要标识的设备'],
-    coverageDescription: '单套标签打印机年可完成1000个设备标签的打印'
+    level: 'E',
+    levelName: 'E档（专家型）',
+    coreLogic: '工具仅适配核心大型设备，设备数量少、单次维保需团队协作，工具复用率最低',
+    keyParameter: '日均服务设备数：1台/2.5小时→1.6台/工作日；年有效作业天数：250天；工具复用系数：1',
+    calculationDerivation: '1.6×250×1=40台/年',
+    annualCoverage: 40
   }
 ];
 
-export const COVERAGE_FACTORS = {
-  '城区': 1.2,
-  '市区': 1.0,
-  '乡镇': 0.8,
-  '农村': 0.6
-};
+export function getToolCoverageByLevel(level: 'A' | 'B' | 'C' | 'D' | 'E'): ToolCoverage | undefined {
+  return TOOL_COVERAGE_DATA.find(item => item.level === level);
+}
 
-export const getToolCoverageByType = (toolType: string): ToolCoverage | undefined => {
-  return TOOL_COVERAGE_DATA.find(coverage => coverage.toolType === toolType);
-};
-
-export const getToolCoverageByEquipment = (equipmentName: string): ToolCoverage[] => {
-  return TOOL_COVERAGE_DATA.filter(coverage =>
-    coverage.applicableEquipment.some(eq => equipmentName.includes(eq))
-  );
-};
+export function getAllToolCoverage() {
+  return TOOL_COVERAGE_DATA;
+}
