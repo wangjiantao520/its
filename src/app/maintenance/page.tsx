@@ -976,7 +976,7 @@ export default function MaintenanceQuotePage() {
                           onClick={handleExportQuote}
                         >
                           <FileSpreadsheet className="h-4 w-4 mr-2" />
-                          导出Word
+                          导出Excel
                         </Button>
                       </div>
                     </div>
