@@ -129,6 +129,7 @@ export default function MaintenanceQuotePage() {
     depreciationLevel: DepreciationLevel;
     inWarranty: boolean;
     needSparePart: boolean;
+    contractYears: number;
   }>>([]);
 
   // 计算结果（支持新老两种）
@@ -157,6 +158,7 @@ export default function MaintenanceQuotePage() {
         depreciationLevel: '全新',
         inWarranty: false,
         needSparePart: false,
+        contractYears: parseInt(contractYears),
       }]);
     }
   };
@@ -177,6 +179,7 @@ export default function MaintenanceQuotePage() {
         depreciationLevel: '全新',
         inWarranty: false,
         needSparePart: quota.needSparePart || false,
+        contractYears: parseInt(contractYears),
       }]);
     }
   };
@@ -211,6 +214,13 @@ export default function MaintenanceQuotePage() {
     newDevices[index].needSparePart = needSparePart;
     setSelectedDevices(newDevices);
   };
+  
+  // 更新合同年限
+  const handleUpdateContractYears = (index: number, years: number) => {
+    const newDevices = [...selectedDevices];
+    newDevices[index].contractYears = years;
+    setSelectedDevices(newDevices);
+  };
 
   // 移除设备
   const handleRemoveDevice = (index: number) => {
@@ -231,6 +241,7 @@ export default function MaintenanceQuotePage() {
         depreciationLevel: item.depreciationLevel,
         inWarranty: item.inWarranty,
         needSparePart: item.needSparePart,
+        contractYears: item.contractYears,
       }));
       
       const result = calculateFullMaintenanceQuote(
@@ -638,6 +649,7 @@ export default function MaintenanceQuotePage() {
                             <TableHead>成新率</TableHead>
                             <TableHead>在保状态</TableHead>
                             <TableHead>需要备件</TableHead>
+                            <TableHead>合同年限</TableHead>
                             {/* 新版：显示4个地区报价表头 */}
                             {useFullData && (
                               <>
@@ -695,6 +707,21 @@ export default function MaintenanceQuotePage() {
                                   checked={item.needSparePart}
                                   onCheckedChange={(checked) => handleUpdateNeedSparePart(index, checked)}
                                 />
+                              </TableCell>
+                              <TableCell>
+                                <Select
+                                  value={String(item.contractYears)}
+                                  onValueChange={(v) => handleUpdateContractYears(index, parseInt(v))}
+                                >
+                                  <SelectTrigger className="w-24">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="1">1年</SelectItem>
+                                    <SelectItem value="2">2年</SelectItem>
+                                    <SelectItem value="3">3年</SelectItem>
+                                  </SelectContent>
+                                </Select>
                               </TableCell>
                               {/* 新版：显示4个地区报价 */}
                               {useFullData && 'cityPrice' in item.quota && (
