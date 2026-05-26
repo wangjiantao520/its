@@ -107,3 +107,35 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { id, password } = body;
+
+    // 二级密码验证
+    const ADMIN_PASSWORD = 'ecloud10086';
+    if (password !== ADMIN_PASSWORD) {
+      return NextResponse.json(
+        { success: false, error: '密码错误' },
+        { status: 401 }
+      );
+    }
+
+    const [result] = await pool.execute(
+      'DELETE FROM maintenance_quotes WHERE id = ?',
+      [id]
+    );
+
+    return NextResponse.json({
+      success: true,
+      message: '删除成功'
+    });
+  } catch (error) {
+    console.error('删除维保报价失败:', error);
+    return NextResponse.json(
+      { success: false, error: '删除维保报价失败' },
+      { status: 500 }
+    );
+  }
+}

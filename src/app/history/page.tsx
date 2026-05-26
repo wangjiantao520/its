@@ -8,7 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Search, FileText, Eye, Copy, FileDown, Calendar, Trash2, Download, FileSpreadsheet } from 'lucide-react';
+import { Search, FileText, Eye, Copy, FileDown, Calendar, Trash2, Download, FileSpreadsheet, Lock } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 // 模拟历史报价记录
@@ -90,7 +90,10 @@ const statusColors: Record<string, string> = {
 export default function HistoryPage() {
   const [records, setRecords] = useState(mockQuoteRecords);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
   const [recordToDelete, setRecordToDelete] = useState<number | null>(null);
+  const [deletePassword, setDeletePassword] = useState('');
+  const [deleteError, setDeleteError] = useState('');
 
   // 导出单条记录为Excel
   const exportSingleRecord = (record: typeof mockQuoteRecords[0]) => {
@@ -139,16 +142,36 @@ export default function HistoryPage() {
   // 确认删除记录
   const confirmDelete = (id: number) => {
     setRecordToDelete(id);
-    setDeleteDialogOpen(true);
+    setDeletePassword('');
+    setDeleteError('');
+    setPasswordDialogOpen(true);
   };
 
-  // 执行删除
-  const executeDelete = () => {
-    if (recordToDelete) {
-      setRecords(records.filter(record => record.id !== recordToDelete));
-      setDeleteDialogOpen(false);
+  // 验证密码并删除
+  const verifyPasswordAndDelete = () => {
+    const correctPassword = 'ecloud10086';
+    
+    if (deletePassword === correctPassword) {
+      // 密码正确，执行删除
+      if (recordToDelete) {
+        setRecords(records.filter(record => record.id !== recordToDelete));
+      }
+      setPasswordDialogOpen(false);
       setRecordToDelete(null);
+      setDeletePassword('');
+      setDeleteError('');
+    } else {
+      // 密码错误
+      setDeleteError('密码错误，请重新输入');
     }
+  };
+
+  // 取消密码验证
+  const cancelPasswordVerify = () => {
+    setPasswordDialogOpen(false);
+    setRecordToDelete(null);
+    setDeletePassword('');
+    setDeleteError('');
   };
 
   return (
@@ -277,21 +300,43 @@ export default function HistoryPage() {
         </CardContent>
       </Card>
 
-      {/* 删除确认对话框 */}
-      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+      {/* 密码验证对话框 */}
+      <Dialog open={passwordDialogOpen} onOpenChange={setPasswordDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>确认删除</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              <Lock className="h-5 w-5" />
+              删除验证
+            </DialogTitle>
             <DialogDescription>
-              确定要删除这条报价记录吗？此操作无法撤销。
+              删除报价记录需要验证二级密码
             </DialogDescription>
           </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">二级密码</label>
+              <Input
+                type="password"
+                placeholder="请输入二级密码"
+                value={deletePassword}
+                onChange={(e) => setDeletePassword(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    verifyPasswordAndDelete();
+                  }
+                }}
+              />
+              {deleteError && (
+                <p className="text-sm text-red-600">{deleteError}</p>
+              )}
+            </div>
+          </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>
+            <Button variant="outline" onClick={cancelPasswordVerify}>
               取消
             </Button>
-            <Button variant="destructive" onClick={executeDelete}>
-              确认删除
+            <Button variant="destructive" onClick={verifyPasswordAndDelete}>
+              验证并删除
             </Button>
           </DialogFooter>
         </DialogContent>
