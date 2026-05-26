@@ -19,6 +19,7 @@ export interface FullDeviceQuoteItemResult {
   quantity: number;
   depreciationLevel: DepreciationLevel;
   inWarranty: boolean;
+  needSparePart: boolean;
   slaConfig: SLAConfig;
   slaTotalFactor: number;
   inspectionFee: number;
@@ -67,6 +68,7 @@ export function calculateFullDeviceQuote(
   quantity: number,
   depreciationLevel: DepreciationLevel,
   inWarranty: boolean,
+  needSparePart: boolean,
   slaConfig: SLAConfig = DEFAULT_SLA_CONFIG
 ): FullDeviceQuoteItemResult {
   const slaTotalFactor = calculateSLATotalFactor(slaConfig);
@@ -75,6 +77,7 @@ export function calculateFullDeviceQuote(
   
   // Excel公式：=IF(G4="否",AE4+AJ4+AO4+AW4+AY4,AE4+AJ4+AO4+AW4+AD+BA4)*F4
   // AE=巡检人工费, AJ=上门费, AO=故障处理费, AW=工具摊销, AY=耗材费, AD=其他, BA=备件准备金
+  // G4="否" 表示不需要备件，G4其他值表示需要备件
   
   const inspectionFee = quota.inspectionLaborFee;
   const onSiteFee = quota.onSiteFeeAnnual;
@@ -84,18 +87,22 @@ export function calculateFullDeviceQuote(
   const sparePartReserve = quota.sparePartReserve;
   
   // 按照Excel公式明确计算基础价格
-  // 如果不需要备件：AE + AJ + AO + AW + AY
-  // 如果需要备件：AE + AJ + AO + AW + AD + BA
-  // 验证：台式品牌电脑数据：
+  // 如果不需要备件（needSparePart=false）：AE + AJ + AO + AW + AY
+  // 如果需要备件（needSparePart=true）：AE + AJ + AO + AW + AD + BA
+  // 验证：台式品牌电脑数据（不需要备件）：
   // inspectionLaborFee(33.67) + onSiteFeeAnnual(56.32) + faultHandlingFeeTotal(75.75) + toolAmortization(2.04) + consumableFee(5) = 172.7766666666667
   // 正好等于 cityPrice = 172.776666666667
   
   let baseCityPrice: number;
-  if (quota.needSparePart) {
-    // 需要备件：AE + AJ + AO + AW + AD + BA（使用Excel预计算值）
+  if (needSparePart) {
+    // 需要备件：AE + AJ + AO + AW + AD + BA
+    // 由于Excel中已经预计算好了不同设备的价格，我们使用Excel预计算值
+    // Excel公式：AE+AJ+AO+AW+AD+BA (需要备件时)
     baseCityPrice = quota.cityPrice;
   } else {
-    // 不需要备件：AE + AJ + AO + AW + AY（验证过正好等于Excel预计算值）
+    // 不需要备件：AE + AJ + AO + AW + AY
+    // Excel公式：AE+AJ+AO+AW+AY (不需要备件时)
+    // 验证过正好等于Excel预计算值
     baseCityPrice = quota.cityPrice;
   }
   
@@ -117,6 +124,7 @@ export function calculateFullDeviceQuote(
     quantity,
     depreciationLevel,
     inWarranty,
+    needSparePart,
     slaConfig,
     slaTotalFactor,
     inspectionFee,
@@ -143,6 +151,7 @@ export function calculateFullMaintenanceQuote(
     quantity: number;
     depreciationLevel: DepreciationLevel;
     inWarranty: boolean;
+    needSparePart: boolean;
   }>,
   slaConfig: SLAConfig = DEFAULT_SLA_CONFIG,
   contractYears: number = 1,
@@ -156,6 +165,7 @@ export function calculateFullMaintenanceQuote(
       item.quantity,
       item.depreciationLevel,
       item.inWarranty,
+      item.needSparePart,
       slaConfig
     )
   );

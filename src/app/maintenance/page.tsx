@@ -128,6 +128,7 @@ export default function MaintenanceQuotePage() {
     quantity: number;
     depreciationLevel: DepreciationLevel;
     inWarranty: boolean;
+    needSparePart: boolean;
   }>>([]);
 
   // 计算结果（支持新老两种）
@@ -155,6 +156,7 @@ export default function MaintenanceQuotePage() {
         quantity: 1,
         depreciationLevel: '全新',
         inWarranty: false,
+        needSparePart: false,
       }]);
     }
   };
@@ -174,6 +176,7 @@ export default function MaintenanceQuotePage() {
         quantity: 1,
         depreciationLevel: '全新',
         inWarranty: false,
+        needSparePart: quota.needSparePart || false,
       }]);
     }
   };
@@ -201,6 +204,13 @@ export default function MaintenanceQuotePage() {
     newDevices[index].inWarranty = inWarranty;
     setSelectedDevices(newDevices);
   };
+  
+  // 更新是否需要备件
+  const handleUpdateNeedSparePart = (index: number, needSparePart: boolean) => {
+    const newDevices = [...selectedDevices];
+    newDevices[index].needSparePart = needSparePart;
+    setSelectedDevices(newDevices);
+  };
 
   // 移除设备
   const handleRemoveDevice = (index: number) => {
@@ -220,6 +230,7 @@ export default function MaintenanceQuotePage() {
         quantity: item.quantity,
         depreciationLevel: item.depreciationLevel,
         inWarranty: item.inWarranty,
+        needSparePart: item.needSparePart,
       }));
       
       const result = calculateFullMaintenanceQuote(
@@ -619,6 +630,7 @@ export default function MaintenanceQuotePage() {
                             <TableHead>数量</TableHead>
                             <TableHead>成新率</TableHead>
                             <TableHead>在保状态</TableHead>
+                            <TableHead>需要备件</TableHead>
                             {/* 新版：显示4个地区报价表头 */}
                             {useFullData && (
                               <>
@@ -669,6 +681,12 @@ export default function MaintenanceQuotePage() {
                                 <Switch
                                   checked={item.inWarranty}
                                   onCheckedChange={(checked) => handleUpdateWarranty(index, checked)}
+                                />
+                              </TableCell>
+                              <TableCell>
+                                <Switch
+                                  checked={item.needSparePart}
+                                  onCheckedChange={(checked) => handleUpdateNeedSparePart(index, checked)}
                                 />
                               </TableCell>
                               {/* 新版：显示4个地区报价 */}
