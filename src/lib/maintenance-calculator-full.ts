@@ -73,33 +73,37 @@ export function calculateFullDeviceQuote(
   const depreciationFactor = DEPRECIATION_FACTORS[depreciationLevel];
   const inWarrantyFactor = inWarranty ? 0.5 : 1.0;
   
-  const inspectionFee = quota.inspectionFeeAnnual * slaTotalFactor;
-  const onSiteFee = quota.onSiteFeeAnnual * slaTotalFactor;
-  const faultHandlingFee = quota.faultHandlingFeeTotal * inWarrantyFactor * slaTotalFactor;
+  // 根据Excel公式：基础价格 = 直接使用Excel中已经计算好的对应列
+  // Excel公式：=IF(G4="否",AE4+AJ4+AO4+AW4+AY4,AE4+AJ4+AO4+AW4+AD+BA4)*F4
+  // AE=巡检人工费, AJ=上门费, AO=故障处理费, AW=工具摊销, AY=耗材费, AD=其他, BA=备件准备金
+  
+  const inspectionFee = quota.inspectionLaborFee;
+  const onSiteFee = quota.onSiteFeeAnnual;
+  const faultHandlingFee = quota.faultHandlingFeeTotal;
   const toolAmortization = quota.toolAmortization;
   const consumableFee = quota.consumableFee;
   const sparePartReserve = quota.sparePartReserve;
   
-  const subtotalBeforeSLA = 
-    quota.inspectionFeeAnnual + 
-    quota.onSiteFeeAnnual + 
-    quota.faultHandlingFeeTotal + 
-    quota.toolAmortization + 
-    quota.consumableFee + 
-    quota.sparePartReserve;
+  // 基础价格计算（Excel中已经预计算好）
+  // 如果不需要备件：巡检费 + 上门费 + 故障处理费 + 工具摊销 + 耗材费
+  // 如果需要备件：巡检费 + 上门费 + 故障处理费 + 工具摊销 + 其他费用 + 备件准备金
+  let baseCityPrice: number;
+  if (quota.needSparePart) {
+    // 需要备件：暂时使用Excel中的预计算值
+    baseCityPrice = quota.cityPrice;
+  } else {
+    // 不需要备件：Excel中已经预计算好的值
+    baseCityPrice = quota.cityPrice;
+  }
   
-  const subtotalAfterSLA = 
-    inspectionFee + 
-    onSiteFee + 
-    faultHandlingFee + 
-    toolAmortization + 
-    consumableFee + 
-    sparePartReserve;
-  
+  // 使用Excel中已经预计算好的价格，并乘以SLA系数
   const cityPrice = quota.cityPrice * slaTotalFactor;
   const urbanPrice = quota.urbanPrice * slaTotalFactor;
   const townPrice = quota.townPrice * slaTotalFactor;
   const ruralPrice = quota.ruralPrice * slaTotalFactor;
+  
+  const subtotalBeforeSLA = quota.cityPrice;
+  const subtotalAfterSLA = cityPrice;
   
   const bulkDiscountFactor = quantity >= BULK_DISCOUNT_THRESHOLD ? BULK_DISCOUNT_FACTOR : 1.0;
   const totalBeforeDiscount = cityPrice * quantity;
