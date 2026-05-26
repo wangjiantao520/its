@@ -261,6 +261,13 @@ export default function MaintenanceQuotePage() {
     }
   };
 
+  // 监听合同年限变化，自动重新计算报价
+  useEffect(() => {
+    if (selectedDevices.length > 0 && (quoteResult || fullQuoteResult)) {
+      handleCalculate();
+    }
+  }, [contractYears]);
+
   // 导出报价单 - 简化版本
   const handleExportQuote = () => {
     if (!quoteResult || selectedDevices.length === 0) return;
