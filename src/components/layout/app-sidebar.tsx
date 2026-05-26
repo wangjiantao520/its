@@ -8,6 +8,9 @@ import {
   Settings,
   Wrench,
   History,
+  Upload,
+  CheckSquare,
+  User,
 } from 'lucide-react';
 import { usePathname } from 'next/navigation';
 import {
@@ -23,8 +26,37 @@ import {
   SidebarFooter,
 } from '@/components/ui/sidebar';
 import Link from 'next/link';
+import { useUser } from '@/contexts/user-context';
+import { UserRole } from '@/lib/roles';
+import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
-const navItems = [
+// ITS成员的导航项
+const itsMemberNavItems = [
+  {
+    title: '首页',
+    url: '/',
+    icon: Home,
+  },
+  {
+    title: '维保报价',
+    url: '/maintenance',
+    icon: Wrench,
+  },
+  {
+    title: '设备清单导入',
+    url: '/device-import',
+    icon: Upload,
+  },
+];
+
+// 管理员的导航项
+const adminNavItems = [
   {
     title: '首页',
     url: '/',
@@ -39,6 +71,11 @@ const navItems = [
     title: '维保报价',
     url: '/maintenance',
     icon: Wrench,
+  },
+  {
+    title: '设备清单审核',
+    url: '/device-review',
+    icon: CheckSquare,
   },
   {
     title: '数据管理',
@@ -59,6 +96,9 @@ const navItems = [
 
 export function AppSidebar() {
   const pathname = usePathname();
+  const { user, setUserRole } = useUser();
+
+  const navItems = user.role === 'admin' ? adminNavItems : itsMemberNavItems;
 
   return (
     <Sidebar variant="inset" className="border-r">
@@ -92,7 +132,37 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
-      <SidebarFooter className="border-t p-4">
+      <SidebarFooter className="border-t p-4 space-y-4">
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <User className="h-4 w-4 text-muted-foreground" />
+              <span className="text-sm font-medium">{user.name}</span>
+            </div>
+            <span className={`text-xs px-2 py-1 rounded-full ${
+              user.role === 'admin' 
+                ? 'bg-purple-100 text-purple-700' 
+                : 'bg-blue-100 text-blue-700'
+            }`}>
+              {user.role === 'admin' ? '管理员' : 'ITS成员'}
+            </span>
+          </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="w-full">
+                切换角色
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent>
+              <DropdownMenuItem onClick={() => setUserRole('its_member')}>
+                ITS成员
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setUserRole('admin')}>
+                管理员
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
         <div className="text-xs text-muted-foreground">
           <p>版本 1.0.0</p>
           <p className="mt-1">© 2026 ITS</p>

@@ -3,6 +3,7 @@ import { Inspector } from 'react-dev-inspector';
 import './globals.css';
 import { AppLayout } from '@/components/layout/app-layout';
 import { FontPreload } from '@/components/font-preload';
+import { UserProvider } from '@/contexts/user-context';
 
 export const metadata: Metadata = {
   title: {
@@ -26,7 +27,9 @@ export default function RootLayout({
       <body className={`antialiased`}>
         <FontPreload />
         {isDev && <Inspector />}
-        <AppLayout>{children}</AppLayout>
+        <UserProvider>
+          <AppLayout>{children}</AppLayout>
+        </UserProvider>
       </body>
     </html>
   );
