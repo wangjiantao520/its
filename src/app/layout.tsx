@@ -22,7 +22,7 @@ export default function RootLayout({
   const isDev = process.env.COZE_PROJECT_ENV === 'DEV';
 
   return (
-    <html lang="zh-CN">
+    <html lang="zh-CN" suppressHydrationWarning>
       <body className={`antialiased`}>
         <FontPreload />
         {isDev && <Inspector />}
