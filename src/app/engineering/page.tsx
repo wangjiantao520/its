@@ -15,20 +15,17 @@ import {
   convertToChineseCurrency,
   type EngineeringQuoteExportData,
 } from '@/lib/export-utils';
-
-// 模拟定额数据
-const mockQuotas = [
-  { id: 1, code: 'GD-001', name: '布放网线（走桥架）', category: '布线', unit: '米', laborHours: 0.05, laborCost: 10, materialCost: 3, machineryCost: 0, managementFeeRate: 0.08, profitRate: 0.1, regulatoryFeeRate: 0.03 },
-  { id: 2, code: 'GD-002', name: '布放网线（套管埋地）', category: '布线', unit: '米', laborHours: 0.1, laborCost: 20, materialCost: 5, machineryCost: 0, managementFeeRate: 0.08, profitRate: 0.1, regulatoryFeeRate: 0.03 },
-  { id: 3, code: 'AZ-001', name: '安装交换机（普通）', category: '安装', unit: '台', laborHours: 0.5, laborCost: 100, materialCost: 20, machineryCost: 0, managementFeeRate: 0.08, profitRate: 0.1, regulatoryFeeRate: 0.03 },
-  { id: 4, code: 'AZ-002', name: '安装交换机（配置型）', category: '安装', unit: '台', laborHours: 1, laborCost: 200, materialCost: 30, machineryCost: 0, managementFeeRate: 0.08, profitRate: 0.1, regulatoryFeeRate: 0.03 },
-  { id: 5, code: 'AZ-003', name: '安装摄像头（枪机）', category: '安装', unit: '台', laborHours: 0.8, laborCost: 160, materialCost: 50, machineryCost: 0, managementFeeRate: 0.08, profitRate: 0.1, regulatoryFeeRate: 0.03 },
-  { id: 6, code: 'AZ-004', name: '安装摄像头（半球）', category: '安装', unit: '台', laborHours: 0.6, laborCost: 120, materialCost: 40, machineryCost: 0, managementFeeRate: 0.08, profitRate: 0.1, regulatoryFeeRate: 0.03 },
-];
+import {
+  SELF_CONSTRUCTION_QUOTA,
+  INTELLIGENT_PROJECT_QUOTA,
+  type SelfConstructionItem,
+  type IntelligentItem,
+} from '@/lib/self-construction-quota';
 
 interface QuoteItem {
   id: number;
-  quotaId: number;
+  itemType: 'selfConstruction' | 'intelligent';
+  itemId: string;
   quantity: number;
 }
 
@@ -43,9 +40,10 @@ export default function EngineeringPage() {
   const [quoteItems, setQuoteItems] = useState<QuoteItem[]>([]);
   const [nextItemId, setNextItemId] = useState(1);
   const quoteRandomRef = useRef(Math.floor(Math.random() * 1000));
+  const [activeTab, setActiveTab] = useState('create');
 
-  const addQuoteItem = (quotaId: number) => {
-    setQuoteItems([...quoteItems, { id: nextItemId, quotaId, quantity: 1 }]);
+  const addQuoteItem = (itemType: 'selfConstruction' | 'intelligent', itemId: string) => {
+    setQuoteItems([...quoteItems, { id: nextItemId, itemType, itemId, quantity: 1 }]);
     setNextItemId(nextItemId + 1);
   };
 
@@ -59,21 +57,25 @@ export default function EngineeringPage() {
     ));
   };
 
+  const getItemById = (itemType: 'selfConstruction' | 'intelligent', itemId: string) => {
+    if (itemType === 'selfConstruction') {
+      return SELF_CONSTRUCTION_QUOTA.find(item => item.id === itemId);
+    } else {
+      return INTELLIGENT_PROJECT_QUOTA.find(item => item.id === itemId);
+    }
+  };
+
   const calculateTotals = () => {
-    let totalLabor = 0;
-    let totalMaterial = 0;
-    let totalMachinery = 0;
+    let totalBase = 0;
 
     quoteItems.forEach(item => {
-      const quota = mockQuotas.find(q => q.id === item.quotaId);
-      if (quota) {
-        totalLabor += quota.laborCost * item.quantity;
-        totalMaterial += quota.materialCost * item.quantity;
-        totalMachinery += quota.machineryCost * item.quantity;
+      const quotaItem = getItemById(item.itemType, item.itemId);
+      if (quotaItem) {
+        totalBase += quotaItem.price * item.quantity;
       }
     });
 
-    const subtotal = totalLabor + totalMaterial + totalMachinery;
+    const subtotal = totalBase;
     const managementFee = subtotal * (managementFeeRate / 100);
     const profit = subtotal * (profitRate / 100);
     const regulatoryFee = subtotal * (regulatoryFeeRate / 100);
@@ -82,9 +84,7 @@ export default function EngineeringPage() {
     const total = subtotal + managementFee + profit + regulatoryFee + taxAmount;
 
     return {
-      totalLabor,
-      totalMaterial,
-      totalMachinery,
+      totalBase,
       subtotal,
       managementFee,
       profit,
@@ -111,13 +111,12 @@ export default function EngineeringPage() {
       quoteNumber,
       quoteDate: new Date().toISOString().split('T')[0],
       items: quoteItems.map(item => {
-        const quota = mockQuotas.find(q => q.id === item.quotaId);
-        if (!quota) return { name: '', unit: '', quantity: 0, unitPrice: 0, amount: 0 };
-        const baseFee = quota.laborCost + quota.materialCost + quota.machineryCost;
-        const unitPrice = baseFee * (1 + managementFeeRate / 100 + profitRate / 100 + regulatoryFeeRate / 100);
+        const quotaItem = getItemById(item.itemType, item.itemId);
+        if (!quotaItem) return { name: '', unit: '', quantity: 0, unitPrice: 0, amount: 0 };
+        const unitPrice = quotaItem.price * (1 + managementFeeRate / 100 + profitRate / 100 + regulatoryFeeRate / 100);
         return {
-          name: quota.name,
-          unit: quota.unit,
+          name: quotaItem.name,
+          unit: quotaItem.unit,
           quantity: item.quantity,
           unitPrice: unitPrice,
           amount: unitPrice * item.quantity,
@@ -153,7 +152,7 @@ export default function EngineeringPage() {
         </div>
       </div>
 
-      <Tabs defaultValue="create" className="w-full">
+      <Tabs defaultValue="create" className="w-full" value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
           <TabsTrigger value="create">新建报价</TabsTrigger>
           <TabsTrigger value="quotas">定额库管理</TabsTrigger>
@@ -214,18 +213,32 @@ export default function EngineeringPage() {
                   <CardTitle>报价明细</CardTitle>
                   <CardDescription>添加工序和数量</CardDescription>
                 </div>
-                <Select onValueChange={(value) => addQuoteItem(parseInt(value))}>
-                  <SelectTrigger className="w-[200px]">
-                    <SelectValue placeholder="添加定额" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {mockQuotas.map((quota) => (
-                      <SelectItem key={quota.id} value={quota.id.toString()}>
-                        {quota.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="flex gap-2">
+                  <Select onValueChange={(value) => addQuoteItem('selfConstruction', value)}>
+                    <SelectTrigger className="w-[200px]">
+                      <SelectValue placeholder="添加自施工工序" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {SELF_CONSTRUCTION_QUOTA.map((item) => (
+                        <SelectItem key={item.id} value={item.id}>
+                          {item.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select onValueChange={(value) => addQuoteItem('intelligent', value)}>
+                    <SelectTrigger className="w-[200px]">
+                      <SelectValue placeholder="添加智能化项目" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {INTELLIGENT_PROJECT_QUOTA.map((item) => (
+                        <SelectItem key={item.id} value={item.id}>
+                          {item.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
             </CardHeader>
             <CardContent>
@@ -233,22 +246,19 @@ export default function EngineeringPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-[50px]">操作</TableHead>
+                    <TableHead>类型</TableHead>
                     <TableHead>定额名称</TableHead>
                     <TableHead className="w-[100px]">单位</TableHead>
                     <TableHead className="w-[120px]">数量</TableHead>
-                    <TableHead className="w-[120px]">人工费</TableHead>
-                    <TableHead className="w-[120px]">材料费</TableHead>
+                    <TableHead className="w-[120px]">单价</TableHead>
                     <TableHead className="w-[120px]">小计</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {quoteItems.map((item) => {
-                    const quota = mockQuotas.find(q => q.id === item.quotaId);
-                    if (!quota) return null;
-                    const laborFee = quota.laborCost * item.quantity;
-                    const materialFee = quota.materialCost * item.quantity;
-                    const machineryFee = quota.machineryCost * item.quantity;
-                    const baseFee = laborFee + materialFee + machineryFee;
+                    const quotaItem = getItemById(item.itemType, item.itemId);
+                    if (!quotaItem) return null;
+                    const baseFee = quotaItem.price * item.quantity;
                     const subtotal = baseFee * (1 + managementFeeRate / 100 + profitRate / 100 + regulatoryFeeRate / 100);
                     return (
                       <TableRow key={item.id}>
@@ -261,8 +271,13 @@ export default function EngineeringPage() {
                             <Trash2 className="h-4 w-4 text-destructive" />
                           </Button>
                         </TableCell>
-                        <TableCell>{quota.name}</TableCell>
-                        <TableCell>{quota.unit}</TableCell>
+                        <TableCell>
+                          <span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                            {item.itemType === 'selfConstruction' ? '自施工' : '智能化'}
+                          </span>
+                        </TableCell>
+                        <TableCell>{quotaItem.name}</TableCell>
+                        <TableCell>{quotaItem.unit}</TableCell>
                         <TableCell>
                           <Input
                             type="number"
@@ -271,8 +286,7 @@ export default function EngineeringPage() {
                             className="w-full"
                           />
                         </TableCell>
-                        <TableCell>¥{laborFee.toFixed(2)}</TableCell>
-                        <TableCell>¥{materialFee.toFixed(2)}</TableCell>
+                        <TableCell>¥{quotaItem.price.toFixed(2)}</TableCell>
                         <TableCell>¥{subtotal.toFixed(2)}</TableCell>
                       </TableRow>
                     );
@@ -325,24 +339,10 @@ export default function EngineeringPage() {
               <CardTitle>报价汇总</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid gap-4 md:grid-cols-3">
-                <div className="space-y-1">
-                  <p className="text-sm text-muted-foreground">人工费合计</p>
-                  <p className="text-xl font-semibold">¥{totals.totalLabor.toFixed(2)}</p>
-                </div>
-                <div className="space-y-1">
-                  <p className="text-sm text-muted-foreground">材料费合计</p>
-                  <p className="text-xl font-semibold">¥{totals.totalMaterial.toFixed(2)}</p>
-                </div>
-                <div className="space-y-1">
-                  <p className="text-sm text-muted-foreground">机械费合计</p>
-                  <p className="text-xl font-semibold">¥{totals.totalMachinery.toFixed(2)}</p>
-                </div>
-              </div>
               <div className="grid gap-4 md:grid-cols-4">
                 <div className="space-y-1">
-                  <p className="text-sm text-muted-foreground">小计</p>
-                  <p className="text-lg font-semibold">¥{totals.subtotal.toFixed(2)}</p>
+                  <p className="text-sm text-muted-foreground">定额费合计</p>
+                  <p className="text-xl font-semibold">¥{totals.totalBase.toFixed(2)}</p>
                 </div>
                 <div className="space-y-1">
                   <p className="text-sm text-muted-foreground">管理费</p>
@@ -394,54 +394,78 @@ export default function EngineeringPage() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="quotas" className="mt-6">
+        <TabsContent value="quotas" className="mt-6 space-y-6">
+          {/* 自施工工序定额 */}
           <Card>
             <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle>定额库管理</CardTitle>
-                  <CardDescription>管理工程定额数据</CardDescription>
-                </div>
-                <Button>
-                  <Plus className="h-4 w-4 mr-2" />
-                  新增定额
-                </Button>
-              </div>
+              <CardTitle>自施工工序定额</CardTitle>
+              <CardDescription>宽带、专线项目和常规内部布线施工工序</CardDescription>
             </CardHeader>
             <CardContent>
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>定额编号</TableHead>
-                    <TableHead>定额名称</TableHead>
+                    <TableHead>编号</TableHead>
                     <TableHead>分类</TableHead>
+                    <TableHead>定额名称</TableHead>
                     <TableHead>单位</TableHead>
-                    <TableHead>人工费</TableHead>
-                    <TableHead>材料费</TableHead>
-                    <TableHead>机械费</TableHead>
-                    <TableHead className="w-[100px]">操作</TableHead>
+                    <TableHead>单价</TableHead>
+                    <TableHead>备注</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {mockQuotas.map((quota) => (
-                    <TableRow key={quota.id}>
-                      <TableCell>{quota.code}</TableCell>
-                      <TableCell>{quota.name}</TableCell>
-                      <TableCell>{quota.category}</TableCell>
-                      <TableCell>{quota.unit}</TableCell>
-                      <TableCell>¥{quota.laborCost.toFixed(2)}</TableCell>
-                      <TableCell>¥{quota.materialCost.toFixed(2)}</TableCell>
-                      <TableCell>¥{quota.machineryCost.toFixed(2)}</TableCell>
+                  {SELF_CONSTRUCTION_QUOTA.map((item) => (
+                    <TableRow key={item.id}>
+                      <TableCell>{item.id}</TableCell>
                       <TableCell>
-                        <div className="flex gap-2">
-                          <Button variant="ghost" size="icon">
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                          <Button variant="ghost" size="icon">
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
-                        </div>
+                        <span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                          {item.category}
+                        </span>
                       </TableCell>
+                      <TableCell>{item.name}</TableCell>
+                      <TableCell>{item.unit}</TableCell>
+                      <TableCell>¥{item.price.toFixed(2)}</TableCell>
+                      <TableCell className="text-muted-foreground">{item.remark || '-'}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+
+          {/* 集成商智能化项目报价 */}
+          <Card>
+            <CardHeader>
+              <CardTitle>集成商智能化项目报价</CardTitle>
+              <CardDescription>设备和施工安装项目报价</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>编号</TableHead>
+                    <TableHead>分类</TableHead>
+                    <TableHead>定额名称</TableHead>
+                    <TableHead>单位</TableHead>
+                    <TableHead>单价</TableHead>
+                    <TableHead>可抵扣税率</TableHead>
+                    <TableHead>备注</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {INTELLIGENT_PROJECT_QUOTA.map((item) => (
+                    <TableRow key={item.id}>
+                      <TableCell>{item.id}</TableCell>
+                      <TableCell>
+                        <span className="px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+                          {item.category}
+                        </span>
+                      </TableCell>
+                      <TableCell>{item.name}</TableCell>
+                      <TableCell>{item.unit}</TableCell>
+                      <TableCell>¥{item.price.toFixed(2)}</TableCell>
+                      <TableCell>{item.deductibleTaxRate}%</TableCell>
+                      <TableCell className="text-muted-foreground">{item.remark || '-'}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
