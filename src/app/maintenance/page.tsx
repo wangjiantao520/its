@@ -265,6 +265,8 @@ export default function MaintenanceQuotePage() {
         quota: item.quota as FullDeviceQuota,
         quantity: item.quantity,
         depreciationLevel: DEPRECIATION_GRADE_MAP[item.depreciationLevel] || '一般',
+        deviceGrade: (item as any).deviceGrade || 'A',
+        depreciationGrade: (item as any).depreciationGrade || '1',
         inWarranty: item.inWarranty,
         needSparePart: item.needSparePart,
         contractYears: item.contractYears,

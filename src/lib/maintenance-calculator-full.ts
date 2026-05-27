@@ -1,5 +1,6 @@
 
 import type { FullDeviceQuota, SLAConfig, DepreciationLevel, RegionType } from './device-quota-full';
+import type { DeviceGrade, DepreciationGrade } from './device-grade';
 import { 
   FULL_MAINTENANCE_LEVEL_CONFIG,
   ENGINEER_PRICES,
@@ -12,12 +13,15 @@ import {
   MULTI_YEAR_DISCOUNTS,
   calculateSLATotalFactor
 } from './device-quota-full';
+import { getDepreciationFactor } from './device-grade';
 
 // 单设备报价结果（完整）
 export interface FullDeviceQuoteItemResult {
   quota: FullDeviceQuota;
   quantity: number;
   depreciationLevel: DepreciationLevel;
+  deviceGrade: DeviceGrade;
+  depreciationGrade: DepreciationGrade;
   inWarranty: boolean;
   needSparePart: boolean;
   contractYears: number;
@@ -69,13 +73,15 @@ export function calculateFullDeviceQuote(
   quota: FullDeviceQuota,
   quantity: number,
   depreciationLevel: DepreciationLevel,
+  deviceGrade: DeviceGrade,
+  depreciationGrade: DepreciationGrade,
   inWarranty: boolean,
   needSparePart: boolean,
   contractYears: number = 1,
   slaConfig: SLAConfig = DEFAULT_SLA_CONFIG
 ): FullDeviceQuoteItemResult {
   const slaTotalFactor = calculateSLATotalFactor(slaConfig);
-  const depreciationFactor = DEPRECIATION_FACTORS[depreciationLevel];
+  const depreciationFactor = getDepreciationFactor(deviceGrade, depreciationGrade);
   const inWarrantyFactor = inWarranty ? 0.5 : 1.0;
   const yearDiscountFactor = MULTI_YEAR_DISCOUNTS[contractYears as keyof typeof MULTI_YEAR_DISCOUNTS] || MULTI_YEAR_DISCOUNTS[1];
   
@@ -128,6 +134,8 @@ export function calculateFullDeviceQuote(
     quota,
     quantity,
     depreciationLevel,
+    deviceGrade,
+    depreciationGrade,
     inWarranty,
     needSparePart,
     contractYears,
@@ -157,6 +165,8 @@ export function calculateFullMaintenanceQuote(
     quota: FullDeviceQuota;
     quantity: number;
     depreciationLevel: DepreciationLevel;
+    deviceGrade: DeviceGrade;
+    depreciationGrade: DepreciationGrade;
     inWarranty: boolean;
     needSparePart: boolean;
     contractYears: number;
@@ -171,6 +181,8 @@ export function calculateFullMaintenanceQuote(
       item.quota,
       item.quantity,
       item.depreciationLevel,
+      item.deviceGrade,
+      item.depreciationGrade,
       item.inWarranty,
       item.needSparePart,
       item.contractYears,
