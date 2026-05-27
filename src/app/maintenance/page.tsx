@@ -86,6 +86,22 @@ import {
 } from '@/lib/export-utils';
 
 export default function MaintenanceQuotePage() {
+  // 成新率等级映射：1级=全新，2级=较新，3级=一般，4级=偏旧，5级=老旧
+  const DEPRECIATION_GRADE_MAP: Record<string, DepreciationLevel> = {
+    '1': '全新',
+    '2': '较新',
+    '3': '一般',
+    '4': '偏旧',
+    '5': '老旧',
+  };
+  const DEPRECIATION_LEVEL_TO_GRADE: Record<DepreciationLevel, string> = {
+    '全新': '1',
+    '较新': '2',
+    '一般': '3',
+    '偏旧': '4',
+    '老旧': '5',
+  };
+
   const [activeTab, setActiveTab] = useState('new');
   const [quoteDate, setQuoteDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [customerName, setCustomerName] = useState('');
@@ -126,7 +142,7 @@ export default function MaintenanceQuotePage() {
   const [selectedDevices, setSelectedDevices] = useState<Array<{
     quota: DeviceQuota | FullDeviceQuota;
     quantity: number;
-    depreciationLevel: DepreciationLevel;
+    depreciationLevel: string;
     inWarranty: boolean;
     needSparePart: boolean;
     contractYears: number;
@@ -155,7 +171,7 @@ export default function MaintenanceQuotePage() {
       setSelectedDevices([...selectedDevices, {
         quota,
         quantity: 1,
-        depreciationLevel: '全新',
+        depreciationLevel: '1',
         inWarranty: false,
         needSparePart: false,
         contractYears: parseInt(contractYears),
@@ -176,7 +192,7 @@ export default function MaintenanceQuotePage() {
       setSelectedDevices([...selectedDevices, {
         quota,
         quantity: 1,
-        depreciationLevel: '全新',
+        depreciationLevel: '1',
         inWarranty: false,
         needSparePart: quota.needSparePart || false,
         contractYears: parseInt(contractYears),
@@ -195,9 +211,9 @@ export default function MaintenanceQuotePage() {
   };
 
   // 更新成新率
-  const handleUpdateDepreciation = (index: number, level: DepreciationLevel) => {
+  const handleUpdateDepreciation = (index: number, level: string) => {
     const newDevices = [...selectedDevices];
-    newDevices[index].depreciationLevel = level;
+    newDevices[index].depreciationLevel = level as DepreciationLevel;
     setSelectedDevices(newDevices);
   };
 
@@ -238,7 +254,7 @@ export default function MaintenanceQuotePage() {
       const fullDevices = selectedDevices.map(item => ({
         quota: item.quota as FullDeviceQuota,
         quantity: item.quantity,
-        depreciationLevel: item.depreciationLevel,
+        depreciationLevel: DEPRECIATION_GRADE_MAP[item.depreciationLevel] || '一般',
         inWarranty: item.inWarranty,
         needSparePart: item.needSparePart,
         contractYears: item.contractYears,
@@ -256,7 +272,7 @@ export default function MaintenanceQuotePage() {
       const oldDevices = selectedDevices.map(item => ({
         quota: item.quota as DeviceQuota,
         quantity: item.quantity,
-        depreciationLevel: item.depreciationLevel as OldDepreciationLevel,
+        depreciationLevel: (DEPRECIATION_GRADE_MAP[item.depreciationLevel] || '一般') as OldDepreciationLevel,
         inWarranty: item.inWarranty,
       }));
       
@@ -681,17 +697,17 @@ export default function MaintenanceQuotePage() {
                               <TableCell>
                                 <Select
                                   value={item.depreciationLevel}
-                                  onValueChange={(v) => handleUpdateDepreciation(index, v as DepreciationLevel)}
+                                  onValueChange={(v) => handleUpdateDepreciation(index, v)}
                                 >
                                   <SelectTrigger className="w-28">
                                     <SelectValue />
                                   </SelectTrigger>
                                   <SelectContent>
-                                    <SelectItem value="全新">全新</SelectItem>
-                                    <SelectItem value="较新">较新</SelectItem>
-                                    <SelectItem value="一般">一般</SelectItem>
-                                    <SelectItem value="偏旧">偏旧</SelectItem>
-                                    <SelectItem value="老旧">老旧</SelectItem>
+                                    <SelectItem value="1">1级（全新）</SelectItem>
+                                    <SelectItem value="2">2级（较新）</SelectItem>
+                                    <SelectItem value="3">3级（一般）</SelectItem>
+                                    <SelectItem value="4">4级（偏旧）</SelectItem>
+                                    <SelectItem value="5">5级（老旧）</SelectItem>
                                   </SelectContent>
                                 </Select>
                               </TableCell>
