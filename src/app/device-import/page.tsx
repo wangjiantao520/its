@@ -12,6 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useUser } from '@/contexts/user-context';
 import { DeviceImportItem, getDeviceImports, addDeviceImport, type MaintenanceLevel, type EngineerLevel, type DepreciationLevel } from '@/lib/roles';
 import { FULL_DEVICE_QUOTAS } from '@/lib/complete-device-data';
+import { DEVICE_GRADE_OPTIONS, DEPRECIATION_GRADE_OPTIONS, type DeviceGrade, type DepreciationGrade } from '@/lib/device-grade';
 import { Upload, Trash2, CheckCircle2, XCircle, Clock } from 'lucide-react';
 
 const DEVICE_CATEGORIES = [
@@ -74,8 +75,9 @@ export default function DeviceImportPage() {
     // 验证必填字段
     if (!currentDevice.category || !currentDevice.name || !currentDevice.model || 
         !currentDevice.level || !currentDevice.engineerLevel || 
-        currentDevice.deviceCount === undefined || currentDevice.deviceCount <= 0) {
-      alert('请填写所有必填字段（带*号）');
+        currentDevice.deviceCount === undefined || currentDevice.deviceCount <= 0 ||
+        !currentDevice.deviceGrade || !currentDevice.depreciationGrade) {
+      alert('请填写所有必填字段（带*号），包括设备分档和成新率等级');
       return;
     }
 
@@ -90,7 +92,9 @@ export default function DeviceImportPage() {
       engineerLevel: '初级',
       deviceCount: 1,
       needSparePart: false,
-      contractYears: 1
+      contractYears: 1,
+      deviceGrade: undefined,
+      depreciationGrade: undefined
     });
   };
 
@@ -241,6 +245,34 @@ export default function DeviceImportPage() {
                       value={currentDevice.deviceCount}
                       onChange={(e) => setCurrentDevice({ ...currentDevice, deviceCount: parseInt(e.target.value) || 1 })}
                     />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="deviceGrade">设备分档 *</Label>
+                    <select
+                      id="deviceGrade"
+                      value={currentDevice.deviceGrade || ''}
+                      onChange={(e) => setCurrentDevice({ ...currentDevice, deviceGrade: e.target.value as DeviceGrade })}
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <option value="">请选择设备分档</option>
+                      {DEVICE_GRADE_OPTIONS.map(option => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="depreciationGrade">成新率等级 *</Label>
+                    <select
+                      id="depreciationGrade"
+                      value={currentDevice.depreciationGrade || ''}
+                      onChange={(e) => setCurrentDevice({ ...currentDevice, depreciationGrade: parseInt(e.target.value) as DepreciationGrade })}
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <option value="">请选择成新率等级</option>
+                      {DEPRECIATION_GRADE_OPTIONS.map(option => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
                   </div>
                 </div>
               </div>

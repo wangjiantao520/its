@@ -1,4 +1,5 @@
 import type { FullDeviceQuota, MaintenanceLevel, EngineerLevel, DepreciationLevel } from './device-quota-full';
+import type { DeviceGrade, DepreciationGrade } from './device-grade';
 
 export type { MaintenanceLevel, EngineerLevel, DepreciationLevel };
 
@@ -106,6 +107,8 @@ export interface DeviceImportItem extends Partial<FullDeviceQuota> {
   faultHandlingFeeTotal?: number;
   inWarrantyFactor?: number;
   depreciationLevelDescription?: DepreciationLevel;
+  deviceGrade?: DeviceGrade; // 设备分档：A/B/C/D/E
+  depreciationGrade?: DepreciationGrade; // 成新率等级：1-5级
   baseFaultCount?: number;
   depreciationFactor?: number;
   faultServiceCount?: number;
