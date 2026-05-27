@@ -146,6 +146,7 @@ export default function MaintenanceQuotePage() {
     inWarranty: boolean;
     needSparePart: boolean;
     contractYears: number;
+    deviceGrade: string;
   }>>([]);
 
   // 计算结果（支持新老两种）
@@ -175,6 +176,7 @@ export default function MaintenanceQuotePage() {
         inWarranty: false,
         needSparePart: false,
         contractYears: parseInt(contractYears),
+        deviceGrade: 'A',
       }]);
     }
   };
@@ -196,6 +198,7 @@ export default function MaintenanceQuotePage() {
         inWarranty: false,
         needSparePart: quota.needSparePart || false,
         contractYears: parseInt(contractYears),
+        deviceGrade: 'A',
       }]);
     }
   };
@@ -235,6 +238,13 @@ export default function MaintenanceQuotePage() {
   const handleUpdateContractYears = (index: number, years: number) => {
     const newDevices = [...selectedDevices];
     newDevices[index].contractYears = years;
+    setSelectedDevices(newDevices);
+  };
+
+  // 更新设备分档
+  const handleUpdateDeviceGrade = (index: number, grade: string) => {
+    const newDevices = [...selectedDevices];
+    newDevices[index].deviceGrade = grade;
     setSelectedDevices(newDevices);
   };
 
@@ -665,6 +675,7 @@ export default function MaintenanceQuotePage() {
                             <TableHead>在保状态</TableHead>
                             <TableHead>需要备件</TableHead>
                             <TableHead>合同年限</TableHead>
+                            <TableHead>设备分档</TableHead>
                             {/* 新版：显示4个地区报价表头 */}
                             {useFullData && (
                               <>
@@ -735,6 +746,23 @@ export default function MaintenanceQuotePage() {
                                     <SelectItem value="1">1年</SelectItem>
                                     <SelectItem value="2">2年</SelectItem>
                                     <SelectItem value="3">3年</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </TableCell>
+                              <TableCell>
+                                <Select
+                                  value={item.deviceGrade}
+                                  onValueChange={(v) => handleUpdateDeviceGrade(index, v)}
+                                >
+                                  <SelectTrigger className="w-20">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="A">A档</SelectItem>
+                                    <SelectItem value="B">B档</SelectItem>
+                                    <SelectItem value="C">C档</SelectItem>
+                                    <SelectItem value="D">D档</SelectItem>
+                                    <SelectItem value="E">E档</SelectItem>
                                   </SelectContent>
                                 </Select>
                               </TableCell>
@@ -809,7 +837,9 @@ export default function MaintenanceQuotePage() {
                             <TableHead>巡检费</TableHead>
                             <TableHead>上门费</TableHead>
                             <TableHead>故障处理费</TableHead>
-                            <TableHead>其他费用</TableHead>
+                            <TableHead>工具仪表摊销</TableHead>
+                            <TableHead>耗材费</TableHead>
+                            <TableHead>备件风险准备金</TableHead>
                             <TableHead className="text-right">单价</TableHead>
                             <TableHead className="text-right">小计</TableHead>
                           </TableRow>
@@ -824,7 +854,9 @@ export default function MaintenanceQuotePage() {
                                 <TableCell>{formatCurrencyLocal(item.inspectionFee)}</TableCell>
                                 <TableCell>{formatCurrencyLocal(item.onSiteFee)}</TableCell>
                                 <TableCell>{formatCurrencyLocal(item.faultHandlingFee)}</TableCell>
-                                <TableCell>{formatCurrencyLocal(item.toolAmortization + item.consumableFee + item.sparePartReserve)}</TableCell>
+                                <TableCell>{formatCurrencyLocal(item.toolAmortization)}</TableCell>
+                                <TableCell>{formatCurrencyLocal(item.consumableFee)}</TableCell>
+                                <TableCell>{formatCurrencyLocal(item.sparePartReserve)}</TableCell>
                                 <TableCell className="text-right">{formatCurrencyLocal(item.cityPrice)}</TableCell>
                                 <TableCell className="text-right font-medium">{formatCurrencyLocal(item.totalAfterDiscount)}</TableCell>
                               </TableRow>
@@ -838,7 +870,9 @@ export default function MaintenanceQuotePage() {
                                 <TableCell>{formatCurrencyLocal(item.inspectionFee)}</TableCell>
                                 <TableCell>{formatCurrencyLocal(item.onSiteFee)}</TableCell>
                                 <TableCell>{formatCurrencyLocal(item.faultHandlingFee)}</TableCell>
-                                <TableCell>{formatCurrencyLocal(item.toolAmortization + item.consumableFee + item.sparePartReserve)}</TableCell>
+                                <TableCell>{formatCurrencyLocal(item.toolAmortization)}</TableCell>
+                                <TableCell>{formatCurrencyLocal(item.consumableFee)}</TableCell>
+                                <TableCell>{formatCurrencyLocal(item.sparePartReserve)}</TableCell>
                                 <TableCell className="text-right">{formatCurrencyLocal(item.cityPrice)}</TableCell>
                                 <TableCell className="text-right font-medium">{formatCurrencyLocal(item.totalAfterDiscount)}</TableCell>
                               </TableRow>
