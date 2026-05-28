@@ -202,7 +202,7 @@ export function calculateFullMaintenanceQuote(
         primaryRegion === '市区县城郊区' ? item.urbanPrice :
         primaryRegion === '乡镇' ? item.townPrice :
         item.ruralPrice;
-      return sum + regionPrice * item.quantity * item.bulkDiscountFactor * item.yearDiscountFactor * item.contractYears * regionFactor;
+      return sum + regionPrice * item.quantity * item.bulkDiscountFactor * item.yearDiscountFactor * item.contractYears;
     }, 0);
     const taxAmount = subtotal * taxRate;
     const total = subtotal + taxAmount;
