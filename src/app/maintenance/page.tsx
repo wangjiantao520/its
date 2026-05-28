@@ -74,6 +74,7 @@ import {
   REGION_FACTORS as FULL_REGION_FACTORS,
   type FullDeviceQuota,
 } from '@/lib/device-quota-full';
+import { getDepreciationFactor, type DeviceGrade, type DepreciationGrade } from '@/lib/device-grade';
 import { ValueAddedServicesSelector } from '@/components/value-added-services-selector';
 import { SurveyQuestionnaire } from '@/components/survey-questionnaire';
 import type { SurveyAnswer } from '@/lib/survey-questions';
@@ -682,6 +683,7 @@ export default function MaintenanceQuotePage() {
                             <TableHead>需要备件</TableHead>
                             <TableHead>合同年限</TableHead>
                             <TableHead>设备分档</TableHead>
+                            <TableHead>折旧系数</TableHead>
                             {/* 新版：显示4个地区报价表头 */}
                             {useFullData && (
                               <>
@@ -771,6 +773,11 @@ export default function MaintenanceQuotePage() {
                                     <SelectItem value="E">E档</SelectItem>
                                   </SelectContent>
                                 </Select>
+                              </TableCell>
+                              <TableCell>
+                                <Badge variant="outline" className="bg-purple-50 text-purple-700">
+                                  {getDepreciationFactor((item.deviceGrade || 'C') as DeviceGrade, Number(item.depreciationGrade || '1') as DepreciationGrade).toFixed(2)}
+                                </Badge>
                               </TableCell>
                               {/* 新版：显示4个地区报价 */}
                               {useFullData && 'cityPrice' in item.quota && (
