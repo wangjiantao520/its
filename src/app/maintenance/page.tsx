@@ -147,6 +147,7 @@ export default function MaintenanceQuotePage() {
     needSparePart: boolean;
     contractYears: number;
     deviceGrade: string;
+    depreciationGrade: string;
   }>>([]);
 
   // 计算结果（支持新老两种）
@@ -177,6 +178,7 @@ export default function MaintenanceQuotePage() {
         needSparePart: false,
         contractYears: parseInt(contractYears),
         deviceGrade: 'A',
+        depreciationGrade: '1',
       }]);
     }
   };
@@ -199,6 +201,7 @@ export default function MaintenanceQuotePage() {
         needSparePart: quota.needSparePart || false,
         contractYears: parseInt(contractYears),
         deviceGrade: 'A',
+        depreciationGrade: '1',
       }]);
     }
   };
