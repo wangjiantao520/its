@@ -50,6 +50,7 @@ import {
   MULTI_YEAR_DISCOUNTS,
   EngineerLevel,
 } from '@/lib/maintenance-quota';
+import { Info } from 'lucide-react';
 // 新完整数据结构
 import {
   FULL_DEVICE_QUOTAS,
@@ -85,6 +86,7 @@ import {
   convertToChineseCurrency,
   type MaintenanceQuoteExportData,
 } from '@/lib/export-utils';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 export default function MaintenanceQuotePage() {
   // 成新率等级映射：1级=全新，2级=较新，3级=一般，4级=偏旧，5级=老旧
@@ -783,9 +785,68 @@ export default function MaintenanceQuotePage() {
                               {useFullData && 'cityPrice' in item.quota && (
                                 <>
                                   <TableCell className="text-right">
-                                    <Badge variant="outline" className="bg-blue-50 text-blue-700">
-                                      {formatCurrencyLocal((item.quota as FullDeviceQuota).cityPrice)}
-                                    </Badge>
+                                    <div className="flex items-center justify-end gap-2">
+                                      <Badge variant="outline" className="bg-blue-50 text-blue-700">
+                                        {formatCurrencyLocal((item.quota as FullDeviceQuota).cityPrice)}
+                                      </Badge>
+                                      <TooltipProvider>
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            <Info className="h-4 w-4 text-slate-400 hover:text-slate-600 cursor-help" />
+                                          </TooltipTrigger>
+                                          <TooltipContent className="max-w-xs">
+                                            <div className="space-y-2">
+                                              <p className="font-semibold">单价组成</p>
+                                              <div className="space-y-1 text-xs">
+                                                <div className="flex justify-between">
+                                                  <span>巡检人工费</span>
+                                                  <span>{formatCurrencyLocal((item.quota as FullDeviceQuota).inspectionLaborFee)}</span>
+                                                </div>
+                                                <div className="flex justify-between">
+                                                  <span>上门费</span>
+                                                  <span>{formatCurrencyLocal((item.quota as FullDeviceQuota).onSiteFeeAnnual)}</span>
+                                                </div>
+                                                <div className="flex justify-between">
+                                                  <span>故障处理费</span>
+                                                  <span>{formatCurrencyLocal((item.quota as FullDeviceQuota).faultHandlingFeeTotal)}</span>
+                                                </div>
+                                                <div className="flex justify-between">
+                                                  <span>工具摊销</span>
+                                                  <span>{formatCurrencyLocal((item.quota as FullDeviceQuota).toolAmortization)}</span>
+                                                </div>
+                                                <div className="flex justify-between">
+                                                  <span>耗材费</span>
+                                                  <span>{formatCurrencyLocal((item.quota as FullDeviceQuota).consumableFee)}</span>
+                                                </div>
+                                                {item.needSparePart && (
+                                                  <div className="flex justify-between">
+                                                    <span>备件准备金</span>
+                                                    <span>{formatCurrencyLocal((item.quota as FullDeviceQuota).sparePartReserve)}</span>
+                                                  </div>
+                                                )}
+                                              </div>
+                                              <div className="pt-2 border-t">
+                                                <p className="font-semibold text-xs">比例系数</p>
+                                                <div className="space-y-1 text-xs mt-1">
+                                                  <div className="flex justify-between">
+                                                    <span>设备分档</span>
+                                                    <span>{(item.deviceGrade || 'A')}</span>
+                                                  </div>
+                                                  <div className="flex justify-between">
+                                                    <span>成新率等级</span>
+                                                    <span>{(item.depreciationGrade || '1')}级</span>
+                                                  </div>
+                                                  <div className="flex justify-between">
+                                                    <span>折旧系数</span>
+                                                    <span>{getDepreciationFactor((item.deviceGrade || 'A') as DeviceGrade, (Number(item.depreciationGrade) || 1) as unknown as DepreciationGrade).toFixed(2)}</span>
+                                                  </div>
+                                                </div>
+                                              </div>
+                                            </div>
+                                          </TooltipContent>
+                                        </Tooltip>
+                                      </TooltipProvider>
+                                    </div>
                                   </TableCell>
                                   <TableCell className="text-right text-xs text-slate-500">
                                     {formatCurrencyLocal((item.quota as FullDeviceQuota).urbanPrice)}
