@@ -1109,6 +1109,26 @@ export default function MaintenanceQuotePage() {
                                     <span className="text-lg font-bold text-blue-700">
                                       {formatCurrencyLocal(data.total)}
                                     </span>
+                                    <TooltipProvider>
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
+                                            <Info className="h-4 w-4" />
+                                          </Button>
+                                        </TooltipTrigger>
+                                        <TooltipContent className="max-w-xs">
+                                          <div className="space-y-1">
+                                            <div className="font-medium">价格计算方式：</div>
+                                            <div className="text-xs space-y-1">
+                                              <p>• 价格 = ∑(单台设备价格 × 数量) × 地区系数</p>
+                                              <p>• 单台设备价格 = 基准单价 × SLA系数 × 折旧系数 × 是否在保系数</p>
+                                              <p>• 地区系数：{FULL_REGION_FACTORS[region as keyof typeof FULL_REGION_FACTORS]}</p>
+                                              <p>• 税率：13%增值税</p>
+                                            </div>
+                                          </div>
+                                        </TooltipContent>
+                                      </Tooltip>
+                                    </TooltipProvider>
                                     <Button
                                       variant="ghost"
                                       size="sm"
