@@ -848,14 +848,147 @@ export default function MaintenanceQuotePage() {
                                       </TooltipProvider>
                                     </div>
                                   </TableCell>
+                                  {/* 城区列，添加单价组成Info */}
+                                  <TableCell className="text-right">
+                                    <div className="flex items-center justify-end gap-1">
+                                      {formatCurrencyLocal((item.quota as FullDeviceQuota).cityPrice)}
+                                      <TooltipProvider>
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            <Info className="h-4 w-4 text-slate-400 hover:text-slate-600 cursor-help" />
+                                          </TooltipTrigger>
+                                          <TooltipContent className="max-w-xs">
+                                            <div className="space-y-2">
+                                              <p className="font-semibold">单价组成</p>
+                                              <div className="space-y-1 text-xs">
+                                                <div className="flex justify-between">
+                                                  <span>巡检人工费</span>
+                                                  <span>{formatCurrencyLocal((item.quota as FullDeviceQuota).inspectionLaborFee)}</span>
+                                                </div>
+                                                <div className="flex justify-between">
+                                                  <span>上门费</span>
+                                                  <span>{formatCurrencyLocal((item.quota as FullDeviceQuota).onSiteFeeAnnual)}</span>
+                                                </div>
+                                                <div className="flex justify-between">
+                                                  <span>故障处理费</span>
+                                                  <span>{formatCurrencyLocal((item.quota as FullDeviceQuota).faultHandlingFeeTotal)}</span>
+                                                </div>
+                                                <div className="flex justify-between">
+                                                  <span>工具摊销</span>
+                                                  <span>{formatCurrencyLocal((item.quota as FullDeviceQuota).toolAmortization)}</span>
+                                                </div>
+                                                <div className="flex justify-between">
+                                                  <span>耗材费</span>
+                                                  <span>{formatCurrencyLocal((item.quota as FullDeviceQuota).consumableFee)}</span>
+                                                </div>
+                                                {item.needSparePart && (
+                                                  <div className="flex justify-between">
+                                                    <span>备件准备金</span>
+                                                    <span>{formatCurrencyLocal((item.quota as FullDeviceQuota).sparePartReserve)}</span>
+                                                  </div>
+                                                )}
+                                              </div>
+                                            </div>
+                                          </TooltipContent>
+                                        </Tooltip>
+                                      </TooltipProvider>
+                                    </div>
+                                  </TableCell>
+                                  {/* 市区列，添加单价组成Info */}
                                   <TableCell className="text-right text-xs text-slate-500">
-                                    {formatCurrencyLocal((item.quota as FullDeviceQuota).urbanPrice)}
+                                    <div className="flex items-center justify-end gap-1">
+                                      {formatCurrencyLocal((item.quota as FullDeviceQuota).urbanPrice)}
+                                      <TooltipProvider>
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            <Info className="h-4 w-4 text-slate-400 hover:text-slate-600 cursor-help" />
+                                          </TooltipTrigger>
+                                          <TooltipContent className="max-w-xs">
+                                            <div className="space-y-2">
+                                              <p className="font-semibold">单价组成</p>
+                                              <div className="space-y-1 text-xs">
+                                                <div className="flex justify-between">
+                                                  <span>巡检人工费</span>
+                                                  <span>{formatCurrencyLocal((item.quota as FullDeviceQuota).inspectionLaborFee)}</span>
+                                                </div>
+                                                <div className="flex justify-between">
+                                                  <span>上门费</span>
+                                                  <span>{formatCurrencyLocal((item.quota as FullDeviceQuota).onSiteFeeAnnual)}</span>
+                                                </div>
+                                                <div className="flex justify-between">
+                                                  <span>故障处理费</span>
+                                                  <span>{formatCurrencyLocal((item.quota as FullDeviceQuota).faultHandlingFeeTotal)}</span>
+                                                </div>
+                                                <div className="flex justify-between">
+                                                  <span>工具摊销</span>
+                                                  <span>{formatCurrencyLocal((item.quota as FullDeviceQuota).toolAmortization)}</span>
+                                                </div>
+                                                <div className="flex justify-between">
+                                                  <span>耗材费</span>
+                                                  <span>{formatCurrencyLocal((item.quota as FullDeviceQuota).consumableFee)}</span>
+                                                </div>
+                                                {item.needSparePart && (
+                                                  <div className="flex justify-between">
+                                                    <span>备件准备金</span>
+                                                    <span>{formatCurrencyLocal((item.quota as FullDeviceQuota).sparePartReserve)}</span>
+                                                  </div>
+                                                )}
+                                              </div>
+                                            </div>
+                                          </TooltipContent>
+                                        </Tooltip>
+                                      </TooltipProvider>
+                                    </div>
                                   </TableCell>
                                 </>
                               )}
-                              {/* 旧版：只显示城区报价 */}
+                              {/* 旧版：只显示城区报价，添加单价组成Info */}
                               {!useFullData && (
-                                <TableCell>{formatCurrencyLocal(item.quota.cityPrice)}</TableCell>
+                                <TableCell>
+                                  <div className="flex items-center gap-1">
+                                    {formatCurrencyLocal(item.quota.cityPrice)}
+                                    <TooltipProvider>
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <Info className="h-4 w-4 text-slate-400 hover:text-slate-600 cursor-help" />
+                                        </TooltipTrigger>
+                                        <TooltipContent className="max-w-xs">
+                                          <div className="space-y-2">
+                                            <p className="font-semibold">单价组成</p>
+                                            <div className="space-y-1 text-xs">
+                                              <div className="flex justify-between">
+                                                <span>巡检人工费</span>
+                                                <span>{formatCurrencyLocal((item.quota as FullDeviceQuota).inspectionLaborFee)}</span>
+                                              </div>
+                                              <div className="flex justify-between">
+                                                <span>上门费</span>
+                                                <span>{formatCurrencyLocal((item.quota as FullDeviceQuota).onSiteFeeAnnual)}</span>
+                                              </div>
+                                              <div className="flex justify-between">
+                                                <span>故障处理费</span>
+                                                <span>{formatCurrencyLocal((item.quota as FullDeviceQuota).faultHandlingFeeTotal)}</span>
+                                              </div>
+                                              <div className="flex justify-between">
+                                                <span>工具摊销</span>
+                                                <span>{formatCurrencyLocal((item.quota as FullDeviceQuota).toolAmortization)}</span>
+                                              </div>
+                                              <div className="flex justify-between">
+                                                <span>耗材费</span>
+                                                <span>{formatCurrencyLocal((item.quota as FullDeviceQuota).consumableFee)}</span>
+                                              </div>
+                                              {item.needSparePart && (
+                                                <div className="flex justify-between">
+                                                  <span>备件准备金</span>
+                                                  <span>{formatCurrencyLocal((item.quota as FullDeviceQuota).sparePartReserve)}</span>
+                                                </div>
+                                              )}
+                                            </div>
+                                          </div>
+                                        </TooltipContent>
+                                      </Tooltip>
+                                    </TooltipProvider>
+                                  </div>
+                                </TableCell>
                               )}
                               <TableCell className="font-medium">
                                 {formatCurrencyLocal(item.quota.cityPrice * item.quantity)}
