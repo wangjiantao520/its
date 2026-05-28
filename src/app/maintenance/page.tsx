@@ -220,6 +220,7 @@ export default function MaintenanceQuotePage() {
   const handleUpdateDepreciation = (index: number, level: string) => {
     const newDevices = [...selectedDevices];
     newDevices[index].depreciationLevel = level as DepreciationLevel;
+    newDevices[index].depreciationGrade = level;
     setSelectedDevices(newDevices);
   };
 
