@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import * as XLSX from 'xlsx';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -14,6 +15,7 @@ import { Badge } from '@/components/ui/badge';
 import { 
   Calculator, 
   FileSpreadsheet, 
+  FileText,
   Download, 
   Plus, 
   Trash2, 
@@ -326,6 +328,16 @@ export default function MaintenanceQuotePage() {
     setSelectedDevices(newDevices);
   };
 
+  // 格式化金额（使用新的格式化函数）
+  const formatCurrencyLocal = (amount: number) => {
+    return new Intl.NumberFormat('zh-CN', {
+      style: 'currency',
+      currency: 'CNY',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(amount);
+  };
+
   // 移除设备
   const handleRemoveDevice = (index: number) => {
     const newDevices = [...selectedDevices];
@@ -384,7 +396,7 @@ export default function MaintenanceQuotePage() {
     }
   }, [contractYears, selectedDevices]);
 
-  // 导出报价单 - 简化版本
+  // 导出报价单 - 简化版本（导出Word）
   const handleExportQuote = () => {
     if (!quoteResult || selectedDevices.length === 0) return;
 
@@ -460,6 +472,103 @@ export default function MaintenanceQuotePage() {
     downloadAsWord(html, `维保报价单_${quoteNumber}.doc`);
   };
 
+  // 导出Excel
+  const handleExportExcel = () => {
+    if ((!quoteResult && !fullQuoteResult) || selectedDevices.length === 0) return;
+
+    // 生成报价单号
+    const timestamp = Date.now();
+    const quoteNumber = `WB${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}${String(new Date().getDate()).padStart(2, '0')}${String(timestamp % 1000).padStart(3, '0')}`;
+
+    // 1. 设备清单Sheet
+    const equipmentData = selectedDevices.map((device, index) => ({
+      '序号': index + 1,
+      '设备名称': device.quota.name,
+      '规格型号': device.quota.model,
+      '数量': device.quantity,
+      '成新率': device.depreciationLevel,
+      '设备分档': device.deviceGrade,
+      '在保状态': device.inWarranty ? '在保' : '过保',
+      '需要备件': device.needSparePart ? '是' : '否',
+      '合同年限': `${device.contractYears}年`,
+      '运维团队经验': device.slaConfig?.teamExperience || '-',
+      '安全等级': device.slaConfig?.securityLevel || '-',
+      '支持方式': device.slaConfig?.supportMode || '-',
+      '故障恢复时间': device.slaConfig?.faultRecoveryTime || '-',
+      '到场时间': device.slaConfig?.arrivalTime || '-',
+      '响应时间': device.slaConfig?.responseTime || '-',
+      '服务时间': device.slaConfig?.serviceTime || '-',
+    }));
+
+    // 2. 报价汇总Sheet
+    let summaryData: any[] = [];
+    if (fullQuoteResult) {
+      // 从deviceItems中汇总数据
+      const totalInspection = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.inspectionFee * item.quantity, 0);
+      const totalOnSite = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.onSiteFee * item.quantity, 0);
+      const totalFaultHandling = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.faultHandlingFee * item.quantity, 0);
+      const totalTools = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.toolAmortization * item.quantity, 0);
+      const totalConsumables = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.consumableFee * item.quantity, 0);
+      const totalSpareParts = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.sparePartReserve * item.quantity, 0);
+      
+      summaryData = [
+        { '项目': '客户名称', '内容': clientName || '-' },
+        { '项目': '项目名称', '内容': projectName || '-' },
+        { '项目': '联系人', '内容': contactPerson || '-' },
+        { '项目': '联系电话', '内容': contactPhone || '-' },
+        { '项目': '报价日期', '内容': quoteDate || '-' },
+        { '项目': '合同年限', '内容': `${contractYears}年` },
+        { '项目': '设备总台数', '内容': selectedDevices.reduce((sum, d) => sum + d.quantity, 0) },
+        { '项目': '', '内容': '' },
+        { '项目': '费用明细', '内容': '' },
+        { '项目': '巡检费合计', '内容': formatCurrencyLocal(totalInspection) },
+        { '项目': '上门费合计', '内容': formatCurrencyLocal(totalOnSite) },
+        { '项目': '故障处理费合计', '内容': formatCurrencyLocal(totalFaultHandling) },
+        { '项目': '工具仪表摊销', '内容': formatCurrencyLocal(totalTools) },
+        { '项目': '耗材费合计', '内容': formatCurrencyLocal(totalConsumables) },
+        { '项目': '备件风险准备金', '内容': formatCurrencyLocal(totalSpareParts) },
+        { '项目': '', '内容': '' },
+        { '项目': '小计（不含税）', '内容': formatCurrencyLocal(fullQuoteResult.subtotalAfterDiscount) },
+        { '项目': '税额', '内容': formatCurrencyLocal(fullQuoteResult.taxAmount) },
+        { '项目': '', '内容': '' },
+        { '项目': '第一年总价', '内容': formatCurrencyLocal(fullQuoteResult.totalByYear[1]) },
+        { '项目': '第二年总价', '内容': formatCurrencyLocal(fullQuoteResult.totalByYear[2]) },
+        { '项目': '第三年总价', '内容': formatCurrencyLocal(fullQuoteResult.totalByYear[3]) },
+      ];
+    } else if (quoteResult) {
+      summaryData = [
+        { '项目': '客户名称', '内容': clientName || '-' },
+        { '项目': '项目名称', '内容': projectName || '-' },
+        { '项目': '联系人', '内容': contactPerson || '-' },
+        { '项目': '联系电话', '内容': contactPhone || '-' },
+        { '项目': '报价日期', '内容': quoteDate || '-' },
+        { '项目': '合同年限', '内容': `${contractYears}年` },
+        { '项目': '设备总台数', '内容': selectedDevices.reduce((sum, d) => sum + d.quantity, 0) },
+        { '项目': '', '内容': '' },
+        { '项目': '小计（不含税）', '内容': formatCurrencyLocal((quoteResult as any).subtotal || 0) },
+        { '项目': '税额', '内容': formatCurrencyLocal(quoteResult.taxAmount) },
+        { '项目': '', '内容': '' },
+        { '项目': '第一年总价', '内容': formatCurrencyLocal(quoteResult.totalByYear[1]) },
+        { '项目': '第二年总价', '内容': formatCurrencyLocal(quoteResult.totalByYear[2]) },
+        { '项目': '第三年总价', '内容': formatCurrencyLocal(quoteResult.totalByYear[3]) },
+      ];
+    }
+
+    // 创建Workbook
+    const workbook = XLSX.utils.book_new();
+    
+    // 添加设备清单Sheet
+    const equipmentSheet = XLSX.utils.json_to_sheet(equipmentData);
+    XLSX.utils.book_append_sheet(workbook, equipmentSheet, '设备清单');
+    
+    // 添加报价汇总Sheet
+    const summarySheet = XLSX.utils.json_to_sheet(summaryData);
+    XLSX.utils.book_append_sheet(workbook, summarySheet, '报价汇总');
+    
+    // 下载文件
+    XLSX.writeFile(workbook, `维保报价单_${quoteNumber}.xlsx`);
+  };
+
   // 自动计算
   useEffect(() => {
     if (selectedDevices.length > 0) {
@@ -470,16 +579,6 @@ export default function MaintenanceQuotePage() {
     }
   }, [selectedDevices, slaConfig, contractYears, region, useFullData]);
 
-  // 格式化金额（使用新的格式化函数）
-  const formatCurrencyLocal = (amount: number) => {
-    return new Intl.NumberFormat('zh-CN', {
-      style: 'currency',
-      currency: 'CNY',
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(amount);
-  };
-
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -488,11 +587,11 @@ export default function MaintenanceQuotePage() {
           <p className="text-slate-500 mt-1">基于设备维保定额库的专业报价系统</p>
         </div>
         <div className="flex gap-3">
-          <Button variant="outline" className="flex items-center gap-2">
+          <Button variant="outline" className="flex items-center gap-2" onClick={handleExportExcel}>
             <FileSpreadsheet className="h-4 w-4" />
             导出Excel
           </Button>
-          <Button className="flex items-center gap-2 bg-blue-700 hover:bg-blue-800">
+          <Button className="flex items-center gap-2 bg-blue-700 hover:bg-blue-800" onClick={handleCalculate}>
             <Calculator className="h-4 w-4" />
             计算报价
           </Button>
@@ -1492,8 +1591,16 @@ export default function MaintenanceQuotePage() {
                         </Button>
                         <Button 
                           variant="outline" 
-                          className="flex-1 border-green-600 text-green-700 hover:bg-green-50"
+                          className="flex-1 border-purple-600 text-purple-700 hover:bg-purple-50"
                           onClick={handleExportQuote}
+                        >
+                          <FileText className="h-4 w-4 mr-2" />
+                          导出Word
+                        </Button>
+                        <Button 
+                          variant="outline" 
+                          className="flex-1 border-green-600 text-green-700 hover:bg-green-50"
+                          onClick={handleExportExcel}
                         >
                           <FileSpreadsheet className="h-4 w-4 mr-2" />
                           导出Excel
