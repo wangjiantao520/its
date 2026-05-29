@@ -77,6 +77,7 @@ import {
   SERVICE_TIME_FACTORS,
   ARRIVAL_TIME_FACTORS,
   RESPONSE_TIME_FACTORS,
+  calculateSLATotalFactor,
   type FullDeviceQuota,
 } from '@/lib/device-quota-full';
 import { getDepreciationFactor, type DeviceGrade, type DepreciationGrade } from '@/lib/device-grade';
@@ -1166,8 +1167,19 @@ export default function MaintenanceQuotePage() {
                                       <div className="font-medium mb-2">价格构成说明：</div>
                                       <div className="text-slate-600">
                                         <p><strong>1. 地区系数：</strong>该地区系数为 {FULL_REGION_FACTORS[region as keyof typeof FULL_REGION_FACTORS]}，根据地区服务成本计算</p>
-                                        <p><strong>2. 计算方式：</strong>价格 = ∑(单台设备价格 × 数量) × 地区系数 × SLA系数</p>
-                                        <p><strong>3. 税率：</strong>按国家规定的13%增值税率计算</p>
+                                        <p><strong>2. SLA系数构成：</strong></p>
+                                        <div className="ml-4 space-y-1 text-xs">
+                                          <p>• 团队经验：{slaConfig.teamExperience} (×{slaConfig.teamExperience})</p>
+                                          <p>• 安全等级：{slaConfig.securityLevel} (×{slaConfig.securityLevel})</p>
+                                          <p>• 支持方式：{slaConfig.supportMode} (×{slaConfig.supportMode})</p>
+                                          <p>• 故障恢复时间：{slaConfig.faultRecoveryTime} (×{slaConfig.faultRecoveryTime})</p>
+                                          <p>• 服务时间：{slaConfig.serviceTime} (×{SERVICE_TIME_FACTORS[slaConfig.serviceTime]})</p>
+                                          <p>• 到场时间：{slaConfig.arrivalTime} (×{ARRIVAL_TIME_FACTORS[slaConfig.arrivalTime]})</p>
+                                          <p>• 响应时间：{slaConfig.responseTime} (×{RESPONSE_TIME_FACTORS[slaConfig.responseTime]})</p>
+                                          <p><strong>• SLA总系数：×{calculateSLATotalFactor(slaConfig).toFixed(2)}</strong></p>
+                                        </div>
+                                        <p><strong>3. 计算方式：</strong>价格 = ∑(单台设备价格 × 数量) × 地区系数 × SLA系数</p>
+                                        <p><strong>4. 税率：</strong>按国家规定的13%增值税率计算</p>
                                       </div>
                                       <div className="mt-2 pt-2 border-t">
                                         <div className="text-xs text-slate-500">
