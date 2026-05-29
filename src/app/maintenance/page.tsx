@@ -45,7 +45,6 @@ import {
   MAINTENANCE_LEVEL_CONFIG,
   ENGINEER_PRICES,
   DEPRECIATION_FACTORS,
-  SERVICE_TIME_FACTORS,
   REGION_FACTORS,
   MULTI_YEAR_DISCOUNTS,
   EngineerLevel,
@@ -69,10 +68,15 @@ import {
   DepreciationLevel,
   RegionType,
   ServiceTimeType,
+  ArrivalTimeType,
+  ResponseTimeType,
   SLAConfig,
   DEFAULT_SLA_CONFIG,
   FULL_MAINTENANCE_LEVEL_CONFIG,
   REGION_FACTORS as FULL_REGION_FACTORS,
+  SERVICE_TIME_FACTORS,
+  ARRIVAL_TIME_FACTORS,
+  RESPONSE_TIME_FACTORS,
   type FullDeviceQuota,
 } from '@/lib/device-quota-full';
 import { getDepreciationFactor, type DeviceGrade, type DepreciationGrade } from '@/lib/device-grade';
@@ -1493,6 +1497,44 @@ export default function MaintenanceQuotePage() {
                       ))}
                     </div>
                   </div>
+
+                  <div className="space-y-2">
+                    <Label>到场时间</Label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {(['2小时', '8小时'] as ArrivalTimeType[]).map((type) => (
+                        <Button
+                          key={type}
+                          variant={slaConfig.arrivalTime === type ? 'default' : 'outline'}
+                          onClick={() => setSlaConfig({ ...slaConfig, arrivalTime: type })}
+                          className={slaConfig.arrivalTime === type ? 'bg-blue-700' : ''}
+                        >
+                          {type}
+                          <span className="ml-1 text-xs opacity-70">
+                            (×{ARRIVAL_TIME_FACTORS[type]})
+                          </span>
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>响应时间</Label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {(['10分钟', '30分钟'] as ResponseTimeType[]).map((type) => (
+                        <Button
+                          key={type}
+                          variant={slaConfig.responseTime === type ? 'default' : 'outline'}
+                          onClick={() => setSlaConfig({ ...slaConfig, responseTime: type })}
+                          className={slaConfig.responseTime === type ? 'bg-blue-700' : ''}
+                        >
+                          {type}
+                          <span className="ml-1 text-xs opacity-70">
+                            (×{RESPONSE_TIME_FACTORS[type]})
+                          </span>
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               </CardContent>
               <CardFooter className="border-t bg-slate-50">
@@ -1501,7 +1543,7 @@ export default function MaintenanceQuotePage() {
                     <span className="text-sm text-slate-500">当前SLA总系数：</span>
                     <span className="ml-2 text-lg font-bold text-blue-700">
                       {(slaConfig.teamExperience * slaConfig.securityLevel * slaConfig.supportMode * 
-                        slaConfig.faultRecoveryTime * slaConfig.arrivalTime * slaConfig.responseTime * 
+                        slaConfig.faultRecoveryTime * ARRIVAL_TIME_FACTORS[slaConfig.arrivalTime] * RESPONSE_TIME_FACTORS[slaConfig.responseTime] * 
                         SERVICE_TIME_FACTORS[slaConfig.serviceTime]).toFixed(4)}
                     </span>
                   </div>

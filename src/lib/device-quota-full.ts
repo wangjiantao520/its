@@ -7,6 +7,10 @@ export type DepreciationLevel = '全新' | '较新' | '一般' | '偏旧' | '老
 
 export type ServiceTimeType = '5×8' | '7×8' | '7×24';
 
+export type ArrivalTimeType = '2小时' | '8小时';
+
+export type ResponseTimeType = '10分钟' | '30分钟';
+
 export type RegionType = '城区' | '市区县城郊区' | '乡镇' | '农村';
 
 // 完整的设备定额数据结构（基于Excel的全部65列）
@@ -189,6 +193,18 @@ export const SERVICE_TIME_FACTORS = {
   '7×24': 1.6,
 };
 
+// 到场时间系数
+export const ARRIVAL_TIME_FACTORS = {
+  '2小时': 1.2,
+  '8小时': 1.0,
+};
+
+// 响应时间系数
+export const RESPONSE_TIME_FACTORS = {
+  '10分钟': 1.1,
+  '30分钟': 1.0,
+};
+
 // 地区系数
 export const REGION_FACTORS = {
   '城区': 1.0,
@@ -203,8 +219,8 @@ export interface SLAConfig {
   securityLevel: number; // 安全等级系数 (0.9/0.95/1.0/1.05/1.1)
   supportMode: number; // 支持方式系数 (0.89/1.0/1.1)
   faultRecoveryTime: number; // 故障恢复时间系数 (1.2/1.0/0.9/0.85)
-  arrivalTime: number; // 到场时间系数 (1.2/1.0)
-  responseTime: number; // 响应时间系数 (1.1/1.0)
+  arrivalTime: ArrivalTimeType; // 到场时间 ('2小时'/'8小时')
+  responseTime: ResponseTimeType; // 响应时间 ('10分钟'/'30分钟')
   serviceTime: ServiceTimeType; // 服务时间
 }
 
@@ -214,16 +230,18 @@ export const DEFAULT_SLA_CONFIG: SLAConfig = {
   securityLevel: 0.95, // 第二级
   supportMode: 1.0, // 现场支持为主
   faultRecoveryTime: 1.0, // ≤24h
-  arrivalTime: 1.2, // 2小时
-  responseTime: 1.1, // 10分钟
+  arrivalTime: '2小时', // 2小时
+  responseTime: '10分钟', // 10分钟
   serviceTime: '5×8',
 };
 
 // 计算SLA总系数
 export function calculateSLATotalFactor(config: SLAConfig): number {
   const serviceTimeFactor = SERVICE_TIME_FACTORS[config.serviceTime];
+  const arrivalTimeFactor = ARRIVAL_TIME_FACTORS[config.arrivalTime];
+  const responseTimeFactor = RESPONSE_TIME_FACTORS[config.responseTime];
   return config.teamExperience * config.securityLevel * config.supportMode * 
-         config.faultRecoveryTime * config.arrivalTime * config.responseTime * serviceTimeFactor;
+         config.faultRecoveryTime * arrivalTimeFactor * responseTimeFactor * serviceTimeFactor;
 }
 
 // 批量折扣（≥50台）
