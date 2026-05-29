@@ -1,6 +1,7 @@
 import type { FullDeviceQuota } from './device-quota-full';
 
-export const FULL_DEVICE_QUOTAS = [
+// 设备定额库数据（支持动态添加）
+let deviceQuotaList: FullDeviceQuota[] = [
   {
     "id": "device-001",
     "serialNumber": 1,
@@ -8982,13 +8983,115 @@ export const FULL_DEVICE_QUOTAS = [
   }
 ] as FullDeviceQuota[];
 
+// 导出设备定额库
+export const FULL_DEVICE_QUOTAS = deviceQuotaList;
+
+// 获取设备分类
 export function getDeviceCategories() {
-  const categories = new Set(FULL_DEVICE_QUOTAS.map(d => d.category));
+  const categories = new Set(deviceQuotaList.map(d => d.category));
   return Array.from(categories);
 }
 
+// 根据分类获取设备
 export function getDevicesByCategory(category: string) {
-  return FULL_DEVICE_QUOTAS.filter(d => d.category === category);
+  return deviceQuotaList.filter(d => d.category === category);
+}
+
+// 添加新设备到定额库
+export function addDeviceToQuota(device: Partial<FullDeviceQuota> & Pick<FullDeviceQuota, 'category' | 'name' | 'model' | 'level' | 'levelName' | 'engineerLevel'>): FullDeviceQuota {
+  // 构建完整的设备数据，设置默认值
+  const newDevice: FullDeviceQuota = {
+    id: `device-${Date.now()}`,
+    serialNumber: deviceQuotaList.length + 1,
+    dataSource: '审核通过导入',
+    isActive: true,
+    // 基础信息（必填）
+    category: device.category,
+    name: device.name,
+    model: device.model,
+    level: device.level,
+    levelName: device.levelName,
+    engineerLevel: device.engineerLevel,
+    // 设备相关（有默认值）
+    deviceCount: device.deviceCount || 1,
+    needSparePart: device.needSparePart || false,
+    // SLA系数（有默认值）
+    teamExperienceWithFactor: device.teamExperienceWithFactor || 1.2,
+    teamExperienceSimilarFactor: device.teamExperienceSimilarFactor || 1.0,
+    teamExperienceWithoutFactor: device.teamExperienceWithoutFactor || 0.8,
+    securityLevel1Factor: device.securityLevel1Factor || 0.9,
+    securityLevel2Factor: device.securityLevel2Factor || 0.95,
+    securityLevel3Factor: device.securityLevel3Factor || 1.0,
+    securityLevel4Factor: device.securityLevel4Factor || 1.05,
+    securityLevel5Factor: device.securityLevel5Factor || 1.1,
+    supportModeOffsiteFactor: device.supportModeOffsiteFactor || 0.89,
+    supportModeOnsiteFactor: device.supportModeOnsiteFactor || 1.0,
+    supportModePureOnsiteFactor: device.supportModePureOnsiteFactor || 1.1,
+    faultRecoveryTime4hFactor: device.faultRecoveryTime4hFactor || 1.2,
+    faultRecoveryTime24hFactor: device.faultRecoveryTime24hFactor || 1.0,
+    faultRecoveryTime48hFactor: device.faultRecoveryTime48hFactor || 0.9,
+    faultRecoveryTime72hFactor: device.faultRecoveryTime72hFactor || 0.85,
+    arrivalTime2hFactor: device.arrivalTime2hFactor || 1.2,
+    arrivalTime8hFactor: device.arrivalTime8hFactor || 1.0,
+    responseTime10minFactor: device.responseTime10minFactor || 1.1,
+    responseTime30minFactor: device.responseTime30minFactor || 1.0,
+    serviceTime5x8Factor: device.serviceTime5x8Factor || 1.0,
+    serviceTime7x8Factor: device.serviceTime7x8Factor || 1.2,
+    serviceTime7x24Factor: device.serviceTime7x24Factor || 1.6,
+    slaTotalFactor: device.slaTotalFactor || 1.5048,
+    // 巡检费相关（有默认值）
+    inspectionLaborFee: device.inspectionLaborFee || 30,
+    inspectionPersonCount: device.inspectionPersonCount || 1,
+    inspectionDuration: device.inspectionDuration || 10,
+    inspectionTimesPerYear: device.inspectionTimesPerYear || 4,
+    inspectionContent: device.inspectionContent || '设备常规巡检',
+    inspectionFeeAnnual: device.inspectionFeeAnnual || (device.inspectionLaborFee || 30) * (device.inspectionTimesPerYear || 4),
+    // 上门费相关（有默认值）
+    onSiteFeeAnnual: device.onSiteFeeAnnual || 50,
+    trafficFee: device.trafficFee || 20,
+    singleTripDuration: device.singleTripDuration || 15,
+    connectionDuration: device.connectionDuration || 2,
+    onSiteConnectionLaborFee: device.onSiteConnectionLaborFee || 25,
+    // 故障处理费相关（有默认值）
+    faultHandlingFeeTotal: device.faultHandlingFeeTotal || 80,
+    faultHandlingLaborFee: device.faultHandlingLaborFee || (device.faultHandlingFeeTotal || 80) * 0.8,
+    inWarrantyFactor: device.inWarrantyFactor || 1.0,
+    depreciationLevelDescription: device.depreciationLevelDescription || '全新',
+    baseFaultCount: device.baseFaultCount || 2,
+    depreciationFactor: device.depreciationFactor || 1.0,
+    faultServiceCount: device.faultServiceCount || 2,
+    faultHandlerCount: device.faultHandlerCount || 1,
+    faultHandlingDuration: device.faultHandlingDuration || 60,
+    // 工具仪表与耗材（有默认值）
+    toolAmortization: device.toolAmortization || 2,
+    toolDetails: device.toolDetails || '标准工具套装',
+    consumableFee: device.consumableFee || 5,
+    consumableDetails: device.consumableDetails || '常规耗材',
+    // 备件相关（有默认值）
+    sparePartReserve: device.sparePartReserve || 100,
+    sparePartBasis: device.sparePartBasis || '标准备件储备',
+    // 报价相关（有默认值）
+    cityPrice: device.cityPrice || 200,
+    faultHandlingFeeDetail: device.faultHandlingFeeDetail || 150,
+    bulkDiscountNote: device.bulkDiscountNote || '',
+    serviceTimeNote: device.serviceTimeNote || '',
+    year1TotalPrice: device.year1TotalPrice || (device.cityPrice || 200),
+    year2TotalPrice: device.year2TotalPrice || (device.cityPrice || 200) * 1.9,
+    year3TotalPrice: device.year3TotalPrice || (device.cityPrice || 200) * 2.7,
+    urbanPrice: device.urbanPrice || (device.cityPrice || 200) * 1.1,
+    townPrice: device.townPrice || (device.cityPrice || 200) * 1.5,
+    ruralPrice: device.ruralPrice || (device.cityPrice || 200) * 2.0,
+    coreMaintenanceContent: device.coreMaintenanceContent || '设备维保服务',
+    unit: device.unit || '台',
+  };
+  
+  deviceQuotaList.push(newDevice);
+  return newDevice;
+}
+
+// 获取当前最大序号
+export function getNextSerialNumber(): number {
+  return deviceQuotaList.length + 1;
 }
 
 export function getDeviceById(id: string) {
