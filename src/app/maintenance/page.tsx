@@ -1402,6 +1402,14 @@ export default function MaintenanceQuotePage() {
                           <Button
                             variant="outline"
                             size="sm"
+                            onClick={() => setDatabasePage(1)}
+                            disabled={databasePage === 1}
+                          >
+                            首页
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
                             onClick={() => setDatabasePage(Math.max(1, databasePage - 1))}
                             disabled={databasePage === 1}
                           >
@@ -1443,6 +1451,14 @@ export default function MaintenanceQuotePage() {
                             disabled={databasePage === totalPages}
                           >
                             下一页
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setDatabasePage(totalPages)}
+                            disabled={databasePage === totalPages}
+                          >
+                            末页
                           </Button>
                         </div>
                       </div>
