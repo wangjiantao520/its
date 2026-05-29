@@ -199,12 +199,12 @@ export function calculateFullMaintenanceQuote(
   const subtotalAfterDiscount = deviceResults.reduce((sum, item) => sum + item.totalAfterDiscount, 0);
   const bulkDiscountAmount = subtotalBeforeDiscount - (subtotalAfterDiscount / deviceResults.reduce((sum, item) => sum + (item.yearDiscountFactor * item.contractYears), 0));
   
-  const calculateRegionTotal = (regionFactor: number) => {
+  const calculateRegionTotal = (regionType: RegionType) => {
     const subtotal = deviceResults.reduce((sum, item) => {
       const regionPrice = 
-        primaryRegion === '城区' ? item.cityPrice :
-        primaryRegion === '市区县城郊区' ? item.urbanPrice :
-        primaryRegion === '乡镇' ? item.townPrice :
+        regionType === '城区' ? item.cityPrice :
+        regionType === '市区县城郊区' ? item.urbanPrice :
+        regionType === '乡镇' ? item.townPrice :
         item.ruralPrice;
       return sum + regionPrice * item.quantity * item.bulkDiscountFactor * item.yearDiscountFactor * item.contractYears;
     }, 0);
@@ -225,10 +225,10 @@ export function calculateFullMaintenanceQuote(
       3: 0,
     },
     totalByRegion: {
-      '城区': calculateRegionTotal(REGION_FACTORS['城区']),
-      '市区县城郊区': calculateRegionTotal(REGION_FACTORS['市区县城郊区']),
-      '乡镇': calculateRegionTotal(REGION_FACTORS['乡镇']),
-      '农村': calculateRegionTotal(REGION_FACTORS['农村']),
+      '城区': calculateRegionTotal('城区'),
+      '市区县城郊区': calculateRegionTotal('市区县城郊区'),
+      '乡镇': calculateRegionTotal('乡镇'),
+      '农村': calculateRegionTotal('农村'),
     },
     taxRate,
     taxAmount: subtotalAfterDiscount * taxRate,
