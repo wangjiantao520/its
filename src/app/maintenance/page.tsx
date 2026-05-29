@@ -1049,6 +1049,8 @@ export default function MaintenanceQuotePage() {
                         <TableHeader>
                           <TableRow>
                             <TableHead>设备名称</TableHead>
+                            <TableHead>成新率</TableHead>
+                            <TableHead>设备分档</TableHead>
                             <TableHead>数量</TableHead>
                             <TableHead>巡检时长（分钟）</TableHead>
                             <TableHead>巡检费</TableHead>
@@ -1067,6 +1069,8 @@ export default function MaintenanceQuotePage() {
                             fullQuoteResult.deviceItems.map((item, index) => (
                               <TableRow key={index}>
                                 <TableCell className="font-medium">{item.quota.name}</TableCell>
+                                <TableCell>{item.depreciationLevel}</TableCell>
+                                <TableCell>{item.deviceGrade}</TableCell>
                                 <TableCell>{item.quantity}</TableCell>
                                 <TableCell>{(item as any).inspectionDuration || item.quota.inspectionDuration}</TableCell>
                                 <TableCell>{formatCurrencyLocal(item.inspectionFee)}</TableCell>
@@ -1084,6 +1088,8 @@ export default function MaintenanceQuotePage() {
                             quoteResult.deviceItems.map((item, index) => (
                               <TableRow key={index}>
                                 <TableCell className="font-medium">{item.quota.name}</TableCell>
+                                <TableCell>{(item as any).depreciationLevel || '-'}</TableCell>
+                                <TableCell>{(item as any).deviceGrade || '-'}</TableCell>
                                 <TableCell>{item.quantity}</TableCell>
                                 <TableCell>{(item as any).inspectionDuration || item.quota.inspectionDuration}</TableCell>
                                 <TableCell>{formatCurrencyLocal(item.inspectionFee)}</TableCell>
