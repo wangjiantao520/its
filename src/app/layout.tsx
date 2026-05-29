@@ -4,6 +4,7 @@ import './globals.css';
 import { AppLayout } from '@/components/layout/app-layout';
 import { FontPreload } from '@/components/font-preload';
 import { UserProvider } from '@/contexts/user-context';
+import { ThemeProvider } from '@/contexts/theme-context';
 import { AuthProtected } from '@/components/auth-protected';
 
 export const metadata: Metadata = {
@@ -28,11 +29,13 @@ export default function RootLayout({
       <body className={`antialiased`}>
         <FontPreload />
         {isDev && <Inspector />}
-        <UserProvider>
-          <AuthProtected>
-            <AppLayout>{children}</AppLayout>
-          </AuthProtected>
-        </UserProvider>
+        <ThemeProvider>
+          <UserProvider>
+            <AuthProtected>
+              <AppLayout>{children}</AppLayout>
+            </AuthProtected>
+          </UserProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

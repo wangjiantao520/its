@@ -12,6 +12,8 @@ import {
   CheckSquare,
   User,
   LogOut,
+  Sun,
+  Moon,
 } from 'lucide-react';
 import { usePathname, useRouter } from 'next/navigation';
 import {
@@ -28,6 +30,7 @@ import {
 } from '@/components/ui/sidebar';
 import Link from 'next/link';
 import { useUser } from '@/contexts/user-context';
+import { useTheme } from '@/contexts/theme-context';
 import { UserRole, Role } from '@/lib/roles';
 import { Button } from '@/components/ui/button';
 
@@ -93,6 +96,7 @@ export function AppSidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const { user, logout, isLoggedIn } = useUser();
+  const { theme, toggleTheme } = useTheme();
 
   // 如果未登录，不显示侧边栏
   if (!isLoggedIn || !user) {
@@ -113,10 +117,22 @@ export function AppSidebar() {
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground">
             <FileText className="h-5 w-5" />
           </div>
-          <div>
+          <div className="flex-1">
             <h1 className="text-lg font-semibold">工程报价系统</h1>
             <p className="text-xs text-muted-foreground">宁德移动ICT项目</p>
           </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={toggleTheme}
+            className="h-8 w-8"
+          >
+            {theme === 'dark' ? (
+              <Sun className="h-4 w-4" />
+            ) : (
+              <Moon className="h-4 w-4" />
+            )}
+          </Button>
         </div>
       </SidebarHeader>
       <SidebarContent>
@@ -147,8 +163,8 @@ export function AppSidebar() {
             </div>
             <span className={`text-xs px-2 py-1 rounded-full ${
               user.role === 'admin' 
-                ? 'bg-purple-100 text-purple-700' 
-                : 'bg-blue-100 text-blue-700'
+                ? 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300' 
+                : 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300'
             }`}>
               {user.role === 'admin' ? '管理员' : 'ITS成员'}
             </span>
