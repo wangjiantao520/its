@@ -167,6 +167,10 @@ export default function MaintenanceQuotePage() {
   // 价格详情展开状态
   const [expandedRegion, setExpandedRegion] = useState<string | null>(null);
 
+  // 设备定额库分页状态
+  const [databasePage, setDatabasePage] = useState(1);
+  const ITEMS_PER_PAGE = 10;
+
   // 添加设备（支持新老两种数据结构）
   const handleAddDevice = (quota: DeviceQuota | FullDeviceQuota) => {
     const existing = selectedDevices.find(d => d.quota.id === quota.id);
@@ -1282,90 +1286,170 @@ export default function MaintenanceQuotePage() {
               <CardDescription>政企设备维保定额标准数据库</CardDescription>
             </CardHeader>
             <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>设备分类</TableHead>
-                    <TableHead>设备名称</TableHead>
-                    <TableHead>规格型号</TableHead>
-                    <TableHead>维保分档</TableHead>
-                    <TableHead>工程师等级</TableHead>
-                    <TableHead className="text-right">城区报价</TableHead>
-                    <TableHead>核心维保内容</TableHead>
-                    <TableHead className="w-12"></TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {useFullData ? (
-                    // 新版：使用完整设备数据
-                    FULL_DEVICE_QUOTAS.map((quota) => (
-                      <TableRow key={quota.id}>
-                        <TableCell className="font-medium">{quota.category}</TableCell>
-                        <TableCell>{quota.name}</TableCell>
-                        <TableCell className="text-slate-500">{quota.model}</TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
-                            {quota.level}档 - {quota.levelName}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>{quota.engineerLevel}</TableCell>
-                        <TableCell className="text-right">
-                          <div className="space-y-1">
-                            <div className="font-medium text-blue-700">
-                              {formatCurrencyLocal(quota.cityPrice)}
-                            </div>
-                            <div className="text-xs text-slate-500">
-                              市区: {formatCurrencyLocal(quota.urbanPrice)}
-                            </div>
+              {(() => {
+                // 获取要显示的数据
+                const displayData = useFullData 
+                  ? FULL_DEVICE_QUOTAS 
+                  : FULL_DEVICE_QUOTAS.filter(d => selectedCategories.includes(d.category));
+                
+                // 计算分页
+                const totalPages = Math.ceil(displayData.length / ITEMS_PER_PAGE);
+                const startIndex = (databasePage - 1) * ITEMS_PER_PAGE;
+                const endIndex = startIndex + ITEMS_PER_PAGE;
+                const currentPageData = displayData.slice(startIndex, endIndex);
+                
+                return (
+                  <>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="w-16 text-center">序号</TableHead>
+                          <TableHead>设备分类</TableHead>
+                          <TableHead>设备名称</TableHead>
+                          <TableHead>规格型号</TableHead>
+                          <TableHead>维保分档</TableHead>
+                          <TableHead>工程师等级</TableHead>
+                          <TableHead className="text-right">城区报价</TableHead>
+                          <TableHead>核心维保内容</TableHead>
+                          <TableHead className="w-12"></TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {useFullData ? (
+                          // 新版：使用完整设备数据
+                          currentPageData.map((quota, index) => (
+                            <TableRow key={quota.id}>
+                              <TableCell className="text-center text-slate-500">
+                                {startIndex + index + 1}
+                              </TableCell>
+                              <TableCell className="font-medium">{quota.category}</TableCell>
+                              <TableCell>{quota.name}</TableCell>
+                              <TableCell className="text-slate-500">{quota.model}</TableCell>
+                              <TableCell>
+                                <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                                  {quota.level}档 - {quota.levelName}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>{quota.engineerLevel}</TableCell>
+                              <TableCell className="text-right">
+                                <div className="space-y-1">
+                                  <div className="font-medium text-blue-700">
+                                    {formatCurrencyLocal(quota.cityPrice)}
+                                  </div>
+                                  <div className="text-xs text-slate-500">
+                                    市区: {formatCurrencyLocal(quota.urbanPrice)}
+                                  </div>
+                                </div>
+                              </TableCell>
+                              <TableCell className="max-w-xs truncate text-slate-500 text-sm">
+                                {quota.coreMaintenanceContent}
+                              </TableCell>
+                              <TableCell>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => handleAddFullDevice(quota)}
+                                >
+                                  <Plus className="h-4 w-4 text-blue-600" />
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        ) : (
+                          // 旧版：保持向后兼容
+                          currentPageData.map((quota, index) => (
+                            <TableRow key={quota.id}>
+                              <TableCell className="text-center text-slate-500">
+                                {startIndex + index + 1}
+                              </TableCell>
+                              <TableCell className="font-medium">{quota.category}</TableCell>
+                              <TableCell>{quota.name}</TableCell>
+                              <TableCell className="text-slate-500">{quota.model}</TableCell>
+                              <TableCell>
+                                <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                                  {quota.level}档 - {MAINTENANCE_LEVEL_CONFIG[quota.level].name}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>{quota.engineerLevel}</TableCell>
+                              <TableCell className="text-right font-medium text-blue-700">
+                                {formatCurrencyLocal(quota.cityPrice)}
+                              </TableCell>
+                              <TableCell className="max-w-xs truncate text-slate-500 text-sm">
+                                {quota.coreMaintenanceContent}
+                              </TableCell>
+                              <TableCell>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => handleAddDevice(quota)}
+                                >
+                                  <Plus className="h-4 w-4 text-blue-600" />
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        )}
+                      </TableBody>
+                    </Table>
+                    
+                    {/* 分页控制 */}
+                    {totalPages > 1 && (
+                      <div className="flex items-center justify-between mt-4 pt-4 border-t">
+                        <div className="text-sm text-slate-500">
+                          共 {displayData.length} 条，第 {databasePage} / {totalPages} 页
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setDatabasePage(Math.max(1, databasePage - 1))}
+                            disabled={databasePage === 1}
+                          >
+                            上一页
+                          </Button>
+                          
+                          {/* 页码按钮 */}
+                          <div className="flex items-center gap-1">
+                            {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                              let pageNum;
+                              if (totalPages <= 5) {
+                                pageNum = i + 1;
+                              } else if (databasePage <= 3) {
+                                pageNum = i + 1;
+                              } else if (databasePage >= totalPages - 2) {
+                                pageNum = totalPages - 4 + i;
+                              } else {
+                                pageNum = databasePage - 2 + i;
+                              }
+                              
+                              return (
+                                <Button
+                                  key={pageNum}
+                                  variant={databasePage === pageNum ? 'default' : 'outline'}
+                                  size="sm"
+                                  className={databasePage === pageNum ? 'w-8 h-8 p-0 bg-blue-700' : 'w-8 h-8 p-0'}
+                                  onClick={() => setDatabasePage(pageNum)}
+                                >
+                                  {pageNum}
+                                </Button>
+                              );
+                            })}
                           </div>
-                        </TableCell>
-                        <TableCell className="max-w-xs truncate text-slate-500 text-sm">
-                          {quota.coreMaintenanceContent}
-                        </TableCell>
-                        <TableCell>
+                          
                           <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleAddFullDevice(quota)}
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setDatabasePage(Math.min(totalPages, databasePage + 1))}
+                            disabled={databasePage === totalPages}
                           >
-                            <Plus className="h-4 w-4 text-blue-600" />
+                            下一页
                           </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  ) : (
-                    // 旧版：保持向后兼容
-                    MOCK_DEVICE_QUOTAS.map((quota) => (
-                      <TableRow key={quota.id}>
-                        <TableCell className="font-medium">{quota.category}</TableCell>
-                        <TableCell>{quota.name}</TableCell>
-                        <TableCell className="text-slate-500">{quota.model}</TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
-                            {quota.level}档 - {MAINTENANCE_LEVEL_CONFIG[quota.level].name}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>{quota.engineerLevel}</TableCell>
-                        <TableCell className="text-right font-medium text-blue-700">
-                          {formatCurrencyLocal(quota.cityPrice)}
-                        </TableCell>
-                        <TableCell className="max-w-xs truncate text-slate-500 text-sm">
-                          {quota.coreMaintenanceContent}
-                        </TableCell>
-                        <TableCell>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleAddDevice(quota)}
-                          >
-                            <Plus className="h-4 w-4 text-blue-600" />
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
             </CardContent>
           </Card>
         </TabsContent>
