@@ -500,16 +500,58 @@ export default function MaintenanceQuotePage() {
       '服务时间': device.slaConfig?.serviceTime || '-',
     }));
 
-    // 2. 报价汇总Sheet
+    // 2. 设备报价明细Sheet
+    let equipmentQuoteData: any[] = [];
+    if (useFullData && fullQuoteResult) {
+      equipmentQuoteData = fullQuoteResult.deviceItems.map((item, index) => ({
+        '序号': index + 1,
+        '设备名称': item.quota.name,
+        '成新率': item.depreciationLevel,
+        '设备分档': item.deviceGrade,
+        '数量': item.quantity,
+        '巡检时长（分钟）': item.inspectionDuration,
+        '巡检费': formatCurrencyLocal(item.inspectionFee),
+        '上门费': formatCurrencyLocal(item.onSiteFee),
+        '故障处理费': formatCurrencyLocal(item.faultHandlingFee),
+        '工具仪表摊销': formatCurrencyLocal(item.toolAmortization),
+        '耗材费': formatCurrencyLocal(item.consumableFee),
+        '备件风险准备金': formatCurrencyLocal(item.sparePartReserve),
+        '单价（城区）': formatCurrencyLocal(item.cityPrice),
+        '小计（城区）': formatCurrencyLocal(item.totalAfterDiscount),
+      }));
+    } else if (quoteResult) {
+      equipmentQuoteData = quoteResult.deviceItems.map((item, index) => ({
+        '序号': index + 1,
+        '设备名称': item.quota.name,
+        '成新率': (item as any).depreciationLevel || '-',
+        '设备分档': (item as any).deviceGrade || '-',
+        '数量': item.quantity,
+        '巡检时长（分钟）': (item as any).inspectionDuration || item.quota.inspectionDuration,
+        '巡检费': formatCurrencyLocal(item.inspectionFee),
+        '上门费': formatCurrencyLocal(item.onSiteFee),
+        '故障处理费': formatCurrencyLocal(item.faultHandlingFee),
+        '工具仪表摊销': formatCurrencyLocal(item.toolAmortization),
+        '耗材费': formatCurrencyLocal(item.consumableFee),
+        '备件风险准备金': formatCurrencyLocal(item.sparePartReserve),
+        '单价': formatCurrencyLocal(item.cityPrice),
+        '小计': formatCurrencyLocal(item.totalAfterDiscount),
+      }));
+    }
+
+    // 3. 费用总结Sheet
     let summaryData: any[] = [];
-    if (fullQuoteResult) {
-      // 从deviceItems中汇总数据
-      const totalInspection = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.inspectionFee * item.quantity, 0);
-      const totalOnSite = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.onSiteFee * item.quantity, 0);
-      const totalFaultHandling = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.faultHandlingFee * item.quantity, 0);
-      const totalTools = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.toolAmortization * item.quantity, 0);
-      const totalConsumables = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.consumableFee * item.quantity, 0);
-      const totalSpareParts = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.sparePartReserve * item.quantity, 0);
+    if (useFullData && fullQuoteResult) {
+      // 计算当前选中地区的详细费用
+      const regionFactor = FULL_REGION_FACTORS[selectedRegionForSummary as keyof typeof FULL_REGION_FACTORS];
+      const totalInspection = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.inspectionFee * item.quantity * regionFactor, 0);
+      const totalOnSite = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.onSiteFee * item.quantity * regionFactor, 0);
+      const totalFaultHandling = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.faultHandlingFee * item.quantity * regionFactor, 0);
+      const totalTools = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.toolAmortization * item.quantity * regionFactor, 0);
+      const totalConsumables = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.consumableFee * item.quantity * regionFactor, 0);
+      const totalSpareParts = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.sparePartReserve * item.quantity * regionFactor, 0);
+      
+      const totalInspectionDuration = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.inspectionDuration * item.quantity, 0);
+      const totalDevices = fullQuoteResult.totalDevices;
       
       summaryData = [
         { '项目': '客户名称', '内容': clientName || '-' },
@@ -518,9 +560,13 @@ export default function MaintenanceQuotePage() {
         { '项目': '联系电话', '内容': contactPhone || '-' },
         { '项目': '报价日期', '内容': quoteDate || '-' },
         { '项目': '合同年限', '内容': `${contractYears}年` },
-        { '项目': '设备总台数', '内容': selectedDevices.reduce((sum, d) => sum + d.quantity, 0) },
+        { '项目': '当前显示地区', '内容': selectedRegionForSummary },
         { '项目': '', '内容': '' },
-        { '项目': '费用明细', '内容': '' },
+        { '项目': '统计信息', '内容': '' },
+        { '项目': '设备总数', '内容': totalDevices },
+        { '项目': '总巡检时长', '内容': `${totalInspectionDuration}分钟` },
+        { '项目': '', '内容': '' },
+        { '项目': '费用明细汇总', '内容': '' },
         { '项目': '巡检费合计', '内容': formatCurrencyLocal(totalInspection) },
         { '项目': '上门费合计', '内容': formatCurrencyLocal(totalOnSite) },
         { '项目': '故障处理费合计', '内容': formatCurrencyLocal(totalFaultHandling) },
@@ -528,14 +574,15 @@ export default function MaintenanceQuotePage() {
         { '项目': '耗材费合计', '内容': formatCurrencyLocal(totalConsumables) },
         { '项目': '备件风险准备金', '内容': formatCurrencyLocal(totalSpareParts) },
         { '项目': '', '内容': '' },
-        { '项目': '小计（不含税）', '内容': formatCurrencyLocal(fullQuoteResult.subtotalAfterDiscount) },
-        { '项目': '税额', '内容': formatCurrencyLocal(fullQuoteResult.taxAmount) },
+        { '项目': '小计（不含税）', '内容': formatCurrencyLocal(fullQuoteResult.totalByRegion[selectedRegionForSummary].subtotal) },
+        { '项目': '税额', '内容': formatCurrencyLocal(fullQuoteResult.totalByRegion[selectedRegionForSummary].taxAmount) },
         { '项目': '', '内容': '' },
         { '项目': '第一年总价', '内容': formatCurrencyLocal(fullQuoteResult.totalByYear[1]) },
         { '项目': '第二年总价', '内容': formatCurrencyLocal(fullQuoteResult.totalByYear[2]) },
         { '项目': '第三年总价', '内容': formatCurrencyLocal(fullQuoteResult.totalByYear[3]) },
       ];
     } else if (quoteResult) {
+      const totalDevices = quoteResult.deviceItems.reduce((sum, d) => sum + d.quantity, 0);
       summaryData = [
         { '项目': '客户名称', '内容': clientName || '-' },
         { '项目': '项目名称', '内容': projectName || '-' },
@@ -543,15 +590,36 @@ export default function MaintenanceQuotePage() {
         { '项目': '联系电话', '内容': contactPhone || '-' },
         { '项目': '报价日期', '内容': quoteDate || '-' },
         { '项目': '合同年限', '内容': `${contractYears}年` },
-        { '项目': '设备总台数', '内容': selectedDevices.reduce((sum, d) => sum + d.quantity, 0) },
         { '项目': '', '内容': '' },
-        { '项目': '小计（不含税）', '内容': formatCurrencyLocal((quoteResult as any).subtotal || 0) },
+        { '项目': '统计信息', '内容': '' },
+        { '项目': '设备总数', '内容': totalDevices },
+        { '项目': '', '内容': '' },
+        { '项目': '小计（不含税）', '内容': formatCurrencyLocal((quoteResult as any).subtotalAfterDiscount || 0) },
         { '项目': '税额', '内容': formatCurrencyLocal(quoteResult.taxAmount) },
         { '项目': '', '内容': '' },
         { '项目': '第一年总价', '内容': formatCurrencyLocal(quoteResult.totalByYear[1]) },
         { '项目': '第二年总价', '内容': formatCurrencyLocal(quoteResult.totalByYear[2]) },
         { '项目': '第三年总价', '内容': formatCurrencyLocal(quoteResult.totalByYear[3]) },
       ];
+    }
+
+    // 4. 分地区报价Sheet
+    let regionQuoteData: any[] = [];
+    if (useFullData && fullQuoteResult) {
+      regionQuoteData = Object.entries(fullQuoteResult.totalByRegion).map(([region, data]) => ({
+        '地区': region,
+        '地区系数': FULL_REGION_FACTORS[region as keyof typeof FULL_REGION_FACTORS],
+        '不含税小计': formatCurrencyLocal(data.subtotal),
+        '税额': formatCurrencyLocal(data.taxAmount),
+        '含税总价': formatCurrencyLocal(data.total),
+      }));
+      
+      // 添加各年总价
+      regionQuoteData.push({ '地区': '', '地区系数': '', '不含税小计': '', '税额': '', '含税总价': '' });
+      regionQuoteData.push({ '地区': '年度总价', '地区系数': '', '不含税小计': '', '税额': '', '含税总价': '' });
+      regionQuoteData.push({ '地区': '第一年', '地区系数': '', '不含税小计': '', '税额': '', '含税总价': formatCurrencyLocal(fullQuoteResult.totalByYear[1]) });
+      regionQuoteData.push({ '地区': '第二年', '地区系数': '', '不含税小计': '', '税额': '', '含税总价': formatCurrencyLocal(fullQuoteResult.totalByYear[2]) });
+      regionQuoteData.push({ '地区': '第三年', '地区系数': '', '不含税小计': '', '税额': '', '含税总价': formatCurrencyLocal(fullQuoteResult.totalByYear[3]) });
     }
 
     // 创建Workbook
@@ -561,9 +629,19 @@ export default function MaintenanceQuotePage() {
     const equipmentSheet = XLSX.utils.json_to_sheet(equipmentData);
     XLSX.utils.book_append_sheet(workbook, equipmentSheet, '设备清单');
     
-    // 添加报价汇总Sheet
+    // 添加设备报价明细Sheet
+    const equipmentQuoteSheet = XLSX.utils.json_to_sheet(equipmentQuoteData);
+    XLSX.utils.book_append_sheet(workbook, equipmentQuoteSheet, '设备报价明细');
+    
+    // 添加费用总结Sheet
     const summarySheet = XLSX.utils.json_to_sheet(summaryData);
-    XLSX.utils.book_append_sheet(workbook, summarySheet, '报价汇总');
+    XLSX.utils.book_append_sheet(workbook, summarySheet, '费用总结');
+    
+    // 添加分地区报价Sheet（如果有）
+    if (regionQuoteData.length > 0) {
+      const regionQuoteSheet = XLSX.utils.json_to_sheet(regionQuoteData);
+      XLSX.utils.book_append_sheet(workbook, regionQuoteSheet, '分地区报价');
+    }
     
     // 下载文件
     XLSX.writeFile(workbook, `维保报价单_${quoteNumber}.xlsx`);
