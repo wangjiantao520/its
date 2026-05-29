@@ -1107,6 +1107,115 @@ export default function MaintenanceQuotePage() {
                       </Table>
                     </div>
 
+                    {/* 费用总结板块 */}
+                    <Card>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-lg flex items-center gap-2">
+                          <Calculator className="h-4 w-4" />
+                          费用总结
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        {useFullData && fullQuoteResult ? (
+                          <div className="space-y-4">
+                            {/* 统计信息 */}
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                              <div className="p-3 bg-blue-50 rounded-lg">
+                                <div className="text-sm text-blue-600 font-medium">设备总数</div>
+                                <div className="text-2xl font-bold text-blue-700">{fullQuoteResult.totalDevices}</div>
+                              </div>
+                              <div className="p-3 bg-cyan-50 rounded-lg">
+                                <div className="text-sm text-cyan-600 font-medium">总巡检时长</div>
+                                <div className="text-2xl font-bold text-cyan-700">
+                                  {fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.inspectionDuration * item.quantity, 0)}
+                                  分钟
+                                </div>
+                              </div>
+                              <div className="p-3 bg-green-50 rounded-lg">
+                                <div className="text-sm text-green-600 font-medium">不含税总价</div>
+                                <div className="text-2xl font-bold text-green-700">
+                                  {formatCurrencyLocal(fullQuoteResult.subtotalAfterDiscount)}
+                                </div>
+                              </div>
+                              <div className="p-3 bg-purple-50 rounded-lg">
+                                <div className="text-sm text-purple-600 font-medium">含税总价</div>
+                                <div className="text-2xl font-bold text-purple-700">
+                                  {formatCurrencyLocal(fullQuoteResult.finalTotal)}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* 各项费用明细汇总 */}
+                            <div className="border rounded-lg overflow-hidden">
+                              <Table>
+                                <TableHeader>
+                                  <TableRow>
+                                    <TableHead>费用项目</TableHead>
+                                    <TableHead className="text-right">金额</TableHead>
+                                    <TableHead className="text-right">占比</TableHead>
+                                  </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                  {(() => {
+                                    const totalInspectionFee = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.inspectionFee * item.quantity, 0);
+                                    const totalOnSiteFee = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.onSiteFee * item.quantity, 0);
+                                    const totalFaultHandlingFee = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.faultHandlingFee * item.quantity, 0);
+                                    const totalToolAmortization = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.toolAmortization * item.quantity, 0);
+                                    const totalConsumableFee = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.consumableFee * item.quantity, 0);
+                                    const totalSparePartReserve = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.sparePartReserve * item.quantity, 0);
+                                    const totalSubtotal = fullQuoteResult.subtotalAfterDiscount;
+
+                                    const feeItems = [
+                                      { name: '巡检费', amount: totalInspectionFee },
+                                      { name: '上门费', amount: totalOnSiteFee },
+                                      { name: '故障处理费', amount: totalFaultHandlingFee },
+                                      { name: '工具仪表摊销', amount: totalToolAmortization },
+                                      { name: '耗材费', amount: totalConsumableFee },
+                                      { name: '备件风险准备金', amount: totalSparePartReserve },
+                                    ];
+
+                                    return feeItems.map((item, index) => (
+                                      <TableRow key={index}>
+                                        <TableCell className="font-medium">{item.name}</TableCell>
+                                        <TableCell className="text-right">{formatCurrencyLocal(item.amount)}</TableCell>
+                                        <TableCell className="text-right">
+                                          {totalSubtotal > 0 ? `${((item.amount / totalSubtotal) * 100).toFixed(1)}%` : '-'}
+                                        </TableCell>
+                                      </TableRow>
+                                    ));
+                                  })()}
+                                </TableBody>
+                              </Table>
+                            </div>
+                          </div>
+                        ) : quoteResult ? (
+                          <div className="space-y-4">
+                            {/* 旧版统计信息 */}
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                              <div className="p-3 bg-blue-50 rounded-lg">
+                                <div className="text-sm text-blue-600 font-medium">设备总数</div>
+                                <div className="text-2xl font-bold text-blue-700">
+                                  {quoteResult.deviceItems.reduce((sum, item) => sum + item.quantity, 0)}
+                                </div>
+                              </div>
+                              <div className="p-3 bg-cyan-50 rounded-lg">
+                                <div className="text-sm text-cyan-600 font-medium">不含税总价</div>
+                                <div className="text-2xl font-bold text-cyan-700">
+                                  {formatCurrencyLocal((quoteResult as any).subtotalAfterDiscount || 0)}
+                                </div>
+                              </div>
+                              <div className="p-3 bg-purple-50 rounded-lg">
+                                <div className="text-sm text-purple-600 font-medium">含税总价</div>
+                                <div className="text-2xl font-bold text-purple-700">
+                                  {formatCurrencyLocal((quoteResult as any).finalTotal || 0)}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ) : null}
+                      </CardContent>
+                    </Card>
+
                     {/* 汇总信息 */}
                     <div className="space-y-4">
                       {/* 新版：4个地区报价展示 */}
