@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -30,6 +31,7 @@ import {
   List,
   ChevronUp,
   ChevronDown,
+  Info,
 } from 'lucide-react';
 // 旧数据结构（保持向后兼容）
 import {
@@ -49,12 +51,12 @@ import {
   MULTI_YEAR_DISCOUNTS,
   EngineerLevel,
 } from '@/lib/maintenance-quota';
-import { Info } from 'lucide-react';
 // 新完整数据结构
 import {
   FULL_DEVICE_QUOTAS,
   getDeviceCategories,
   getDevicesByCategory,
+  updateDeviceQuota,
 } from '@/lib/complete-device-data';
 import {
   calculateFullMaintenanceQuote,
@@ -174,6 +176,10 @@ export default function MaintenanceQuotePage() {
   // 设备定额库分页状态
   const [databasePage, setDatabasePage] = useState(1);
   const ITEMS_PER_PAGE = 10;
+  
+  // 编辑设备定额状态
+  const [editingQuota, setEditingQuota] = useState<FullDeviceQuota | null>(null);
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
 
   // 添加设备（支持新老两种数据结构）
   const handleAddDevice = (quota: DeviceQuota | FullDeviceQuota) => {
@@ -1469,6 +1475,9 @@ export default function MaintenanceQuotePage() {
                           <TableHead>维保分档</TableHead>
                           <TableHead>工程师等级</TableHead>
                           <TableHead className="text-right">城区报价</TableHead>
+                          <TableHead className="text-right">市区县城郊区报价</TableHead>
+                          <TableHead className="text-right">乡镇报价</TableHead>
+                          <TableHead className="text-right">农村报价</TableHead>
                           <TableHead>核心维保内容</TableHead>
                           <TableHead className="w-12"></TableHead>
                         </TableRow>
@@ -1490,26 +1499,38 @@ export default function MaintenanceQuotePage() {
                                 </Badge>
                               </TableCell>
                               <TableCell>{quota.engineerLevel}</TableCell>
-                              <TableCell className="text-right">
-                                <div className="space-y-1">
-                                  <div className="font-medium text-blue-700">
-                                    {formatCurrencyLocal(quota.cityPrice)}
-                                  </div>
-                                  <div className="text-xs text-slate-500">
-                                    市区: {formatCurrencyLocal(quota.urbanPrice)}
-                                  </div>
-                                </div>
+                              <TableCell className="text-right font-medium text-blue-700">
+                                {formatCurrencyLocal(quota.cityPrice)}
+                              </TableCell>
+                              <TableCell className="text-right font-medium text-cyan-700">
+                                {formatCurrencyLocal(quota.urbanPrice)}
+                              </TableCell>
+                              <TableCell className="text-right font-medium text-green-700">
+                                {formatCurrencyLocal(quota.townPrice)}
+                              </TableCell>
+                              <TableCell className="text-right font-medium text-orange-700">
+                                {formatCurrencyLocal(quota.ruralPrice)}
                               </TableCell>
                               <TableCell className="max-w-xs truncate text-slate-500 text-sm">
                                 {quota.coreMaintenanceContent}
                               </TableCell>
-                              <TableCell>
+                              <TableCell className="flex gap-1">
                                 <Button
                                   variant="ghost"
                                   size="icon"
                                   onClick={() => handleAddFullDevice(quota)}
                                 >
                                   <Plus className="h-4 w-4 text-blue-600" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => {
+                                    setEditingQuota(quota);
+                                    setIsEditDialogOpen(true);
+                                  }}
+                                >
+                                  <Settings className="h-4 w-4 text-slate-600" />
                                 </Button>
                               </TableCell>
                             </TableRow>
@@ -1903,6 +1924,151 @@ export default function MaintenanceQuotePage() {
           <ValueAddedServicesSelector />
         </TabsContent>
       </Tabs>
+
+      {/* 编辑设备定额对话框 */}
+      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>编辑设备定额</DialogTitle>
+            <DialogDescription>
+              修改设备定额库中的设备信息
+            </DialogDescription>
+          </DialogHeader>
+          
+          {editingQuota && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>设备分类</Label>
+                  <Input 
+                    value={editingQuota.category} 
+                    onChange={(e) => setEditingQuota({...editingQuota, category: e.target.value})}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>设备名称</Label>
+                  <Input 
+                    value={editingQuota.name} 
+                    onChange={(e) => setEditingQuota({...editingQuota, name: e.target.value})}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>规格型号</Label>
+                  <Input 
+                    value={editingQuota.model} 
+                    onChange={(e) => setEditingQuota({...editingQuota, model: e.target.value})}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>维保分档</Label>
+                  <Select 
+                    value={editingQuota.level} 
+                    onValueChange={(value: any) => setEditingQuota({...editingQuota, level: value})}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="A">A档 - 简易型</SelectItem>
+                      <SelectItem value="B">B档 - 基础型</SelectItem>
+                      <SelectItem value="C">C档 - 中级型</SelectItem>
+                      <SelectItem value="D">D档 - 高级型</SelectItem>
+                      <SelectItem value="E">E档 - 专家型</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>工程师等级</Label>
+                  <Select 
+                    value={editingQuota.engineerLevel} 
+                    onValueChange={(value: any) => setEditingQuota({...editingQuota, engineerLevel: value})}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="初级">初级</SelectItem>
+                      <SelectItem value="中级">中级</SelectItem>
+                      <SelectItem value="高级">高级</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>城区报价（元）</Label>
+                  <Input 
+                    type="number"
+                    value={editingQuota.cityPrice} 
+                    onChange={(e) => setEditingQuota({...editingQuota, cityPrice: parseFloat(e.target.value) || 0})}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>市区县城郊区报价（元）</Label>
+                  <Input 
+                    type="number"
+                    value={editingQuota.urbanPrice} 
+                    onChange={(e) => setEditingQuota({...editingQuota, urbanPrice: parseFloat(e.target.value) || 0})}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>乡镇报价（元）</Label>
+                  <Input 
+                    type="number"
+                    value={editingQuota.townPrice} 
+                    onChange={(e) => setEditingQuota({...editingQuota, townPrice: parseFloat(e.target.value) || 0})}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>农村报价（元）</Label>
+                  <Input 
+                    type="number"
+                    value={editingQuota.ruralPrice} 
+                    onChange={(e) => setEditingQuota({...editingQuota, ruralPrice: parseFloat(e.target.value) || 0})}
+                  />
+                </div>
+              </div>
+              
+              <div className="space-y-2">
+                <Label>核心维保内容</Label>
+                <Input 
+                  value={editingQuota.coreMaintenanceContent} 
+                  onChange={(e) => setEditingQuota({...editingQuota, coreMaintenanceContent: e.target.value})}
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label>巡检内容</Label>
+                <Input 
+                  value={editingQuota.inspectionContent || ''} 
+                  onChange={(e) => setEditingQuota({...editingQuota, inspectionContent: e.target.value})}
+                />
+              </div>
+            </div>
+          )}
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
+              取消
+            </Button>
+            <Button 
+              className="bg-blue-700 hover:bg-blue-800"
+              onClick={() => {
+                if (editingQuota) {
+                  const updated = updateDeviceQuota(editingQuota.id, editingQuota);
+                  if (updated) {
+                    alert('设备定额更新成功！');
+                    setIsEditDialogOpen(false);
+                  } else {
+                    alert('更新失败：未找到设备');
+                  }
+                }
+              }}
+            >
+              <Save className="h-4 w-4 mr-2" />
+              保存
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

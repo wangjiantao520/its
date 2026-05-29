@@ -9112,3 +9112,18 @@ export function getDevicePriceByRegion(device: FullDeviceQuota, region: '城区'
       return device.cityPrice;
   }
 }
+
+// 更新设备定额
+export function updateDeviceQuota(id: string, updates: Partial<FullDeviceQuota>): FullDeviceQuota | null {
+  const index = deviceQuotaList.findIndex(d => d.id === id);
+  if (index === -1) {
+    return null;
+  }
+  
+  deviceQuotaList[index] = {
+    ...deviceQuotaList[index],
+    ...updates
+  };
+  
+  return deviceQuotaList[index];
+}
