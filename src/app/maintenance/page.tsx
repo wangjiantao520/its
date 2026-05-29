@@ -625,6 +625,42 @@ export default function MaintenanceQuotePage() {
       regionQuoteData.push({ '地区': '第三年', '地区系数': '', '不含税小计': '', '税额': '', '含税总价': formatCurrencyLocal(fullQuoteResult.totalByYear[3]) });
     }
 
+    // 5. 费用明细Sheet（与页面显示一致）
+    let costDetailData: any[] = [];
+    if (useFullData && fullQuoteResult) {
+      costDetailData = fullQuoteResult.deviceItems.map((item, index) => ({
+        '设备名称': item.quota.name,
+        '成新率': item.depreciationLevel,
+        '设备分档': item.deviceGrade,
+        '数量': item.quantity,
+        '巡检时长（分钟）': item.inspectionDuration,
+        '巡检费': formatCurrencyLocal(item.inspectionFee * item.quantity * FULL_REGION_FACTORS[selectedRegionForSummary as keyof typeof FULL_REGION_FACTORS]),
+        '上门费': formatCurrencyLocal(item.onSiteFee * item.quantity * FULL_REGION_FACTORS[selectedRegionForSummary as keyof typeof FULL_REGION_FACTORS]),
+        '故障处理费': formatCurrencyLocal(item.faultHandlingFee * item.quantity * FULL_REGION_FACTORS[selectedRegionForSummary as keyof typeof FULL_REGION_FACTORS]),
+        '工具仪表摊销': formatCurrencyLocal(item.toolAmortization * item.quantity * FULL_REGION_FACTORS[selectedRegionForSummary as keyof typeof FULL_REGION_FACTORS]),
+        '耗材费': formatCurrencyLocal(item.consumableFee * item.quantity * FULL_REGION_FACTORS[selectedRegionForSummary as keyof typeof FULL_REGION_FACTORS]),
+        '备件风险准备金': formatCurrencyLocal(item.sparePartReserve * item.quantity * FULL_REGION_FACTORS[selectedRegionForSummary as keyof typeof FULL_REGION_FACTORS]),
+        '单价': formatCurrencyLocal(item.cityPrice * FULL_REGION_FACTORS[selectedRegionForSummary as keyof typeof FULL_REGION_FACTORS]),
+        '小计': formatCurrencyLocal(item.totalAfterDiscount * FULL_REGION_FACTORS[selectedRegionForSummary as keyof typeof FULL_REGION_FACTORS]),
+      }));
+    } else if (quoteResult) {
+      costDetailData = quoteResult.deviceItems.map((item, index) => ({
+        '设备名称': item.quota.name,
+        '成新率': (item as any).depreciationLevel || '-',
+        '设备分档': (item as any).deviceGrade || '-',
+        '数量': item.quantity,
+        '巡检时长（分钟）': (item as any).inspectionDuration || item.quota.inspectionDuration,
+        '巡检费': formatCurrencyLocal(item.inspectionFee * item.quantity),
+        '上门费': formatCurrencyLocal(item.onSiteFee * item.quantity),
+        '故障处理费': formatCurrencyLocal(item.faultHandlingFee * item.quantity),
+        '工具仪表摊销': formatCurrencyLocal(item.toolAmortization * item.quantity),
+        '耗材费': formatCurrencyLocal(item.consumableFee * item.quantity),
+        '备件风险准备金': formatCurrencyLocal(item.sparePartReserve * item.quantity),
+        '单价': formatCurrencyLocal(item.cityPrice),
+        '小计': formatCurrencyLocal(item.totalAfterDiscount),
+      }));
+    }
+
     // 创建Workbook
     const workbook = XLSX.utils.book_new();
     
@@ -645,6 +681,10 @@ export default function MaintenanceQuotePage() {
       const regionQuoteSheet = XLSX.utils.json_to_sheet(regionQuoteData);
       XLSX.utils.book_append_sheet(workbook, regionQuoteSheet, '分地区报价');
     }
+    
+    // 添加费用明细Sheet（与页面显示一致）
+    const costDetailSheet = XLSX.utils.json_to_sheet(costDetailData);
+    XLSX.utils.book_append_sheet(workbook, costDetailSheet, '费用明细');
     
     // 下载文件
     XLSX.writeFile(workbook, `维保报价单_${quoteNumber}.xlsx`);
