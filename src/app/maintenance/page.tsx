@@ -1041,9 +1041,9 @@ export default function MaintenanceQuotePage() {
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="grid gap-6 lg:grid-cols-3">
+                  <div className="space-y-6">
                     {/* 费用明细 */}
-                    <div className="lg:col-span-2">
+                    <div>
                       <h3 className="text-lg font-semibold mb-4">费用明细</h3>
                       <Table>
                         <TableHeader>
@@ -1107,7 +1107,9 @@ export default function MaintenanceQuotePage() {
                       </Table>
                     </div>
 
-                    {/* 费用总结板块 */}
+                    {/* 费用总结和分地区报价并排显示 */}
+                    <div className="grid gap-6 lg:grid-cols-2">
+                      {/* 费用总结板块 */}
                     <Card>
                       <CardHeader className="pb-2">
                         <CardTitle className="text-lg flex items-center gap-2">
@@ -1119,7 +1121,7 @@ export default function MaintenanceQuotePage() {
                         {useFullData && fullQuoteResult ? (
                           <div className="space-y-4">
                             {/* 统计信息 */}
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                            <div className="grid grid-cols-2 gap-3">
                               <div className="p-3 bg-blue-50 rounded-lg">
                                 <div className="text-sm text-blue-600 font-medium">设备总数</div>
                                 <div className="text-2xl font-bold text-blue-700">{fullQuoteResult.totalDevices}</div>
@@ -1176,9 +1178,9 @@ export default function MaintenanceQuotePage() {
 
                                     return feeItems.map((item, index) => (
                                       <TableRow key={index}>
-                                        <TableCell className="font-medium">{item.name}</TableCell>
-                                        <TableCell className="text-right">{formatCurrencyLocal(item.amount)}</TableCell>
-                                        <TableCell className="text-right">
+                                        <TableCell className="font-medium text-sm">{item.name}</TableCell>
+                                        <TableCell className="text-right text-sm">{formatCurrencyLocal(item.amount)}</TableCell>
+                                        <TableCell className="text-right text-sm">
                                           {totalSubtotal > 0 ? `${((item.amount / totalSubtotal) * 100).toFixed(1)}%` : '-'}
                                         </TableCell>
                                       </TableRow>
@@ -1191,7 +1193,7 @@ export default function MaintenanceQuotePage() {
                         ) : quoteResult ? (
                           <div className="space-y-4">
                             {/* 旧版统计信息 */}
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                            <div className="grid grid-cols-2 gap-3">
                               <div className="p-3 bg-blue-50 rounded-lg">
                                 <div className="text-sm text-blue-600 font-medium">设备总数</div>
                                 <div className="text-2xl font-bold text-blue-700">
@@ -1375,8 +1377,10 @@ export default function MaintenanceQuotePage() {
                           </div>
                         </CardContent>
                       </Card>
+                    </div>
 
-                      <div className="flex gap-2">
+                    {/* 操作按钮 */}
+                    <div className="flex gap-2">
                         <Button className="flex-1 bg-blue-700 hover:bg-blue-800">
                           <Save className="h-4 w-4 mr-2" />
                           保存报价
