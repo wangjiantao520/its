@@ -149,7 +149,17 @@ export default function MaintenanceQuotePage() {
   };
 
   // 设备选择和数量（支持新老两种数据结构）
-  const [selectedDevices, setSelectedDevices] = useState<Array<{
+  type DeviceSLAConfig = {
+    teamExperience: '有' | '类似' | '无';
+    securityLevel: '一级' | '二级' | '三级' | '四级' | '五级';
+    supportMode: '非现场支持为主' | '现场支持为主' | '纯现场支持';
+    faultRecoveryTime: '≤4h' | '≤24h' | '≤48h' | '≤72h';
+    arrivalTime: '2小时' | '8小时';
+    responseTime: '10分钟' | '30分钟';
+    serviceTime: '5×8' | '7×8' | '7×24';
+  };
+  
+  type SelectedDevice = {
     quota: DeviceQuota | FullDeviceQuota;
     quantity: number;
     depreciationLevel: string;
@@ -158,7 +168,10 @@ export default function MaintenanceQuotePage() {
     contractYears: number;
     deviceGrade: string;
     depreciationGrade: string;
-  }>>([]);
+    slaConfig?: DeviceSLAConfig;
+  };
+  
+  const [selectedDevices, setSelectedDevices] = useState<SelectedDevice[]>([]);
 
   // 计算结果（支持新老两种）
   const [quoteResult, setQuoteResult] = useState<MaintenanceQuoteResult | null>(null);
@@ -181,6 +194,10 @@ export default function MaintenanceQuotePage() {
   const [editingQuota, setEditingQuota] = useState<FullDeviceQuota | null>(null);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
 
+  // SLA配置状态
+  const [slaConfigDevice, setSlaConfigDevice] = useState<SelectedDevice | null>(null);
+  const [isSlaDialogOpen, setIsSlaDialogOpen] = useState(false);
+
   // 添加设备（支持新老两种数据结构）
   const handleAddDevice = (quota: DeviceQuota | FullDeviceQuota) => {
     const existing = selectedDevices.find(d => d.quota.id === quota.id);
@@ -200,6 +217,15 @@ export default function MaintenanceQuotePage() {
         contractYears: parseInt(contractYears),
         deviceGrade: 'A',
         depreciationGrade: '1',
+        slaConfig: {
+          teamExperience: '有',
+          securityLevel: '二级',
+          supportMode: '现场支持为主',
+          faultRecoveryTime: '≤24h',
+          arrivalTime: '8小时',
+          responseTime: '30分钟',
+          serviceTime: '5×8',
+        },
       }]);
     }
   };
@@ -223,6 +249,15 @@ export default function MaintenanceQuotePage() {
         contractYears: parseInt(contractYears),
         deviceGrade: 'A',
         depreciationGrade: '1',
+        slaConfig: {
+          teamExperience: '有',
+          securityLevel: '二级',
+          supportMode: '现场支持为主',
+          faultRecoveryTime: '≤24h',
+          arrivalTime: '8小时',
+          responseTime: '30分钟',
+          serviceTime: '5×8',
+        },
       }]);
     }
   };
@@ -716,7 +751,7 @@ export default function MaintenanceQuotePage() {
                               <TableHead>单价</TableHead>
                             )}
                             <TableHead>小计</TableHead>
-                            <TableHead className="w-12"></TableHead>
+                            <TableHead className="w-24">操作</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -1012,13 +1047,26 @@ export default function MaintenanceQuotePage() {
                                 {formatCurrencyLocal(item.quota.cityPrice * item.quantity)}
                               </TableCell>
                               <TableCell>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  onClick={() => handleRemoveDevice(index)}
-                                >
-                                  <Trash2 className="h-4 w-4 text-red-500" />
-                                </Button>
+                                <div className="flex items-center gap-1">
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => {
+                                      setSlaConfigDevice(item);
+                                      setIsSlaDialogOpen(true);
+                                    }}
+                                    title="配置SLA参数"
+                                  >
+                                    <Settings className="h-4 w-4 text-blue-500" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => handleRemoveDevice(index)}
+                                  >
+                                    <Trash2 className="h-4 w-4 text-red-500" />
+                                  </Button>
+                                </div>
                               </TableCell>
                             </TableRow>
                           ))}
@@ -2060,6 +2108,271 @@ export default function MaintenanceQuotePage() {
                   } else {
                     alert('更新失败：未找到设备');
                   }
+                }
+              }}
+            >
+              <Save className="h-4 w-4 mr-2" />
+              保存
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* SLA配置对话框 */}
+      <Dialog open={isSlaDialogOpen} onOpenChange={setIsSlaDialogOpen}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>配置SLA参数</DialogTitle>
+            <DialogDescription>
+              {slaConfigDevice && `配置设备"${slaConfigDevice.quota.name}"的SLA参数`}
+            </DialogDescription>
+          </DialogHeader>
+          
+          {slaConfigDevice && (
+            <div className="space-y-6">
+              {/* 运维团队经验 */}
+              <div className="space-y-2">
+                <Label>运维团队经验</Label>
+                <Select 
+                  value={slaConfigDevice.slaConfig?.teamExperience || '有'}
+                  onValueChange={(value) => {
+                    if (slaConfigDevice.slaConfig) {
+                      setSlaConfigDevice({
+                        ...slaConfigDevice,
+                        slaConfig: {
+                          ...slaConfigDevice.slaConfig,
+                          teamExperience: value as '有' | '类似' | '无',
+                        }
+                      });
+                    }
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="有">有</SelectItem>
+                    <SelectItem value="类似">类似</SelectItem>
+                    <SelectItem value="无">无</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* 安全等级 */}
+              <div className="space-y-2">
+                <Label>安全等级</Label>
+                <Select 
+                  value={slaConfigDevice.slaConfig?.securityLevel || '二级'}
+                  onValueChange={(value) => {
+                    if (slaConfigDevice.slaConfig) {
+                      setSlaConfigDevice({
+                        ...slaConfigDevice,
+                        slaConfig: {
+                          ...slaConfigDevice.slaConfig,
+                          securityLevel: value as '一级' | '二级' | '三级' | '四级' | '五级',
+                        }
+                      });
+                    }
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="一级">一级</SelectItem>
+                    <SelectItem value="二级">二级</SelectItem>
+                    <SelectItem value="三级">三级</SelectItem>
+                    <SelectItem value="四级">四级</SelectItem>
+                    <SelectItem value="五级">五级</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* 支持方式 */}
+              <div className="space-y-2">
+                <Label>支持方式</Label>
+                <Select 
+                  value={slaConfigDevice.slaConfig?.supportMode || '现场支持为主'}
+                  onValueChange={(value) => {
+                    if (slaConfigDevice.slaConfig) {
+                      setSlaConfigDevice({
+                        ...slaConfigDevice,
+                        slaConfig: {
+                          ...slaConfigDevice.slaConfig,
+                          supportMode: value as '非现场支持为主' | '现场支持为主' | '纯现场支持',
+                        }
+                      });
+                    }
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="非现场支持为主">非现场支持为主</SelectItem>
+                    <SelectItem value="现场支持为主">现场支持为主</SelectItem>
+                    <SelectItem value="纯现场支持">纯现场支持</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* 故障恢复时间 */}
+              <div className="space-y-2">
+                <Label>故障恢复时间</Label>
+                <Select 
+                  value={slaConfigDevice.slaConfig?.faultRecoveryTime || '≤24h'}
+                  onValueChange={(value) => {
+                    if (slaConfigDevice.slaConfig) {
+                      setSlaConfigDevice({
+                        ...slaConfigDevice,
+                        slaConfig: {
+                          ...slaConfigDevice.slaConfig,
+                          faultRecoveryTime: value as '≤4h' | '≤24h' | '≤48h' | '≤72h',
+                        }
+                      });
+                    }
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="≤4h">≤4h</SelectItem>
+                    <SelectItem value="≤24h">≤24h</SelectItem>
+                    <SelectItem value="≤48h">≤48h</SelectItem>
+                    <SelectItem value="≤72h">≤72h</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* 到场时间 */}
+              <div className="space-y-2">
+                <Label>到场时间</Label>
+                <Select 
+                  value={slaConfigDevice.slaConfig?.arrivalTime || '8小时'}
+                  onValueChange={(value) => {
+                    if (slaConfigDevice.slaConfig) {
+                      setSlaConfigDevice({
+                        ...slaConfigDevice,
+                        slaConfig: {
+                          ...slaConfigDevice.slaConfig,
+                          arrivalTime: value as '2小时' | '8小时',
+                        }
+                      });
+                    }
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="2小时">2小时</SelectItem>
+                    <SelectItem value="8小时">8小时</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* 响应时间 */}
+              <div className="space-y-2">
+                <Label>响应时间</Label>
+                <Select 
+                  value={slaConfigDevice.slaConfig?.responseTime || '30分钟'}
+                  onValueChange={(value) => {
+                    if (slaConfigDevice.slaConfig) {
+                      setSlaConfigDevice({
+                        ...slaConfigDevice,
+                        slaConfig: {
+                          ...slaConfigDevice.slaConfig,
+                          responseTime: value as '10分钟' | '30分钟',
+                        }
+                      });
+                    }
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="10分钟">10分钟</SelectItem>
+                    <SelectItem value="30分钟">30分钟</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* 服务时间 */}
+              <div className="space-y-2">
+                <Label>服务时间</Label>
+                <Select 
+                  value={slaConfigDevice.slaConfig?.serviceTime || '5×8'}
+                  onValueChange={(value) => {
+                    if (slaConfigDevice.slaConfig) {
+                      setSlaConfigDevice({
+                        ...slaConfigDevice,
+                        slaConfig: {
+                          ...slaConfigDevice.slaConfig,
+                          serviceTime: value as '5×8' | '7×8' | '7×24',
+                        }
+                      });
+                    }
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="5×8">5×8</SelectItem>
+                    <SelectItem value="7×8">7×8</SelectItem>
+                    <SelectItem value="7×24">7×24</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          )}
+          
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                setIsSlaDialogOpen(false);
+                setSlaConfigDevice(null);
+              }}
+            >
+              取消
+            </Button>
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                if (slaConfigDevice) {
+                  setSlaConfigDevice({
+                    ...slaConfigDevice,
+                    slaConfig: {
+                      teamExperience: '有',
+                      securityLevel: '二级',
+                      supportMode: '现场支持为主',
+                      faultRecoveryTime: '≤24h',
+                      arrivalTime: '8小时',
+                      responseTime: '30分钟',
+                      serviceTime: '5×8',
+                    },
+                  });
+                }
+              }}
+            >
+              重置为默认
+            </Button>
+            <Button 
+              className="bg-blue-700 hover:bg-blue-800"
+              onClick={() => {
+                if (slaConfigDevice) {
+                  // 更新选中设备的SLA配置
+                  const deviceIndex = selectedDevices.findIndex(d => d.quota.id === slaConfigDevice.quota.id);
+                  if (deviceIndex !== -1) {
+                    const newSelectedDevices = [...selectedDevices];
+                    newSelectedDevices[deviceIndex] = slaConfigDevice;
+                    setSelectedDevices(newSelectedDevices);
+                  }
+                  setIsSlaDialogOpen(false);
+                  setSlaConfigDevice(null);
                 }
               }}
             >
