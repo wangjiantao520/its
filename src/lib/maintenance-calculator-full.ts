@@ -28,6 +28,7 @@ export interface FullDeviceQuoteItemResult {
   slaConfig: SLAConfig;
   slaTotalFactor: number;
   yearDiscountFactor: number;
+  inspectionDuration: number;
   inspectionFee: number;
   onSiteFee: number;
   faultHandlingFee: number;
@@ -142,6 +143,7 @@ export function calculateFullDeviceQuote(
     slaConfig,
     slaTotalFactor,
     yearDiscountFactor,
+    inspectionDuration: quota.inspectionDuration,
     inspectionFee,
     onSiteFee,
     faultHandlingFee,

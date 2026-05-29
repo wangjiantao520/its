@@ -1041,6 +1041,7 @@ export default function MaintenanceQuotePage() {
                           <TableRow>
                             <TableHead>设备名称</TableHead>
                             <TableHead>数量</TableHead>
+                            <TableHead>巡检时长（分钟）</TableHead>
                             <TableHead>巡检费</TableHead>
                             <TableHead>上门费</TableHead>
                             <TableHead>故障处理费</TableHead>
@@ -1058,6 +1059,7 @@ export default function MaintenanceQuotePage() {
                               <TableRow key={index}>
                                 <TableCell className="font-medium">{item.quota.name}</TableCell>
                                 <TableCell>{item.quantity}</TableCell>
+                                <TableCell>{(item as any).inspectionDuration || item.quota.inspectionDuration}</TableCell>
                                 <TableCell>{formatCurrencyLocal(item.inspectionFee)}</TableCell>
                                 <TableCell>{formatCurrencyLocal(item.onSiteFee)}</TableCell>
                                 <TableCell>{formatCurrencyLocal(item.faultHandlingFee)}</TableCell>
@@ -1074,6 +1076,7 @@ export default function MaintenanceQuotePage() {
                               <TableRow key={index}>
                                 <TableCell className="font-medium">{item.quota.name}</TableCell>
                                 <TableCell>{item.quantity}</TableCell>
+                                <TableCell>{(item as any).inspectionDuration || item.quota.inspectionDuration}</TableCell>
                                 <TableCell>{formatCurrencyLocal(item.inspectionFee)}</TableCell>
                                 <TableCell>{formatCurrencyLocal(item.onSiteFee)}</TableCell>
                                 <TableCell>{formatCurrencyLocal(item.faultHandlingFee)}</TableCell>
