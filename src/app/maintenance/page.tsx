@@ -398,11 +398,16 @@ export default function MaintenanceQuotePage() {
 
   // 导出报价单 - 简化版本（导出Word）
   const handleExportQuote = () => {
-    if (!quoteResult || selectedDevices.length === 0) return;
+    if (!quoteResult || selectedDevices.length === 0) {
+      alert('请先添加设备并点击"计算报价"按钮后再导出！');
+      return;
+    }
 
     // 生成报价单号
     const timestamp = Date.now();
     const quoteNumber = `WB${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}${String(new Date().getDate()).padStart(2, '0')}${String(timestamp % 1000).padStart(3, '0')}`;
+
+    const activeQuoteResult = quoteResult;
 
     // 创建一个简单的导出数据
     const simpleExportData = {
@@ -455,16 +460,16 @@ export default function MaintenanceQuotePage() {
         totalTools: 0,
         totalConsumables: 0,
         totalSpareParts: 0,
-        subtotalBeforeDiscount: quoteResult.subtotal,
+        subtotalBeforeDiscount: activeQuoteResult.subtotal,
         slaAdjustment: 0,
         regionAdjustment: 0,
-        subtotalAfterCoefficients: quoteResult.subtotal,
+        subtotalAfterCoefficients: activeQuoteResult.subtotal,
         yearsDiscountAmount: 0,
         bulkDiscountAmount: 0,
-        subtotal: quoteResult.subtotal,
-        tax: quoteResult.taxAmount,
-        grandTotal: quoteResult.totalByYear[parseInt(contractYears) as 1 | 2 | 3],
-        grandTotalRMB: convertToChineseCurrency(quoteResult.totalByYear[parseInt(contractYears) as 1 | 2 | 3]),
+        subtotal: activeQuoteResult.subtotal,
+        tax: activeQuoteResult.taxAmount,
+        grandTotal: activeQuoteResult.totalByYear[parseInt(contractYears) as 1 | 2 | 3],
+        grandTotalRMB: convertToChineseCurrency(activeQuoteResult.totalByYear[parseInt(contractYears) as 1 | 2 | 3]),
       },
     };
 
