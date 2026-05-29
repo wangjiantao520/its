@@ -866,7 +866,7 @@ export default function MaintenanceQuotePage() {
 
         {/* 新建报价 */}
         <TabsContent value="new" className="space-y-6">
-          <div className="grid gap-6 lg:grid-cols-3">
+          <div className="grid gap-6 grid-cols-1 lg:grid-cols-3">
             {/* 基本信息 */}
             <Card className="lg:col-span-1">
               <CardHeader>
@@ -1506,7 +1506,7 @@ export default function MaintenanceQuotePage() {
                     </div>
 
                     {/* 费用总结和分地区报价并排显示 */}
-                    <div className="grid gap-6 lg:grid-cols-2">
+                    <div className="grid gap-6 grid-cols-1 lg:grid-cols-2">
                       {/* 费用总结板块 */}
                     <Card>
                       <CardHeader className="pb-2">
@@ -1803,7 +1803,7 @@ export default function MaintenanceQuotePage() {
                     </div>
 
                     {/* 操作按钮 */}
-                    <div className="flex gap-2">
+                    <div className="flex flex-col sm:flex-row gap-2">
                         <Button 
                           className="flex-1 bg-blue-700 hover:bg-blue-800"
                           onClick={handleSaveQuote}
@@ -2052,7 +2052,7 @@ export default function MaintenanceQuotePage() {
 
         {/* SLA参数配置 */}
         <TabsContent value="sla" className="space-y-6">
-          <div className="grid gap-6 lg:grid-cols-2">
+          <div className="grid gap-6 grid-cols-1 lg:grid-cols-2">
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
