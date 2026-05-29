@@ -351,8 +351,6 @@ export default function MaintenanceQuotePage() {
       alert('请先添加设备到设备列表！');
       return;
     }
-    
-    alert('正在计算报价...');
 
     if (useFullData) {
       // 使用新的完整计算逻辑
