@@ -83,6 +83,15 @@ import {
   type FullDeviceQuota,
 } from '@/lib/device-quota-full';
 import { getDepreciationFactor, type DeviceGrade, type DepreciationGrade } from '@/lib/device-grade';
+import { 
+  getTeamExperienceFactor, 
+  getSecurityLevelFactor, 
+  getSupportModeFactor, 
+  getFaultRecoveryTimeFactor, 
+  getArrivalTimeFactor, 
+  getResponseTimeFactor, 
+  getServiceTimeFactor,
+} from '@/lib/sla-config';
 import { ValueAddedServicesSelector } from '@/components/value-added-services-selector';
 import { SurveyQuestionnaire } from '@/components/survey-questionnaire';
 import type { SurveyAnswer } from '@/lib/survey-questions';
@@ -208,7 +217,7 @@ export default function MaintenanceQuotePage() {
           : d
       ));
     } else {
-      setSelectedDevices([...selectedDevices, {
+      const newDevice: SelectedDevice = {
         quota,
         quantity: 1,
         depreciationLevel: '1',
@@ -226,7 +235,11 @@ export default function MaintenanceQuotePage() {
           responseTime: '30分钟',
           serviceTime: '5×8',
         },
-      }]);
+      };
+      setSelectedDevices([...selectedDevices, newDevice]);
+      // 自动弹出SLA配置窗口
+      setSlaConfigDevice(newDevice);
+      setIsSlaDialogOpen(true);
     }
   };
 
@@ -240,7 +253,7 @@ export default function MaintenanceQuotePage() {
           : d
       ));
     } else {
-      setSelectedDevices([...selectedDevices, {
+      const newDevice: SelectedDevice = {
         quota,
         quantity: 1,
         depreciationLevel: '1',
@@ -258,7 +271,11 @@ export default function MaintenanceQuotePage() {
           responseTime: '30分钟',
           serviceTime: '5×8',
         },
-      }]);
+      };
+      setSelectedDevices([...selectedDevices, newDevice]);
+      // 自动弹出SLA配置窗口
+      setSlaConfigDevice(newDevice);
+      setIsSlaDialogOpen(true);
     }
   };
 
@@ -2126,6 +2143,12 @@ export default function MaintenanceQuotePage() {
             <DialogDescription>
               {slaConfigDevice && `配置设备"${slaConfigDevice.quota.name}"的SLA参数`}
             </DialogDescription>
+            <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-md">
+              <p className="text-sm text-blue-700">
+                <AlertCircle className="h-4 w-4 inline mr-1" />
+                当前显示的是默认系数，您可以根据实际需求调整
+              </p>
+            </div>
           </DialogHeader>
           
           {slaConfigDevice && (
@@ -2151,9 +2174,24 @@ export default function MaintenanceQuotePage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="有">有</SelectItem>
-                    <SelectItem value="类似">类似</SelectItem>
-                    <SelectItem value="无">无</SelectItem>
+                    <SelectItem value="有">
+                      <div className="flex justify-between w-full">
+                        <span>有</span>
+                        <Badge className="ml-2 bg-blue-100 text-blue-700">×1.2</Badge>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="类似">
+                      <div className="flex justify-between w-full">
+                        <span>类似</span>
+                        <Badge className="ml-2 bg-blue-100 text-blue-700">×1.0</Badge>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="无">
+                      <div className="flex justify-between w-full">
+                        <span>无</span>
+                        <Badge className="ml-2 bg-blue-100 text-blue-700">×0.8</Badge>
+                      </div>
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -2179,11 +2217,36 @@ export default function MaintenanceQuotePage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="一级">一级</SelectItem>
-                    <SelectItem value="二级">二级</SelectItem>
-                    <SelectItem value="三级">三级</SelectItem>
-                    <SelectItem value="四级">四级</SelectItem>
-                    <SelectItem value="五级">五级</SelectItem>
+                    <SelectItem value="一级">
+                      <div className="flex justify-between w-full">
+                        <span>一级</span>
+                        <Badge className="ml-2 bg-blue-100 text-blue-700">×0.9</Badge>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="二级">
+                      <div className="flex justify-between w-full">
+                        <span>二级</span>
+                        <Badge className="ml-2 bg-blue-100 text-blue-700">×0.95</Badge>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="三级">
+                      <div className="flex justify-between w-full">
+                        <span>三级</span>
+                        <Badge className="ml-2 bg-blue-100 text-blue-700">×1.0</Badge>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="四级">
+                      <div className="flex justify-between w-full">
+                        <span>四级</span>
+                        <Badge className="ml-2 bg-blue-100 text-blue-700">×1.05</Badge>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="五级">
+                      <div className="flex justify-between w-full">
+                        <span>五级</span>
+                        <Badge className="ml-2 bg-blue-100 text-blue-700">×1.1</Badge>
+                      </div>
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -2209,9 +2272,24 @@ export default function MaintenanceQuotePage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="非现场支持为主">非现场支持为主</SelectItem>
-                    <SelectItem value="现场支持为主">现场支持为主</SelectItem>
-                    <SelectItem value="纯现场支持">纯现场支持</SelectItem>
+                    <SelectItem value="非现场支持为主">
+                      <div className="flex justify-between w-full">
+                        <span>非现场支持为主</span>
+                        <Badge className="ml-2 bg-blue-100 text-blue-700">×0.89</Badge>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="现场支持为主">
+                      <div className="flex justify-between w-full">
+                        <span>现场支持为主</span>
+                        <Badge className="ml-2 bg-blue-100 text-blue-700">×1.0</Badge>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="纯现场支持">
+                      <div className="flex justify-between w-full">
+                        <span>纯现场支持</span>
+                        <Badge className="ml-2 bg-blue-100 text-blue-700">×1.1</Badge>
+                      </div>
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -2237,10 +2315,30 @@ export default function MaintenanceQuotePage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="≤4h">≤4h</SelectItem>
-                    <SelectItem value="≤24h">≤24h</SelectItem>
-                    <SelectItem value="≤48h">≤48h</SelectItem>
-                    <SelectItem value="≤72h">≤72h</SelectItem>
+                    <SelectItem value="≤4h">
+                      <div className="flex justify-between w-full">
+                        <span>≤4h</span>
+                        <Badge className="ml-2 bg-blue-100 text-blue-700">×1.2</Badge>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="≤24h">
+                      <div className="flex justify-between w-full">
+                        <span>≤24h</span>
+                        <Badge className="ml-2 bg-blue-100 text-blue-700">×1.0</Badge>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="≤48h">
+                      <div className="flex justify-between w-full">
+                        <span>≤48h</span>
+                        <Badge className="ml-2 bg-blue-100 text-blue-700">×0.9</Badge>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="≤72h">
+                      <div className="flex justify-between w-full">
+                        <span>≤72h</span>
+                        <Badge className="ml-2 bg-blue-100 text-blue-700">×0.85</Badge>
+                      </div>
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -2266,8 +2364,18 @@ export default function MaintenanceQuotePage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="2小时">2小时</SelectItem>
-                    <SelectItem value="8小时">8小时</SelectItem>
+                    <SelectItem value="2小时">
+                      <div className="flex justify-between w-full">
+                        <span>2小时</span>
+                        <Badge className="ml-2 bg-blue-100 text-blue-700">×1.2</Badge>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="8小时">
+                      <div className="flex justify-between w-full">
+                        <span>8小时</span>
+                        <Badge className="ml-2 bg-blue-100 text-blue-700">×1.0</Badge>
+                      </div>
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -2293,8 +2401,18 @@ export default function MaintenanceQuotePage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="10分钟">10分钟</SelectItem>
-                    <SelectItem value="30分钟">30分钟</SelectItem>
+                    <SelectItem value="10分钟">
+                      <div className="flex justify-between w-full">
+                        <span>10分钟</span>
+                        <Badge className="ml-2 bg-blue-100 text-blue-700">×1.1</Badge>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="30分钟">
+                      <div className="flex justify-between w-full">
+                        <span>30分钟</span>
+                        <Badge className="ml-2 bg-blue-100 text-blue-700">×1.0</Badge>
+                      </div>
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -2320,9 +2438,24 @@ export default function MaintenanceQuotePage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="5×8">5×8</SelectItem>
-                    <SelectItem value="7×8">7×8</SelectItem>
-                    <SelectItem value="7×24">7×24</SelectItem>
+                    <SelectItem value="5×8">
+                      <div className="flex justify-between w-full">
+                        <span>5×8</span>
+                        <Badge className="ml-2 bg-blue-100 text-blue-700">×1.0</Badge>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="7×8">
+                      <div className="flex justify-between w-full">
+                        <span>7×8</span>
+                        <Badge className="ml-2 bg-blue-100 text-blue-700">×1.2</Badge>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="7×24">
+                      <div className="flex justify-between w-full">
+                        <span>7×24</span>
+                        <Badge className="ml-2 bg-blue-100 text-blue-700">×1.6</Badge>
+                      </div>
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               </div>
