@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import * as XLSX from 'xlsx';
+import * as XLSX from 'xlsx-js-style';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -479,6 +479,63 @@ export default function MaintenanceQuotePage() {
       return;
     }
 
+    // 辅助函数：给表格添加样式
+    const applyStylesToSheet = (sheet: XLSX.WorkSheet, data: any[]) => {
+      const range = XLSX.utils.decode_range(sheet['!ref'] || 'A1');
+      
+      // 表头样式：深蓝色背景、白色字体、加粗
+      const headerStyle = {
+        fill: { fgColor: { rgb: '1e3a8a' } },
+        font: { color: { rgb: 'ffffff' }, bold: true },
+        alignment: { horizontal: 'center', vertical: 'center' },
+        border: {
+          top: { style: 'thin', color: { rgb: '000000' } },
+          bottom: { style: 'thin', color: { rgb: '000000' } },
+          left: { style: 'thin', color: { rgb: '000000' } },
+          right: { style: 'thin', color: { rgb: '000000' } }
+        }
+      };
+      
+      // 偶数行样式：浅蓝背景
+      const evenRowStyle = {
+        fill: { fgColor: { rgb: 'eff6ff' } },
+        border: {
+          top: { style: 'thin', color: { rgb: 'cccccc' } },
+          bottom: { style: 'thin', color: { rgb: 'cccccc' } },
+          left: { style: 'thin', color: { rgb: 'cccccc' } },
+          right: { style: 'thin', color: { rgb: 'cccccc' } }
+        }
+      };
+      
+      // 奇数行样式：白色背景
+      const oddRowStyle = {
+        fill: { fgColor: { rgb: 'ffffff' } },
+        border: {
+          top: { style: 'thin', color: { rgb: 'cccccc' } },
+          bottom: { style: 'thin', color: { rgb: 'cccccc' } },
+          left: { style: 'thin', color: { rgb: 'cccccc' } },
+          right: { style: 'thin', color: { rgb: 'cccccc' } }
+        }
+      };
+
+      // 应用表头样式
+      for (let col = range.s.c; col <= range.e.c; col++) {
+        const cellAddress = XLSX.utils.encode_cell({ r: 0, c: col });
+        if (!sheet[cellAddress]) sheet[cellAddress] = { t: 's', v: '' };
+        sheet[cellAddress].s = headerStyle;
+      }
+
+      // 应用数据行样式
+      for (let row = 1; row <= data.length; row++) {
+        const rowStyle = row % 2 === 0 ? evenRowStyle : oddRowStyle;
+        for (let col = range.s.c; col <= range.e.c; col++) {
+          const cellAddress = XLSX.utils.encode_cell({ r: row, c: col });
+          if (!sheet[cellAddress]) sheet[cellAddress] = { t: 's', v: '' };
+          sheet[cellAddress].s = rowStyle;
+        }
+      }
+    };
+
     // 生成报价单号
     const timestamp = Date.now();
     const quoteNumber = `WB${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}${String(new Date().getDate()).padStart(2, '0')}${String(timestamp % 1000).padStart(3, '0')}`;
@@ -672,6 +729,7 @@ export default function MaintenanceQuotePage() {
     // 添加设备清单Sheet
     const equipmentSheet = XLSX.utils.json_to_sheet(equipmentData);
     setColumnWidths(equipmentSheet, [8, 20, 15, 8, 10, 10, 10, 10, 10, 15, 12, 12, 15, 10, 10, 12]);
+    applyStylesToSheet(equipmentSheet, equipmentData);
     XLSX.utils.book_append_sheet(workbook, equipmentSheet, '设备清单');
     
     // 添加设备报价明细Sheet
@@ -680,17 +738,20 @@ export default function MaintenanceQuotePage() {
       [8, 20, 10, 10, 8, 15, 12, 12, 12, 12, 12, 12, 14, 14] :
       [8, 20, 10, 10, 8, 15, 12, 12, 12, 12, 12, 12, 12, 12];
     setColumnWidths(equipmentQuoteSheet, eqWidths);
+    applyStylesToSheet(equipmentQuoteSheet, equipmentQuoteData);
     XLSX.utils.book_append_sheet(workbook, equipmentQuoteSheet, '设备报价明细');
     
     // 添加费用总结Sheet
     const summarySheet = XLSX.utils.json_to_sheet(summaryData);
     setColumnWidths(summarySheet, [20, 25]);
+    applyStylesToSheet(summarySheet, summaryData);
     XLSX.utils.book_append_sheet(workbook, summarySheet, '费用总结');
     
     // 添加分地区报价Sheet（如果有）
     if (regionQuoteData.length > 0) {
       const regionQuoteSheet = XLSX.utils.json_to_sheet(regionQuoteData);
       setColumnWidths(regionQuoteSheet, [12, 10, 14, 12, 14, 14, 14, 14]);
+      applyStylesToSheet(regionQuoteSheet, regionQuoteData);
       XLSX.utils.book_append_sheet(workbook, regionQuoteSheet, '分地区报价');
     }
     
@@ -700,6 +761,7 @@ export default function MaintenanceQuotePage() {
       [20, 10, 10, 8, 15, 12, 12, 12, 12, 12, 12, 14, 14] :
       [20, 10, 10, 8, 15, 12, 12, 12, 12, 12, 12, 12, 12];
     setColumnWidths(costDetailSheet, cdWidths);
+    applyStylesToSheet(costDetailSheet, costDetailData);
     XLSX.utils.book_append_sheet(workbook, costDetailSheet, '费用明细');
     
     // 下载文件
