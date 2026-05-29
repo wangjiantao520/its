@@ -206,6 +206,7 @@ export default function MaintenanceQuotePage() {
   // SLA配置状态
   const [slaConfigDevice, setSlaConfigDevice] = useState<SelectedDevice | null>(null);
   const [isSlaDialogOpen, setIsSlaDialogOpen] = useState(false);
+  const [isNewSlaDevice, setIsNewSlaDevice] = useState(false);
 
   // 添加设备（支持新老两种数据结构）
   const handleAddDevice = (quota: DeviceQuota | FullDeviceQuota) => {
@@ -236,9 +237,9 @@ export default function MaintenanceQuotePage() {
           serviceTime: '5×8',
         },
       };
-      setSelectedDevices([...selectedDevices, newDevice]);
-      // 自动弹出SLA配置窗口
+      // 先打开对话框
       setSlaConfigDevice(newDevice);
+      setIsNewSlaDevice(true);
       setIsSlaDialogOpen(true);
     }
   };
@@ -272,9 +273,9 @@ export default function MaintenanceQuotePage() {
           serviceTime: '5×8',
         },
       };
-      setSelectedDevices([...selectedDevices, newDevice]);
-      // 自动弹出SLA配置窗口
+      // 先打开对话框
       setSlaConfigDevice(newDevice);
+      setIsNewSlaDevice(true);
       setIsSlaDialogOpen(true);
     }
   };
@@ -1070,6 +1071,7 @@ export default function MaintenanceQuotePage() {
                                     size="icon"
                                     onClick={() => {
                                       setSlaConfigDevice(item);
+                                      setIsNewSlaDevice(false);
                                       setIsSlaDialogOpen(true);
                                     }}
                                     title="配置SLA参数"
@@ -2468,6 +2470,7 @@ export default function MaintenanceQuotePage() {
               onClick={() => {
                 setIsSlaDialogOpen(false);
                 setSlaConfigDevice(null);
+                setIsNewSlaDevice(false);
               }}
             >
               取消
@@ -2497,15 +2500,21 @@ export default function MaintenanceQuotePage() {
               className="bg-blue-700 hover:bg-blue-800"
               onClick={() => {
                 if (slaConfigDevice) {
-                  // 更新选中设备的SLA配置
-                  const deviceIndex = selectedDevices.findIndex(d => d.quota.id === slaConfigDevice.quota.id);
-                  if (deviceIndex !== -1) {
-                    const newSelectedDevices = [...selectedDevices];
-                    newSelectedDevices[deviceIndex] = slaConfigDevice;
-                    setSelectedDevices(newSelectedDevices);
+                  if (isNewSlaDevice) {
+                    // 新添加设备
+                    setSelectedDevices([...selectedDevices, slaConfigDevice]);
+                  } else {
+                    // 更新现有设备
+                    const deviceIndex = selectedDevices.findIndex(d => d.quota.id === slaConfigDevice.quota.id);
+                    if (deviceIndex !== -1) {
+                      const newSelectedDevices = [...selectedDevices];
+                      newSelectedDevices[deviceIndex] = slaConfigDevice;
+                      setSelectedDevices(newSelectedDevices);
+                    }
                   }
                   setIsSlaDialogOpen(false);
                   setSlaConfigDevice(null);
+                  setIsNewSlaDevice(false);
                 }
               }}
             >
