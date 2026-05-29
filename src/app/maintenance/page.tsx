@@ -167,6 +167,9 @@ export default function MaintenanceQuotePage() {
 
   // 价格详情展开状态
   const [expandedRegion, setExpandedRegion] = useState<string | null>(null);
+  
+  // 当前选中的地区
+  const [selectedRegionForSummary, setSelectedRegionForSummary] = useState<RegionType>('城区');
 
   // 设备定额库分页状态
   const [databasePage, setDatabasePage] = useState(1);
@@ -1120,6 +1123,12 @@ export default function MaintenanceQuotePage() {
                       <CardContent>
                         {useFullData && fullQuoteResult ? (
                           <div className="space-y-4">
+                            {/* 选中地区提示 */}
+                            <div className="p-2 bg-blue-50 rounded text-sm text-blue-700 flex items-center gap-2">
+                              <MapPin className="h-4 w-4" />
+                              当前显示：<strong>{selectedRegionForSummary}</strong> 的费用总结（点击右侧分地区报价可切换）
+                            </div>
+                            
                             {/* 统计信息 */}
                             <div className="grid grid-cols-2 gap-3">
                               <div className="p-3 bg-blue-50 rounded-lg">
@@ -1128,21 +1137,20 @@ export default function MaintenanceQuotePage() {
                               </div>
                               <div className="p-3 bg-cyan-50 rounded-lg">
                                 <div className="text-sm text-cyan-600 font-medium">总巡检时长</div>
-                                <div className="text-2xl font-bold text-cyan-700">
-                                  {fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.inspectionDuration * item.quantity, 0)}
-                                  分钟
+                                <div className="text-xl font-bold text-cyan-700">
+                                  {fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.inspectionDuration * item.quantity, 0)}分钟
                                 </div>
                               </div>
                               <div className="p-3 bg-green-50 rounded-lg">
                                 <div className="text-sm text-green-600 font-medium">不含税总价</div>
-                                <div className="text-2xl font-bold text-green-700">
-                                  {formatCurrencyLocal(fullQuoteResult.subtotalAfterDiscount)}
+                                <div className="text-xl font-bold text-green-700">
+                                  {formatCurrencyLocal(fullQuoteResult.totalByRegion[selectedRegionForSummary].subtotal)}
                                 </div>
                               </div>
                               <div className="p-3 bg-purple-50 rounded-lg">
                                 <div className="text-sm text-purple-600 font-medium">含税总价</div>
-                                <div className="text-2xl font-bold text-purple-700">
-                                  {formatCurrencyLocal(fullQuoteResult.finalTotal)}
+                                <div className="text-xl font-bold text-purple-700">
+                                  {formatCurrencyLocal(fullQuoteResult.totalByRegion[selectedRegionForSummary].total)}
                                 </div>
                               </div>
                             </div>
@@ -1159,13 +1167,25 @@ export default function MaintenanceQuotePage() {
                                 </TableHeader>
                                 <TableBody>
                                   {(() => {
-                                    const totalInspectionFee = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.inspectionFee * item.quantity, 0);
-                                    const totalOnSiteFee = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.onSiteFee * item.quantity, 0);
-                                    const totalFaultHandlingFee = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.faultHandlingFee * item.quantity, 0);
-                                    const totalToolAmortization = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.toolAmortization * item.quantity, 0);
-                                    const totalConsumableFee = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.consumableFee * item.quantity, 0);
-                                    const totalSparePartReserve = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.sparePartReserve * item.quantity, 0);
-                                    const totalSubtotal = fullQuoteResult.subtotalAfterDiscount;
+                                    // 根据选中地区计算各项费用
+                                    const getRegionPrice = (item: any, region: RegionType) => {
+                                      switch(region) {
+                                        case '城区': return item.cityPrice;
+                                        case '市区县城郊区': return item.urbanPrice;
+                                        case '乡镇': return item.townPrice;
+                                        case '农村': return item.ruralPrice;
+                                        default: return item.cityPrice;
+                                      }
+                                    };
+                                    
+                                    const regionFactor = FULL_REGION_FACTORS[selectedRegionForSummary as keyof typeof FULL_REGION_FACTORS];
+                                    const totalInspectionFee = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.inspectionFee * item.quantity * regionFactor, 0);
+                                    const totalOnSiteFee = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.onSiteFee * item.quantity * regionFactor, 0);
+                                    const totalFaultHandlingFee = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.faultHandlingFee * item.quantity * regionFactor, 0);
+                                    const totalToolAmortization = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.toolAmortization * item.quantity * regionFactor, 0);
+                                    const totalConsumableFee = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.consumableFee * item.quantity * regionFactor, 0);
+                                    const totalSparePartReserve = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.sparePartReserve * item.quantity * regionFactor, 0);
+                                    const totalSubtotal = fullQuoteResult.totalByRegion[selectedRegionForSummary].subtotal;
 
                                     const feeItems = [
                                       { name: '巡检费', amount: totalInspectionFee },
@@ -1231,11 +1251,19 @@ export default function MaintenanceQuotePage() {
                           </CardHeader>
                           <CardContent className="space-y-2">
                             {Object.entries(fullQuoteResult.totalByRegion).map(([region, data]) => (
-                              <div key={region} className="p-3 bg-slate-50 rounded-lg">
+                              <div 
+                                key={region} 
+                                className={`p-3 rounded-lg cursor-pointer transition-all duration-200 ${
+                                  selectedRegionForSummary === region 
+                                    ? 'bg-blue-100 border-2 border-blue-400' 
+                                    : 'bg-slate-50 hover:bg-slate-100'
+                                }`}
+                                onClick={() => setSelectedRegionForSummary(region as RegionType)}
+                              >
                                 <div className="flex justify-between items-center">
-                                  <span className="font-medium">{region}</span>
+                                  <span className={`font-medium ${selectedRegionForSummary === region ? 'text-blue-800' : ''}`}>{region}</span>
                                   <div className="flex items-center gap-2">
-                                    <span className="text-lg font-bold text-blue-700">
+                                    <span className={`text-lg font-bold ${selectedRegionForSummary === region ? 'text-blue-800' : 'text-blue-700'}`}>
                                       {formatCurrencyLocal(data.total)}
                                     </span>
                                     <TooltipProvider>
