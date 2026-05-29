@@ -472,6 +472,20 @@ export default function MaintenanceQuotePage() {
     downloadAsWord(html, `维保报价单_${quoteNumber}.doc`);
   };
 
+  // 保存报价
+  const handleSaveQuote = () => {
+    if ((!quoteResult && !fullQuoteResult) || selectedDevices.length === 0) {
+      alert('请先添加设备并点击"计算报价"按钮后再保存！');
+      return;
+    }
+
+    const timestamp = Date.now();
+    const newQuoteNumber = `WB${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}${String(new Date().getDate()).padStart(2, '0')}${String(timestamp % 1000).padStart(3, '0')}`;
+
+    alert(`报价单 ${newQuoteNumber} 已保存！（当前保存到本地存储演示）`);
+    console.log('保存报价单:', { newQuoteNumber, projectName, clientName, quoteResult, fullQuoteResult, selectedDevices });
+  };
+
   // 导出Excel
   const handleExportExcel = () => {
     if ((!quoteResult && !fullQuoteResult) || selectedDevices.length === 0) {
@@ -1780,7 +1794,10 @@ export default function MaintenanceQuotePage() {
 
                     {/* 操作按钮 */}
                     <div className="flex gap-2">
-                        <Button className="flex-1 bg-blue-700 hover:bg-blue-800">
+                        <Button 
+                          className="flex-1 bg-blue-700 hover:bg-blue-800"
+                          onClick={handleSaveQuote}
+                        >
                           <Save className="h-4 w-4 mr-2" />
                           保存报价
                         </Button>
