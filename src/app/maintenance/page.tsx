@@ -347,7 +347,12 @@ export default function MaintenanceQuotePage() {
 
   // 计算报价（支持新老两种模式）
   const handleCalculate = () => {
-    if (selectedDevices.length === 0) return;
+    if (selectedDevices.length === 0) {
+      alert('请先添加设备到设备列表！');
+      return;
+    }
+    
+    alert('正在计算报价...');
 
     if (useFullData) {
       // 使用新的完整计算逻辑
