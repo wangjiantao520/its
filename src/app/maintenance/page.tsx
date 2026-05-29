@@ -664,26 +664,42 @@ export default function MaintenanceQuotePage() {
     // 创建Workbook
     const workbook = XLSX.utils.book_new();
     
+    // 美化表格 - 设置列宽
+    const setColumnWidths = (sheet: any, widths: number[]) => {
+      sheet['!cols'] = widths.map(w => ({ wch: w }));
+    };
+    
     // 添加设备清单Sheet
     const equipmentSheet = XLSX.utils.json_to_sheet(equipmentData);
+    setColumnWidths(equipmentSheet, [8, 20, 15, 8, 10, 10, 10, 10, 10, 15, 12, 12, 15, 10, 10, 12]);
     XLSX.utils.book_append_sheet(workbook, equipmentSheet, '设备清单');
     
     // 添加设备报价明细Sheet
     const equipmentQuoteSheet = XLSX.utils.json_to_sheet(equipmentQuoteData);
+    const eqWidths = useFullData ? 
+      [8, 20, 10, 10, 8, 15, 12, 12, 12, 12, 12, 12, 14, 14] :
+      [8, 20, 10, 10, 8, 15, 12, 12, 12, 12, 12, 12, 12, 12];
+    setColumnWidths(equipmentQuoteSheet, eqWidths);
     XLSX.utils.book_append_sheet(workbook, equipmentQuoteSheet, '设备报价明细');
     
     // 添加费用总结Sheet
     const summarySheet = XLSX.utils.json_to_sheet(summaryData);
+    setColumnWidths(summarySheet, [20, 25]);
     XLSX.utils.book_append_sheet(workbook, summarySheet, '费用总结');
     
     // 添加分地区报价Sheet（如果有）
     if (regionQuoteData.length > 0) {
       const regionQuoteSheet = XLSX.utils.json_to_sheet(regionQuoteData);
+      setColumnWidths(regionQuoteSheet, [12, 10, 14, 12, 14, 14, 14, 14]);
       XLSX.utils.book_append_sheet(workbook, regionQuoteSheet, '分地区报价');
     }
     
     // 添加费用明细Sheet（与页面显示一致）
     const costDetailSheet = XLSX.utils.json_to_sheet(costDetailData);
+    const cdWidths = useFullData ? 
+      [20, 10, 10, 8, 15, 12, 12, 12, 12, 12, 12, 14, 14] :
+      [20, 10, 10, 8, 15, 12, 12, 12, 12, 12, 12, 12, 12];
+    setColumnWidths(costDetailSheet, cdWidths);
     XLSX.utils.book_append_sheet(workbook, costDetailSheet, '费用明细');
     
     // 下载文件
