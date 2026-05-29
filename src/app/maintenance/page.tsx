@@ -474,7 +474,10 @@ export default function MaintenanceQuotePage() {
 
   // 导出Excel
   const handleExportExcel = () => {
-    if ((!quoteResult && !fullQuoteResult) || selectedDevices.length === 0) return;
+    if ((!quoteResult && !fullQuoteResult) || selectedDevices.length === 0) {
+      alert('请先添加设备并点击"计算报价"按钮后再导出！');
+      return;
+    }
 
     // 生成报价单号
     const timestamp = Date.now();
