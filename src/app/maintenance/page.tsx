@@ -740,20 +740,49 @@ export default function MaintenanceQuotePage() {
       }));
     }
 
-    // 创建Workbook
+    // 创建Workbook - 合并所有数据到一个Sheet
     const workbook = XLSX.utils.book_new();
     
-    // 美化表格 - 设置列宽
-    const setColumnWidths = (sheet: any, widths: number[]) => {
-      sheet['!cols'] = widths.map(w => ({ wch: w }));
-    };
+    // 合并所有数据到一个数组
+    const allData: any[] = [];
     
-    // 添加设备清单Sheet
-    const equipmentSheet = XLSX.utils.json_to_sheet(equipmentData);
-    setColumnWidths(equipmentSheet, [8, 20, 15, 8, 10, 10, 10, 10, 10, 15, 12, 12, 15, 10, 10, 12]);
-    applyStylesToSheet(equipmentSheet, equipmentData);
-    XLSX.utils.book_append_sheet(workbook, equipmentSheet, '维保报价单');
+    // 基本信息
+    allData.push({ "": "维保报价单", " ": "" });
+    allData.push({ "": "", " ": "" });
+    allData.push({ "": "客户名称", " ": clientName || "-" });
+    allData.push({ "": "项目名称", " ": projectName || "-" });
+    allData.push({ "": "报价日期", " ": quoteDate || "-" });
+    allData.push({ "": "报价单号", " ": quoteNumber });
+    allData.push({ "": "", " ": "" });
     
+    // 设备清单
+    allData.push({ "": "设备清单", " ": "" });
+    equipmentData.forEach(item => allData.push(item));
+    allData.push({ "": "", " ": "" });
+    
+    // 设备报价明细
+    allData.push({ "": "设备报价明细", " ": "" });
+    equipmentQuoteData.forEach(item => allData.push(item));
+    allData.push({ "": "", " ": "" });
+    
+    // 费用汇总
+    allData.push({ "": "费用汇总", " ": "" });
+    summaryData.forEach(item => allData.push(item));
+    allData.push({ "": "", " ": "" });
+    
+    // 分地区报价
+    allData.push({ "": "分地区报价", " ": "" });
+    regionQuoteData.forEach(item => allData.push(item));
+    allData.push({ "": "", " ": "" });
+    
+    // 费用明细
+    allData.push({ "": "费用明细", " ": "" });
+    costDetailData.forEach(item => allData.push(item));
+    
+    // 创建Sheet并下载
+    const sheet = XLSX.utils.json_to_sheet(allData);
+    sheet["!cols"] = [{ wch: 20 }, { wch: 25 }];
+    XLSX.utils.book_append_sheet(workbook, sheet, "维保报价单");
     XLSX.writeFile(workbook, `维保报价单_${quoteNumber}.xlsx`);
   };
 
