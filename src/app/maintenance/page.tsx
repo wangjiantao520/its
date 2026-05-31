@@ -752,41 +752,8 @@ export default function MaintenanceQuotePage() {
     const equipmentSheet = XLSX.utils.json_to_sheet(equipmentData);
     setColumnWidths(equipmentSheet, [8, 20, 15, 8, 10, 10, 10, 10, 10, 15, 12, 12, 15, 10, 10, 12]);
     applyStylesToSheet(equipmentSheet, equipmentData);
-    XLSX.utils.book_append_sheet(workbook, equipmentSheet, '设备清单');
+    XLSX.utils.book_append_sheet(workbook, equipmentSheet, '维保报价单');
     
-    // 添加设备报价明细Sheet
-    const equipmentQuoteSheet = XLSX.utils.json_to_sheet(equipmentQuoteData);
-    const eqWidths = useFullData ? 
-      [8, 20, 10, 10, 8, 15, 12, 12, 12, 12, 12, 12, 14, 14] :
-      [8, 20, 10, 10, 8, 15, 12, 12, 12, 12, 12, 12, 12, 12];
-    setColumnWidths(equipmentQuoteSheet, eqWidths);
-    applyStylesToSheet(equipmentQuoteSheet, equipmentQuoteData);
-    XLSX.utils.book_append_sheet(workbook, equipmentQuoteSheet, '设备报价明细');
-    
-    // 添加费用总结Sheet
-    const summarySheet = XLSX.utils.json_to_sheet(summaryData);
-    setColumnWidths(summarySheet, [20, 25]);
-    applyStylesToSheet(summarySheet, summaryData);
-    XLSX.utils.book_append_sheet(workbook, summarySheet, '费用总结');
-    
-    // 添加分地区报价Sheet（如果有）
-    if (regionQuoteData.length > 0) {
-      const regionQuoteSheet = XLSX.utils.json_to_sheet(regionQuoteData);
-      setColumnWidths(regionQuoteSheet, [12, 10, 14, 12, 14, 14, 14, 14]);
-      applyStylesToSheet(regionQuoteSheet, regionQuoteData);
-      XLSX.utils.book_append_sheet(workbook, regionQuoteSheet, '分地区报价');
-    }
-    
-    // 添加费用明细Sheet（与页面显示一致）
-    const costDetailSheet = XLSX.utils.json_to_sheet(costDetailData);
-    const cdWidths = useFullData ? 
-      [20, 10, 10, 8, 15, 12, 12, 12, 12, 12, 12, 14, 14] :
-      [20, 10, 10, 8, 15, 12, 12, 12, 12, 12, 12, 12, 12];
-    setColumnWidths(costDetailSheet, cdWidths);
-    applyStylesToSheet(costDetailSheet, costDetailData);
-    XLSX.utils.book_append_sheet(workbook, costDetailSheet, '费用明细');
-    
-    // 下载文件
     XLSX.writeFile(workbook, `维保报价单_${quoteNumber}.xlsx`);
   };
 
