@@ -333,9 +333,10 @@ export default function MaintenanceQuotePage() {
   // 更新设备使用年限
   const handleUpdateUseYears = (index: number, useYears: number) => {
     const newDevices = [...selectedDevices];
-    newDevices[index].useYears = useYears;
+    const safeUseYears = useYears || 1;
+    newDevices[index].useYears = safeUseYears;
     // 根据使用年限自动推荐成新率
-    const recommendedGrade = getRecommendedDepreciationGrade(useYears);
+    const recommendedGrade = getRecommendedDepreciationGrade(safeUseYears);
     newDevices[index].depreciationGrade = recommendedGrade;
     newDevices[index].depreciationLevel = recommendedGrade;
     setSelectedDevices(newDevices);
@@ -1129,8 +1130,8 @@ export default function MaintenanceQuotePage() {
                                 <Input
                                   type="number"
                                   min="0"
-                                  value={item.useYears}
-                                  onChange={(e) => handleUpdateUseYears(index, parseInt(e.target.value) || 0)}
+                                  value={(item as any).useYears ?? 1}
+                                  onChange={(e) => handleUpdateUseYears(index, parseInt(e.target.value) || 1)}
                                   className="w-20"
                                 />
                               </TableCell>
@@ -1153,12 +1154,12 @@ export default function MaintenanceQuotePage() {
                               </TableCell>
                               <TableCell>
                                 <Badge variant="outline" className="bg-yellow-50 text-yellow-700">
-                                  {(getFailureRate(item.useYears, item.depreciationGrade) * 100).toFixed(0)}%
+                                  {(getFailureRate((item as any).useYears ?? 1, item.depreciationGrade) * 100).toFixed(0)}%
                                 </Badge>
                               </TableCell>
                               <TableCell>
                                 <Badge variant="outline" className="bg-orange-50 text-orange-700">
-                                  {(item.quantity * getFailureRate(item.useYears, item.depreciationGrade)).toFixed(1)}
+                                  {(item.quantity * getFailureRate((item as any).useYears ?? 1, item.depreciationGrade)).toFixed(1)}
                                 </Badge>
                               </TableCell>
                               <TableCell>
