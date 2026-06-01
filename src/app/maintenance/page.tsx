@@ -123,17 +123,20 @@ export default function MaintenanceQuotePage() {
   const [showAiPreview, setShowAiPreview] = useState(false);
 
   // AI辅助报价处理函数
-  const handleAiParse = () => {
+  const handleAiParse = async () => {
     if (!aiRequirementText.trim()) {
       return;
     }
     setAiRecognitionStatus('analyzing');
-    setTimeout(() => {
-      const draft = parseQuoteRequirement(aiRequirementText);
+    try {
+      const draft = await parseQuoteRequirement(aiRequirementText);
       setAiDraft(draft);
       setAiRecognitionStatus(draft.missingFields.length > 0 && draft.devices.length === 0 ? 'needs_info' : 'success');
       setShowAiPreview(true);
-    }, 500);
+    } catch (error) {
+      console.error('AI解析失败:', error);
+      setAiRecognitionStatus('failed');
+    }
   };
 
   const handleClearAi = () => {
