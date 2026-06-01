@@ -162,9 +162,10 @@ export function calculateFullDeviceQuote(
   
   // 使用Excel中已经预计算好的价格，并乘以SLA系数、折旧系数和是否在保系数
   const cityPrice = baseCityPrice * slaTotalFactor * depreciationFactor * inWarrantyFactor;
-  const urbanPrice = quota.urbanPrice * slaTotalFactor * depreciationFactor * inWarrantyFactor;
-  const townPrice = quota.townPrice * slaTotalFactor * depreciationFactor * inWarrantyFactor;
-  const ruralPrice = quota.ruralPrice * slaTotalFactor * depreciationFactor * inWarrantyFactor;
+  // 所有地区价格都从城区价格出发，只通过REGION_FACTORS调整，避免乘两次两倍
+  const urbanPrice = cityPrice * REGION_FACTORS['市区县城郊区'];
+  const townPrice = cityPrice * REGION_FACTORS['乡镇'];
+  const ruralPrice = cityPrice * REGION_FACTORS['农村'];
   
   const subtotalBeforeSLA = baseCityPrice;
   const subtotalAfterSLA = cityPrice;
