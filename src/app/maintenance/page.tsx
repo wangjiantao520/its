@@ -1611,21 +1611,28 @@ export default function MaintenanceQuotePage() {
                                     };
                                     
                                     const regionFactor = FULL_REGION_FACTORS[selectedRegionForSummary as keyof typeof FULL_REGION_FACTORS];
-                                    const totalInspectionFee = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.inspectionFee * item.quantity * regionFactor, 0);
-                                    const totalOnSiteFee = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.onSiteFee * item.quantity * regionFactor, 0);
-                                    const totalFaultHandlingFee = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.faultHandlingFee * item.quantity * regionFactor, 0);
-                                    const totalToolAmortization = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.toolAmortization * item.quantity * regionFactor, 0);
-                                    const totalConsumableFee = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.consumableFee * item.quantity * regionFactor, 0);
-                                    const totalSparePartReserve = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.sparePartReserve * item.quantity * regionFactor, 0);
+                                    
+                                    // 计算基础费用（仅地区系数）
+                                    const baseInspectionFee = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.inspectionFee * item.quantity * regionFactor, 0);
+                                    const baseOnSiteFee = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.onSiteFee * item.quantity * regionFactor, 0);
+                                    const baseFaultHandlingFee = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.faultHandlingFee * item.quantity * regionFactor, 0);
+                                    const baseToolAmortization = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.toolAmortization * item.quantity * regionFactor, 0);
+                                    const baseConsumableFee = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.consumableFee * item.quantity * regionFactor, 0);
+                                    const baseSparePartReserve = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.sparePartReserve * item.quantity * regionFactor, 0);
+                                    
+                                    const totalBase = baseInspectionFee + baseOnSiteFee + baseFaultHandlingFee + baseToolAmortization + baseConsumableFee + baseSparePartReserve;
                                     const totalSubtotal = fullQuoteResult.totalByRegion[selectedRegionForSummary].subtotal;
-
+                                    
+                                    // 计算调整系数，确保费用明细加起来等于总价
+                                    const adjustmentFactor = totalBase > 0 ? totalSubtotal / totalBase : 1;
+                                    
                                     const feeItems = [
-                                      { name: '巡检费', amount: totalInspectionFee },
-                                      { name: '上门费', amount: totalOnSiteFee },
-                                      { name: '故障处理费', amount: totalFaultHandlingFee },
-                                      { name: '工具仪表摊销', amount: totalToolAmortization },
-                                      { name: '耗材费', amount: totalConsumableFee },
-                                      { name: '备件风险准备金', amount: totalSparePartReserve },
+                                      { name: '巡检费', amount: baseInspectionFee * adjustmentFactor },
+                                      { name: '上门费', amount: baseOnSiteFee * adjustmentFactor },
+                                      { name: '故障处理费', amount: baseFaultHandlingFee * adjustmentFactor },
+                                      { name: '工具仪表摊销', amount: baseToolAmortization * adjustmentFactor },
+                                      { name: '耗材费', amount: baseConsumableFee * adjustmentFactor },
+                                      { name: '备件风险准备金', amount: baseSparePartReserve * adjustmentFactor },
                                     ];
 
                                     return feeItems.map((item, index) => (
