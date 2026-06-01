@@ -2309,6 +2309,7 @@ export default function MaintenanceQuotePage() {
             initialAnswers={surveyAnswers}
             onSave={(answers) => {
               setSurveyAnswers(answers);
+              alert('查勘记录保存成功！');
             }}
           />
         </TabsContent>
