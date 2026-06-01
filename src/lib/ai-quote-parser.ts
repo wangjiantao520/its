@@ -3,6 +3,12 @@
 
 export type RecognitionStatus = 'idle' | 'analyzing' | 'success' | 'needs_info' | 'failed';
 
+export interface CandidateDevice {
+  id: string;
+  name: string;
+  category: string;
+}
+
 export interface AiQuoteDraft {
   customerName?: string;
   projectName?: string;
@@ -27,10 +33,17 @@ export interface AiQuoteDraft {
     matchedDeviceName?: string;
     confidence: number;
     candidateDeviceIds?: string[];
+    candidateDevices?: CandidateDevice[];
     warnings?: string[];
   }>;
   missingFields: string[];
   suggestions: string[];
+  quotaList?: Array<{
+    id: string;
+    name: string;
+    category: string;
+    model?: string;
+  }>;
 }
 
 // 示例需求
