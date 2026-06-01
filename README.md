@@ -1,6 +1,6 @@
 # projects
 
-这是一个基于 [Next.js 16](https://nextjs.org) + [shadcn/ui](https://ui.shadcn.com) 的全栈应用项目，由扣子编程 CLI 创建。
+这是一个基于 [Next.js 16](https://nextjs.org) + [shadcn/ui](https://ui.shadcn.com) 的全栈应用项目
 
 ## 快速开始
 
@@ -81,7 +81,7 @@ export default function MyComponent() {
 
 - 表单：`button`, `input`, `textarea`, `select`, `checkbox`, `radio-group`, `switch`, `slider`
 - 布局：`card`, `separator`, `tabs`, `accordion`, `collapsible`, `scroll-area`
-- 反馈：`alert`, `alert-dialog`, `dialog`, `toast`, `sonner`, `progress`
+- 反馈：`alert`， `alert-dialog`, `dialog`, `toast`, `sonner`, `progress`
 - 导航：`dropdown-menu`, `menubar`, `navigation-menu`, `context-menu`
 - 数据展示：`table`, `avatar`, `badge`, `hover-card`, `tooltip`, `popover`
 - 其他：`calendar`, `command`, `carousel`, `resizable`, `sidebar`
