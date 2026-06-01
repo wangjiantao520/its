@@ -63,10 +63,16 @@ import {
 import {
   calculateFullMaintenanceQuote,
   calculateFullDeviceQuote,
+  getRecommendedDepreciationGrade,
+  getFailureRate,
   formatCurrency,
   formatCurrencyDisplay,
   type FullMaintenanceQuoteResult,
   type FullDeviceQuoteItemResult,
+  type FullQuoteResult,
+  type DeviceQuoteItem,
+  type CostDetailItem,
+  type Region,
 } from '@/lib/maintenance-calculator-full';
 import {
   DepreciationLevel,
@@ -173,6 +179,7 @@ export default function MaintenanceQuotePage() {
   type SelectedDevice = {
     quota: DeviceQuota | FullDeviceQuota;
     quantity: number;
+    useYears: number;
     depreciationLevel: string;
     inWarranty: boolean;
     needSparePart: boolean;
@@ -223,6 +230,7 @@ export default function MaintenanceQuotePage() {
       const newDevice: SelectedDevice = {
         quota,
         quantity: 1,
+        useYears: 1,
         depreciationLevel: '1',
         inWarranty: false,
         needSparePart: false,
@@ -259,6 +267,7 @@ export default function MaintenanceQuotePage() {
       const newDevice: SelectedDevice = {
         quota,
         quantity: 1,
+        useYears: 1,
         depreciationLevel: '1',
         inWarranty: false,
         needSparePart: quota.needSparePart || false,
@@ -318,6 +327,17 @@ export default function MaintenanceQuotePage() {
   const handleUpdateContractYears = (index: number, years: number) => {
     const newDevices = [...selectedDevices];
     newDevices[index].contractYears = years;
+    setSelectedDevices(newDevices);
+  };
+
+  // 更新设备使用年限
+  const handleUpdateUseYears = (index: number, useYears: number) => {
+    const newDevices = [...selectedDevices];
+    newDevices[index].useYears = useYears;
+    // 根据使用年限自动推荐成新率
+    const recommendedGrade = getRecommendedDepreciationGrade(useYears);
+    newDevices[index].depreciationGrade = recommendedGrade;
+    newDevices[index].depreciationLevel = recommendedGrade;
     setSelectedDevices(newDevices);
   };
 
@@ -1067,7 +1087,10 @@ export default function MaintenanceQuotePage() {
                             <TableHead>设备名称</TableHead>
                             <TableHead>规格型号</TableHead>
                             <TableHead>数量</TableHead>
+                            <TableHead>使用年限</TableHead>
                             <TableHead>成新率</TableHead>
+                            <TableHead>故障率</TableHead>
+                            <TableHead>预计故障次数</TableHead>
                             <TableHead>在保状态</TableHead>
                             <TableHead>需要备件</TableHead>
                             <TableHead>合同年限</TableHead>
@@ -1103,6 +1126,15 @@ export default function MaintenanceQuotePage() {
                                 />
                               </TableCell>
                               <TableCell>
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  value={item.useYears}
+                                  onChange={(e) => handleUpdateUseYears(index, parseInt(e.target.value) || 0)}
+                                  className="w-20"
+                                />
+                              </TableCell>
+                              <TableCell>
                                 <Select
                                   value={item.depreciationLevel}
                                   onValueChange={(v) => handleUpdateDepreciation(index, v)}
@@ -1118,6 +1150,16 @@ export default function MaintenanceQuotePage() {
                                     <SelectItem value="5">5级（老旧）</SelectItem>
                                   </SelectContent>
                                 </Select>
+                              </TableCell>
+                              <TableCell>
+                                <Badge variant="outline" className="bg-yellow-50 text-yellow-700">
+                                  {(getFailureRate(item.useYears, item.depreciationGrade) * 100).toFixed(0)}%
+                                </Badge>
+                              </TableCell>
+                              <TableCell>
+                                <Badge variant="outline" className="bg-orange-50 text-orange-700">
+                                  {(item.quantity * getFailureRate(item.useYears, item.depreciationGrade)).toFixed(1)}
+                                </Badge>
                               </TableCell>
                               <TableCell>
                                 <Switch

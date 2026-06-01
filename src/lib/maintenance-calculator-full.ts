@@ -1,6 +1,47 @@
 
 import type { FullDeviceQuota, SLAConfig, DepreciationLevel, RegionType } from './device-quota-full';
 import type { DeviceGrade, DepreciationGrade } from './device-grade';
+
+// 地区类型（用于优化后的计算）
+export type Region = RegionType;
+
+// 费用明细项
+export interface CostDetailItem {
+  name: string;
+  amount: number;
+  description: string;
+}
+
+// 设备报价项（用于页面展示）
+export interface DeviceQuoteItem {
+  quota: FullDeviceQuota;
+  quantity: number;
+  useYears: number;
+  depreciationGrade: string;
+  depreciationLevel: DepreciationLevel;
+  deviceGrade: DeviceGrade;
+  failureRate: number;
+  expectedFailures: number;
+  inWarranty: boolean;
+  needSparePart: boolean;
+}
+
+// 完整报价结果（用于页面展示）
+export interface FullQuoteResult {
+  deviceItems: DeviceQuoteItem[];
+  costDetails: CostDetailItem[];
+  subtotal: number;
+  taxRate: number;
+  taxAmount: number;
+  total: number;
+  totalByRegion: {
+    [key in RegionType]: {
+      subtotal: number;
+      taxAmount: number;
+      total: number;
+    };
+  };
+}
 import { 
   FULL_MAINTENANCE_LEVEL_CONFIG,
   ENGINEER_PRICES,
@@ -238,6 +279,34 @@ export function calculateFullMaintenanceQuote(
 
 export function formatCurrency(amount: number): string {
   return amount.toFixed(2);
+}
+
+// 根据设备使用年限自动推荐成新率
+export function getRecommendedDepreciationGrade(useYears: number): string {
+  if (useYears <= 1) {
+    return '1';
+  } else if (useYears <= 3) {
+    return '2';
+  } else if (useYears <= 6) {
+    return '3';
+  } else if (useYears <= 8) {
+    return '4';
+  } else {
+    return '5';
+  }
+}
+
+// 根据设备使用年限和成新率获取故障率
+export function getFailureRate(useYears: number, depreciationGrade: string): number {
+  if (depreciationGrade === '1') {
+    return 0.01;
+  } else if (depreciationGrade === '2') {
+    return 0.05;
+  } else if (depreciationGrade === '3') {
+    return 0.07;
+  } else {
+    return 0.12;
+  }
 }
 
 export function formatCurrencyDisplay(amount: number): string {
