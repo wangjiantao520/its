@@ -4,8 +4,11 @@ import { NextRequest, NextResponse } from 'next/server';
 const API_KEY = 'sk-8331d86303ac402aaed94b601e2befd0';
 
 export async function POST(request: NextRequest) {
+  console.log('[AI] 收到解析请求');
+  
   try {
     const { text } = await request.json();
+    console.log('[AI] 输入文本:', text);
 
     // 系统提示词
     const systemPrompt = `你是一个专业的维保报价需求识别助手。请从用户的自然语言描述中提取以下信息，并以JSON格式返回。
@@ -37,6 +40,9 @@ export async function POST(request: NextRequest) {
     // 用户提示词
     const userPrompt = `请从以下需求中提取信息：\n\n${text}`;
 
+    console.log('[AI] 正在调用DeepSeek API...');
+    console.log('[AI] 模型: deepseek-v4-pro');
+
     // 调用DeepSeek API（兼容格式）
     const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
       method: 'POST',
@@ -55,12 +61,17 @@ export async function POST(request: NextRequest) {
       }),
     });
 
+    console.log('[AI] DeepSeek API响应状态:', response.status, response.statusText);
+
     if (!response.ok) {
       throw new Error(`DeepSeek API error: ${response.status} ${response.statusText}`);
     }
 
     const result = await response.json();
+    console.log('[AI] DeepSeek API返回:', JSON.stringify(result, null, 2));
+    
     const aiResponse = result.choices?.[0]?.message?.content;
+    console.log('[AI] AI响应内容:', aiResponse);
 
     if (!aiResponse) {
       throw new Error('No response from AI');
@@ -76,8 +87,11 @@ export async function POST(request: NextRequest) {
       parsedResult = null;
     }
 
+    console.log('[AI] 解析结果:', parsedResult);
+
     if (!parsedResult || !parsedResult.devices) {
       // 如果解析失败，返回一个默认结果
+      console.log('[AI] 解析失败，返回默认结果');
       return NextResponse.json({
         devices: [],
         missingFields: ['设备清单'],
@@ -109,9 +123,12 @@ export async function POST(request: NextRequest) {
       suggestions: parsedResult.suggestions || [],
     };
 
+    console.log('[AI] 最终返回:', JSON.stringify(finalResult, null, 2));
+    console.log('[AI] 解析完成');
+
     return NextResponse.json(finalResult);
   } catch (error) {
-    console.error('AI解析失败:', error);
+    console.error('[AI] AI解析失败:', error);
     return NextResponse.json(
       {
         devices: [],
