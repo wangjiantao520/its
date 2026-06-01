@@ -34,6 +34,8 @@ import {
   ChevronUp,
   ChevronDown,
   Info,
+  Sparkles,
+  Loader2,
 } from 'lucide-react';
 // 旧数据结构（保持向后兼容）
 import {
@@ -104,6 +106,7 @@ import { ValueAddedServicesSelector } from '@/components/value-added-services-se
 import { SurveyQuestionnaire } from '@/components/survey-questionnaire';
 import type { SurveyAnswer } from '@/lib/survey-questions';
 import { VALUE_ADDED_SERVICES, calculateValueAddedServicesTotal, type ValueAddedService } from '@/lib/value-added-services';
+import { parseQuoteRequirement, AI_QUOTE_EXAMPLES, type AiQuoteDraft, type RecognitionStatus } from '@/lib/ai-quote-parser';
 import {
   generateMaintenanceQuoteHTML,
   downloadAsWord,
@@ -113,6 +116,37 @@ import {
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 export default function MaintenanceQuotePage() {
+  // AI辅助报价状态
+  const [aiRequirementText, setAiRequirementText] = useState('');
+  const [aiRecognitionStatus, setAiRecognitionStatus] = useState<RecognitionStatus>('idle');
+  const [aiDraft, setAiDraft] = useState<AiQuoteDraft | null>(null);
+  const [showAiPreview, setShowAiPreview] = useState(false);
+
+  // AI辅助报价处理函数
+  const handleAiParse = () => {
+    if (!aiRequirementText.trim()) {
+      return;
+    }
+    setAiRecognitionStatus('analyzing');
+    setTimeout(() => {
+      const draft = parseQuoteRequirement(aiRequirementText);
+      setAiDraft(draft);
+      setAiRecognitionStatus(draft.missingFields.length > 0 && draft.devices.length === 0 ? 'needs_info' : 'success');
+      setShowAiPreview(true);
+    }, 500);
+  };
+
+  const handleClearAi = () => {
+    setAiRequirementText('');
+    setAiRecognitionStatus('idle');
+    setAiDraft(null);
+    setShowAiPreview(false);
+  };
+
+  const handleUseExample = (example: string) => {
+    setAiRequirementText(example);
+  };
+
   // 成新率等级映射：1级=全新，2级=较新，3级=一般，4级=偏旧，5级=老旧
   const DEPRECIATION_GRADE_MAP: Record<string, DepreciationLevel> = {
     '1': '全新',
@@ -881,6 +915,111 @@ export default function MaintenanceQuotePage() {
 
         {/* 新建报价 */}
         <TabsContent value="new" className="space-y-6">
+          {/* AI辅助报价 */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Sparkles className="h-5 w-5 text-blue-600" />
+                AI 辅助报价
+              </CardTitle>
+              <CardDescription>用自然语言描述您的需求，AI 将自动识别参数</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <textarea
+                  placeholder="请描述项目情况，例如：某乡镇单位有 20 台使用 3 年的台式电脑、2 台使用 5 年的电动装订机，需要一年维保，每季度巡检一次，故障后 8 小时内到场。"
+                  value={aiRequirementText}
+                  onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setAiRequirementText(e.target.value)}
+                  rows={4}
+                  className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button onClick={handleAiParse} disabled={!aiRequirementText.trim() || aiRecognitionStatus === 'analyzing'}>
+                  {aiRecognitionStatus === 'analyzing' ? (
+                    <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> 识别中...</>
+                  ) : (
+                    <><Sparkles className="h-4 w-4 mr-2" /> 智能识别需求</>
+                  )}
+                </Button>
+                <Button variant="secondary" onClick={handleClearAi}>
+                  清空
+                </Button>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <span className="text-sm text-slate-500">示例需求：</span>
+                {AI_QUOTE_EXAMPLES.map((example, idx) => (
+                  <Button
+                    key={idx}
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleUseExample(example)}
+                    className="text-xs"
+                  >
+                    {idx + 1}
+                  </Button>
+                ))}
+              </div>
+
+              {/* AI识别结果预览 */}
+              {showAiPreview && aiDraft && (
+                <div className="border rounded-lg p-4 space-y-4 bg-slate-50">
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-medium">AI 识别结果预览</h4>
+                    <Badge variant={aiRecognitionStatus === 'success' ? 'default' : 'destructive'}>
+                      {aiRecognitionStatus === 'success' ? '识别成功' : aiRecognitionStatus === 'needs_info' ? '需要补充信息' : '识别失败'}
+                    </Badge>
+                  </div>
+                  <div className="space-y-2 text-sm">
+                    {aiDraft.region && (
+                      <div><span className="text-slate-500">服务地区：</span>{aiDraft.region}</div>
+                    )}
+                    {aiDraft.contractYears && (
+                      <div><span className="text-slate-500">合同年限：</span>{aiDraft.contractYears}年</div>
+                    )}
+                    {aiDraft.annualInspectionCount && (
+                      <div><span className="text-slate-500">年度巡检：</span>{aiDraft.annualInspectionCount}次/年</div>
+                    )}
+                    {aiDraft.arrivalTime && (
+                      <div><span className="text-slate-500">到场时间：</span>{aiDraft.arrivalTime}</div>
+                    )}
+                    {aiDraft.devices.length > 0 && (
+                      <div className="space-y-1">
+                        <span className="text-slate-500">识别到的设备：</span>
+                        <ul className="list-disc list-inside">
+                          {aiDraft.devices.map((device, idx) => (
+                            <li key={idx}>
+                              {device.quantity || 1}台{device.deviceName || '未知设备'}
+                              {device.useYears ? `（使用${device.useYears}年）` : ''}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {aiDraft.missingFields.length > 0 && (
+                      <div className="text-amber-600">
+                        <span className="font-medium">待补充：</span>{aiDraft.missingFields.join('、')}
+                      </div>
+                    )}
+                    {aiDraft.suggestions.length > 0 && (
+                      <div className="text-blue-600">
+                        <span className="font-medium">建议：</span>{aiDraft.suggestions.join('；')}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="secondary" onClick={() => setShowAiPreview(false)}>
+                      返回修改需求
+                    </Button>
+                    <Button size="sm">
+                      应用到报价单
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           <div className="grid gap-6 grid-cols-1 lg:grid-cols-3">
             {/* 基本信息 */}
             <Card className="lg:col-span-1">
