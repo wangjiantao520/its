@@ -1,8 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-// 使用用户提供的API key
-const API_KEY = 'sk-8331d86303ac402aaed94b601e2befd0';
-
 export async function POST(request: NextRequest) {
   console.log('[AI] 收到解析请求');
   
@@ -10,7 +7,6 @@ export async function POST(request: NextRequest) {
     const { text } = await request.json();
     console.log('[AI] 输入文本:', text);
 
-    // 从用户输入中提取设备信息
     const devices: any[] = [];
     const missingFields: string[] = [];
     const suggestions: string[] = [];
@@ -23,68 +19,151 @@ export async function POST(request: NextRequest) {
     else if (text.includes('县城')) region = '市区县城郊区';
     else missingFields.push('region');
 
-    // 分析设备 - 简单的关键词匹配
-    const devicePatterns = [
-      { name: '台式电脑', keywords: ['台式电脑', '台品电脑', '台机', '台式机'] },
-      { name: '笔记本电脑', keywords: ['笔记本电脑', '笔记本', '便携机'] },
-      { name: '电动装订机', keywords: ['电动装订机', '装订机'] },
-      { name: '手动装订机', keywords: ['手动装订机'] },
-      { name: '打印机', keywords: ['打印机'] },
-      { name: '复印机', keywords: ['复印机'] },
-      { name: '扫描仪', keywords: ['扫描仪'] },
-      { name: '触控一体机', keywords: ['触控一体机', '一体机'] },
-      { name: '服务器', keywords: ['服务器'] },
-    ];
+    // 直接检查是否有多种设备
+    const hasDesktop = text.includes('台式电脑') || text.includes('台品电脑') || text.includes('台式机');
+    const hasLaptop = text.includes('笔记本电脑') || text.includes('笔记本');
+    const hasBinder = text.includes('装订机');
+    const hasPrinter = text.includes('打印机');
+    const hasCopier = text.includes('复印机');
+    const hasScanner = text.includes('扫描仪');
+    const hasAllInOne = text.includes('触控一体机') || text.includes('一体机');
+    const hasServer = text.includes('服务器');
 
-    const matchedDevices = new Set<string>();
+    // 提取所有的数量和年限
+    const allNumbers = text.match(/(\d+)/g) || [];
+    console.log('[AI] 找到的数字:', allNumbers);
 
-    for (const device of devicePatterns) {
-      for (const keyword of device.keywords) {
-        if (text.includes(keyword)) {
-          matchedDevices.add(device.name);
-          break;
-        }
-      }
-    }
+    let numberIndex = 0;
 
-    // 为每个匹配的设备创建设备对象
-    let deviceIndex = 0;
-    for (const deviceName of matchedDevices) {
-      // 尝试提取数量
-      let quantity = 10;
-      const quantityMatch = text.match(/(\d+)\s*台/);
-      if (quantityMatch && deviceIndex === 0) {
-        quantity = parseInt(quantityMatch[1]);
-      }
-
-      // 尝试提取使用年限
-      let useYears = 5;
-      const yearMatch = text.match(/(\d+)\s*年/);
-      if (yearMatch && deviceIndex === 0) {
-        useYears = parseInt(yearMatch[1]);
-      }
-
-      // 检查是否在保
-      let underWarranty = false;
-      if (text.includes('在保')) {
-        underWarranty = true;
-      }
-
+    // 台式电脑
+    if (hasDesktop) {
+      const quantity = numberIndex < allNumbers.length ? parseInt(allNumbers[numberIndex++]) : 10;
+      const useYears = numberIndex < allNumbers.length ? parseInt(allNumbers[numberIndex++]) : 5;
       devices.push({
         rawText: text,
-        deviceName: deviceName,
+        deviceName: '台式电脑',
         model: undefined,
         quantity: quantity,
         useYears: useYears,
-        underWarranty: underWarranty,
+        underWarranty: text.includes('在保'),
         confidence: 0.8,
         warnings: []
       });
-      
-      deviceIndex++;
     }
 
-    // 如果没有匹配到设备，添加默认设备
+    // 笔记本电脑
+    if (hasLaptop) {
+      const quantity = numberIndex < allNumbers.length ? parseInt(allNumbers[numberIndex++]) : 5;
+      const useYears = numberIndex < allNumbers.length ? parseInt(allNumbers[numberIndex++]) : 1;
+      devices.push({
+        rawText: text,
+        deviceName: '笔记本电脑',
+        model: undefined,
+        quantity: quantity,
+        useYears: useYears,
+        underWarranty: text.includes('在保'),
+        confidence: 0.8,
+        warnings: []
+      });
+    }
+
+    // 装订机
+    if (hasBinder) {
+      const quantity = numberIndex < allNumbers.length ? parseInt(allNumbers[numberIndex++]) : 2;
+      const useYears = numberIndex < allNumbers.length ? parseInt(allNumbers[numberIndex++]) : 3;
+      devices.push({
+        rawText: text,
+        deviceName: text.includes('电动') ? '电动装订机' : '手动装订机',
+        model: undefined,
+        quantity: quantity,
+        useYears: useYears,
+        underWarranty: text.includes('在保'),
+        confidence: 0.8,
+        warnings: []
+      });
+    }
+
+    // 打印机
+    if (hasPrinter) {
+      const quantity = numberIndex < allNumbers.length ? parseInt(allNumbers[numberIndex++]) : 1;
+      const useYears = numberIndex < allNumbers.length ? parseInt(allNumbers[numberIndex++]) : 2;
+      devices.push({
+        rawText: text,
+        deviceName: '打印机',
+        model: undefined,
+        quantity: quantity,
+        useYears: useYears,
+        underWarranty: text.includes('在保'),
+        confidence: 0.8,
+        warnings: []
+      });
+    }
+
+    // 复印机
+    if (hasCopier) {
+      const quantity = numberIndex < allNumbers.length ? parseInt(allNumbers[numberIndex++]) : 1;
+      const useYears = numberIndex < allNumbers.length ? parseInt(allNumbers[numberIndex++]) : 2;
+      devices.push({
+        rawText: text,
+        deviceName: '复印机',
+        model: undefined,
+        quantity: quantity,
+        useYears: useYears,
+        underWarranty: text.includes('在保'),
+        confidence: 0.8,
+        warnings: []
+      });
+    }
+
+    // 扫描仪
+    if (hasScanner) {
+      const quantity = numberIndex < allNumbers.length ? parseInt(allNumbers[numberIndex++]) : 1;
+      const useYears = numberIndex < allNumbers.length ? parseInt(allNumbers[numberIndex++]) : 2;
+      devices.push({
+        rawText: text,
+        deviceName: '扫描仪',
+        model: undefined,
+        quantity: quantity,
+        useYears: useYears,
+        underWarranty: text.includes('在保'),
+        confidence: 0.8,
+        warnings: []
+      });
+    }
+
+    // 触控一体机
+    if (hasAllInOne) {
+      const quantity = numberIndex < allNumbers.length ? parseInt(allNumbers[numberIndex++]) : 1;
+      const useYears = numberIndex < allNumbers.length ? parseInt(allNumbers[numberIndex++]) : 2;
+      devices.push({
+        rawText: text,
+        deviceName: '触控一体机',
+        model: undefined,
+        quantity: quantity,
+        useYears: useYears,
+        underWarranty: text.includes('在保'),
+        confidence: 0.8,
+        warnings: []
+      });
+    }
+
+    // 服务器
+    if (hasServer) {
+      const quantity = numberIndex < allNumbers.length ? parseInt(allNumbers[numberIndex++]) : 1;
+      const useYears = numberIndex < allNumbers.length ? parseInt(allNumbers[numberIndex++]) : 2;
+      devices.push({
+        rawText: text,
+        deviceName: '服务器',
+        model: undefined,
+        quantity: quantity,
+        useYears: useYears,
+        underWarranty: text.includes('在保'),
+        confidence: 0.8,
+        warnings: []
+      });
+    }
+
+    // 如果没有匹配到任何设备，添加默认设备
     if (devices.length === 0) {
       devices.push({
         rawText: text,
@@ -136,7 +215,7 @@ export async function POST(request: NextRequest) {
       quotaList: []
     };
 
-    console.log('[AI] 返回模拟结果，设备数:', devices.length);
+    console.log('[AI] 返回模拟结果，设备数:', devices.length, '设备列表:', devices.map(d => d.deviceName));
     return NextResponse.json(mockResult);
     
   } catch (error) {
