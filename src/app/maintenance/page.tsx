@@ -121,6 +121,8 @@ export default function MaintenanceQuotePage() {
   const [aiRecognitionStatus, setAiRecognitionStatus] = useState<RecognitionStatus>('idle');
   const [aiDraft, setAiDraft] = useState<AiQuoteDraft | null>(null);
   const [showAiPreview, setShowAiPreview] = useState(false);
+  const [showAiCompletionDialog, setShowAiCompletionDialog] = useState(false);
+  const [completionDraft, setCompletionDraft] = useState<AiQuoteDraft | null>(null);
 
   // AI辅助报价处理函数
   const handleAiParse = async () => {
@@ -131,8 +133,9 @@ export default function MaintenanceQuotePage() {
     try {
       const draft = await parseQuoteRequirement(aiRequirementText);
       setAiDraft(draft);
+      setCompletionDraft(JSON.parse(JSON.stringify(draft)));
       setAiRecognitionStatus(draft.missingFields.length > 0 && draft.devices.length === 0 ? 'needs_info' : 'success');
-      setShowAiPreview(true);
+      setShowAiCompletionDialog(true);
     } catch (error) {
       console.error('AI解析失败:', error);
       setAiRecognitionStatus('failed');
@@ -2652,6 +2655,352 @@ export default function MaintenanceQuotePage() {
             >
               <Save className="h-4 w-4 mr-2" />
               保存
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* AI信息补充对话框 */}
+      <Dialog open={showAiCompletionDialog} onOpenChange={setShowAiCompletionDialog}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden">
+          <DialogHeader>
+            <DialogTitle className="text-xl">完善报价信息</DialogTitle>
+            <DialogDescription>
+              AI已识别初步信息，请补充缺失的字段以生成完整报价
+            </DialogDescription>
+          </DialogHeader>
+          
+          {completionDraft && (
+            <div className="overflow-y-auto max-h-[60vh] space-y-6">
+              {/* 已识别的设备 */}
+              <div>
+                <h3 className="font-semibold mb-3">已识别的设备</h3>
+                <div className="space-y-3">
+                  {completionDraft.devices.map((device, index) => (
+                    <Card key={index}>
+                      <CardContent className="pt-4 space-y-3">
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <Label>设备名称</Label>
+                            <Input 
+                              value={device.deviceName || ''} 
+                              onChange={(e) => {
+                                const newDraft = { ...completionDraft };
+                                newDraft.devices[index] = { ...device, deviceName: e.target.value };
+                                setCompletionDraft(newDraft);
+                              }}
+                            />
+                          </div>
+                          <div>
+                            <Label>数量</Label>
+                            <Input 
+                              type="number"
+                              value={device.quantity || 1} 
+                              onChange={(e) => {
+                                const newDraft = { ...completionDraft };
+                                newDraft.devices[index] = { ...device, quantity: parseInt(e.target.value) || 1 };
+                                setCompletionDraft(newDraft);
+                              }}
+                            />
+                          </div>
+                          <div>
+                            <Label>使用年限</Label>
+                            <Input 
+                              type="number"
+                              value={device.useYears || 1} 
+                              onChange={(e) => {
+                                const newDraft = { ...completionDraft };
+                                newDraft.devices[index] = { ...device, useYears: parseInt(e.target.value) || 1 };
+                                setCompletionDraft(newDraft);
+                              }}
+                            />
+                          </div>
+                          <div>
+                            <Label>是否在保</Label>
+                            <Select 
+                              value={device.underWarranty ? 'true' : 'false'} 
+                              onValueChange={(val) => {
+                                const newDraft = { ...completionDraft };
+                                newDraft.devices[index] = { ...device, underWarranty: val === 'true' };
+                                setCompletionDraft(newDraft);
+                              }}
+                            >
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="false">不在保</SelectItem>
+                                <SelectItem value="true">在保</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+                        {completionDraft.quotaList && completionDraft.quotaList.length > 0 && (
+                          <div>
+                            <Label>从定额库选择设备</Label>
+                            <Select 
+                              value={device.matchedDeviceId || ''} 
+                              onValueChange={(val) => {
+                                const newDraft = { ...completionDraft };
+                                const selectedQuota = newDraft.quotaList?.find((q: any) => q.id === val);
+                                newDraft.devices[index] = { 
+                                  ...device, 
+                                  matchedDeviceId: val,
+                                  matchedDeviceName: selectedQuota?.name
+                                };
+                                setCompletionDraft(newDraft);
+                              }}
+                            >
+                              <SelectTrigger>
+                                <SelectValue placeholder="选择设备" />
+                              </SelectTrigger>
+                              <SelectContent className="max-h-80">
+                                {completionDraft.quotaList.map((quota: any) => (
+                                  <SelectItem key={quota.id} value={quota.id}>
+                                    {quota.category} - {quota.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </div>
+
+              {/* 项目基本信息 */}
+              <div>
+                <h3 className="font-semibold mb-3">项目基本信息</h3>
+                <Card>
+                  <CardContent className="pt-4 grid grid-cols-2 gap-3">
+                    <div>
+                      <Label>服务地区 *</Label>
+                      <Select 
+                        value={completionDraft.region || ''} 
+                        onValueChange={(val) => {
+                          const newDraft = { ...completionDraft };
+                          newDraft.region = val as any;
+                          setCompletionDraft(newDraft);
+                        }}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="选择地区" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="城区">城区</SelectItem>
+                          <SelectItem value="市区县城郊区">市区县城郊区</SelectItem>
+                          <SelectItem value="乡镇">乡镇</SelectItem>
+                          <SelectItem value="农村">农村</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label>合同年限 *</Label>
+                      <Input 
+                        type="number"
+                        value={completionDraft.contractYears || 1} 
+                        onChange={(e) => {
+                          const newDraft = { ...completionDraft };
+                          newDraft.contractYears = parseInt(e.target.value) || 1;
+                          setCompletionDraft(newDraft);
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <Label>年度巡检次数 *</Label>
+                      <Select 
+                        value={String(completionDraft.annualInspectionCount || 4)} 
+                        onValueChange={(val) => {
+                          const newDraft = { ...completionDraft };
+                          newDraft.annualInspectionCount = parseInt(val) || 4;
+                          setCompletionDraft(newDraft);
+                        }}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="2">每半年一次 (2次/年)</SelectItem>
+                          <SelectItem value="4">每季度一次 (4次/年)</SelectItem>
+                          <SelectItem value="12">每月一次 (12次/年)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label>到场时间</Label>
+                      <Select 
+                        value={completionDraft.arrivalTime || ''} 
+                        onValueChange={(val) => {
+                          const newDraft = { ...completionDraft };
+                          newDraft.arrivalTime = val;
+                          setCompletionDraft(newDraft);
+                        }}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="选择到场时间" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="4小时">4小时</SelectItem>
+                          <SelectItem value="8小时">8小时</SelectItem>
+                          <SelectItem value="24小时">24小时</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label>响应时间</Label>
+                      <Select 
+                        value={completionDraft.responseTime || ''} 
+                        onValueChange={(val) => {
+                          const newDraft = { ...completionDraft };
+                          newDraft.responseTime = val;
+                          setCompletionDraft(newDraft);
+                        }}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="选择响应时间" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="15分钟">15分钟</SelectItem>
+                          <SelectItem value="30分钟">30分钟</SelectItem>
+                          <SelectItem value="1小时">1小时</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label>服务时间</Label>
+                      <Select 
+                        value={completionDraft.serviceTime || ''} 
+                        onValueChange={(val) => {
+                          const newDraft = { ...completionDraft };
+                          newDraft.serviceTime = val;
+                          setCompletionDraft(newDraft);
+                        }}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="选择服务时间" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="5×8">5×8</SelectItem>
+                          <SelectItem value="7×8">7×8</SelectItem>
+                          <SelectItem value="7×24">7×24</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* 缺失字段提示 */}
+              {completionDraft.missingFields && completionDraft.missingFields.length > 0 && (
+                <div>
+                  <h3 className="font-semibold mb-3 text-orange-600">⚠️ 还需要补充的信息</h3>
+                  <Card className="border-orange-200 bg-orange-50">
+                    <CardContent className="pt-4">
+                      <ul className="list-disc list-inside space-y-1 text-orange-800">
+                        {completionDraft.missingFields.map((field, idx) => (
+                          <li key={idx}>{field}</li>
+                        ))}
+                      </ul>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+
+              {/* AI建议 */}
+              {completionDraft.suggestions && completionDraft.suggestions.length > 0 && (
+                <div>
+                  <h3 className="font-semibold mb-3 text-blue-600">💡 AI建议</h3>
+                  <Card className="border-blue-200 bg-blue-50">
+                    <CardContent className="pt-4">
+                      <ul className="list-disc list-inside space-y-1 text-blue-800">
+                        {completionDraft.suggestions.map((suggestion, idx) => (
+                          <li key={idx}>{suggestion}</li>
+                        ))}
+                      </ul>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+            </div>
+          )}
+
+          <DialogFooter className="gap-2">
+            <Button 
+              variant="secondary" 
+              onClick={() => {
+                setShowAiCompletionDialog(false);
+                setCompletionDraft(null);
+              }}
+            >
+              取消
+            </Button>
+            <Button 
+              variant="secondary"
+              onClick={() => {
+                setShowAiCompletionDialog(false);
+                setShowAiPreview(true);
+                setAiDraft(completionDraft);
+              }}
+            >
+              查看识别结果
+            </Button>
+            <Button 
+              className="bg-blue-700 hover:bg-blue-800"
+              onClick={() => {
+                if (!completionDraft) return;
+                
+                // 应用到报价单
+                setAiDraft(completionDraft);
+                
+                // 设置地区
+                if (completionDraft.region) {
+                  setRegion(completionDraft.region as any);
+                }
+                
+                // 设置合同年限
+                if (completionDraft.contractYears) {
+                  setContractYears(String(completionDraft.contractYears));
+                }
+                
+                // 创建设备
+                const newDevices = completionDraft.devices.map((d: any) => {
+                  const quota = d.matchedDeviceId 
+                    ? FULL_DEVICE_QUOTAS.find((q: any) => q.id === d.matchedDeviceId)
+                    : FULL_DEVICE_QUOTAS[0];
+                  
+                  if (!quota) return null;
+                  
+                  return {
+                    quota,
+                    quantity: d.quantity || 1,
+                    useYears: d.useYears ?? 1,
+                    underWarranty: d.underWarranty || false,
+                    slaConfig: {
+                      teamExperience: '有',
+                      securityLevel: '二级',
+                      supportMode: '现场支持为主',
+                      faultRecoveryTime: '≤24h',
+                      arrivalTime: completionDraft.arrivalTime || '8小时',
+                      responseTime: completionDraft.responseTime || '30分钟',
+                      serviceTime: completionDraft.serviceTime || '5×8',
+                    }
+                  };
+                }).filter((d): d is any => d !== null);
+                
+                if (newDevices.length > 0) {
+                  setSelectedDevices(newDevices);
+                }
+                
+                // 关闭对话框
+                setShowAiCompletionDialog(false);
+                setCompletionDraft(null);
+                setShowAiPreview(false);
+              }}
+            >
+              <Sparkles className="h-4 w-4 mr-2" />
+              应用到报价单
             </Button>
           </DialogFooter>
         </DialogContent>
