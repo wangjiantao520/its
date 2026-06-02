@@ -25,22 +25,25 @@ export async function POST(request: NextRequest) {
 
     // 分析设备 - 简单的关键词匹配
     const devicePatterns = [
-      { name: '台式电脑', pattern: /台式电脑|台品电脑|台机|台式机/g },
-      { name: '笔记本电脑', pattern: /笔记本电脑|笔记本|便携机/g },
-      { name: '电动装订机', pattern: /电动装订机|装订机/g },
-      { name: '手动装订机', pattern: /手动装订机/g },
-      { name: '打印机', pattern: /打印机/g },
-      { name: '复印机', pattern: /复印机/g },
-      { name: '扫描仪', pattern: /扫描仪/g },
-      { name: '触控一体机', pattern: /触控一体机|一体机/g },
-      { name: '服务器', pattern: /服务器/g },
+      { name: '台式电脑', keywords: ['台式电脑', '台品电脑', '台机', '台式机'] },
+      { name: '笔记本电脑', keywords: ['笔记本电脑', '笔记本', '便携机'] },
+      { name: '电动装订机', keywords: ['电动装订机', '装订机'] },
+      { name: '手动装订机', keywords: ['手动装订机'] },
+      { name: '打印机', keywords: ['打印机'] },
+      { name: '复印机', keywords: ['复印机'] },
+      { name: '扫描仪', keywords: ['扫描仪'] },
+      { name: '触控一体机', keywords: ['触控一体机', '一体机'] },
+      { name: '服务器', keywords: ['服务器'] },
     ];
 
     const matchedDevices = new Set<string>();
 
     for (const device of devicePatterns) {
-      if (device.pattern.test(text)) {
-        matchedDevices.add(device.name);
+      for (const keyword of device.keywords) {
+        if (text.includes(keyword)) {
+          matchedDevices.add(device.name);
+          break;
+        }
       }
     }
 
