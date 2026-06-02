@@ -53,11 +53,13 @@ export async function initDatabase() {
         regulatory_fee DECIMAL(15,2) DEFAULT 0,
         tax DECIMAL(15,2) DEFAULT 0,
         total DECIMAL(15,2) DEFAULT 0,
+        status VARCHAR(20) DEFAULT 'draft',
         items JSON,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         INDEX idx_quote_number (quote_number),
-        INDEX idx_created_at (created_at)
+        INDEX idx_created_at (created_at),
+        INDEX idx_status (status)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
 
