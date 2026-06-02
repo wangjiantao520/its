@@ -12,6 +12,7 @@ import { Plus, Trash2, Save, FileDown, Eye, FileSpreadsheet, Loader2, Search, Pe
 import {
   generateEngineeringQuoteHTML,
   downloadAsWord,
+  downloadAsPDF,
   convertToChineseCurrency,
   type EngineeringQuoteExportData,
 } from '@/lib/export-utils';
@@ -111,6 +112,9 @@ export default function EngineeringPage() {
   const [statusTarget, setStatusTarget] = useState<EngineeringQuote | null>(null);
   const [newStatus, setNewStatus] = useState<string>('');
   const [isChangingStatus, setIsChangingStatus] = useState(false);
+
+  // PDF导出状态
+  const [isExportingPDF, setIsExportingPDF] = useState(false);
 
   // 加载报价单列表
   const fetchQuotes = useCallback(async (page: number = 1, keyword: string = '', status: string = 'all') => {
@@ -654,13 +658,56 @@ export default function EngineeringPage() {
     }
   };
 
-  // 导出工程报价单
+  // 导出工程报价单（Word）
   const handleExportEngineeringQuote = () => {
     const exportData = buildExportData();
     if (!exportData) return;
 
     const html = generateEngineeringQuoteHTML(exportData);
     downloadAsWord(html, `工程报价单_${exportData.quoteNumber}.doc`);
+  };
+
+  // 导出工程报价单（PDF）
+  const handleExportPDF = async () => {
+    if (quoteItems.length === 0) {
+      toast.error('导出失败', { description: '请至少添加一条报价明细' });
+      return;
+    }
+    if (!projectName) {
+      toast.error('导出失败', { description: '请填写项目名称' });
+      return;
+    }
+
+    const exportData = buildExportData();
+    if (!exportData) return;
+
+    setIsExportingPDF(true);
+    try {
+      const html = generateEngineeringQuoteHTML(exportData);
+      await downloadAsPDF(html, `工程报价单_${exportData.quoteNumber}.pdf`);
+      toast.success('导出成功', { description: 'PDF文件已开始下载' });
+    } catch (error) {
+      console.error('导出PDF失败:', error);
+      toast.error('导出失败', { description: 'PDF生成出错，请稍后重试' });
+    } finally {
+      setIsExportingPDF(false);
+    }
+  };
+
+  // 从预览弹窗导出PDF
+  const handleExportPDFFromPreview = async () => {
+    if (!previewHtml) return;
+    const quoteNumber = previewTitle.split(' - ').pop() || 'unknown';
+    setIsExportingPDF(true);
+    try {
+      await downloadAsPDF(previewHtml, `工程报价单_${quoteNumber}.pdf`);
+      toast.success('导出成功', { description: 'PDF文件已开始下载' });
+    } catch (error) {
+      console.error('导出PDF失败:', error);
+      toast.error('导出失败', { description: 'PDF生成出错，请稍后重试' });
+    } finally {
+      setIsExportingPDF(false);
+    }
   };
 
   return (
@@ -920,9 +967,13 @@ export default function EngineeringPage() {
                 <Eye className="h-4 w-4 mr-2" />
                 预览报价单
               </Button>
-              <Button variant="outline">
-                <FileDown className="h-4 w-4 mr-2" />
-                导出PDF
+              <Button variant="outline" onClick={handleExportPDF} disabled={isExportingPDF}>
+                {isExportingPDF ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <FileDown className="h-4 w-4 mr-2" />
+                )}
+                {isExportingPDF ? '导出中...' : '导出PDF'}
               </Button>
               <Button 
                 className="bg-green-700 hover:bg-green-800"
@@ -1398,6 +1449,14 @@ export default function EngineeringPage() {
               <DialogDescription className="mt-1">{previewTitle}</DialogDescription>
             </div>
             <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={handleExportPDFFromPreview} disabled={isExportingPDF}>
+                {isExportingPDF ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <FileDown className="h-4 w-4 mr-2" />
+                )}
+                {isExportingPDF ? '导出中...' : '导出PDF'}
+              </Button>
               <Button variant="outline" size="sm" onClick={handleExportFromPreview}>
                 <FileSpreadsheet className="h-4 w-4 mr-2" />
                 导出Word

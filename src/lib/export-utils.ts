@@ -121,16 +121,23 @@ export function generateMaintenanceQuoteHTML(data: MaintenanceQuoteExportData): 
   <style>
     body { font-family: 'SimSun', serif; font-size: 12pt; line-height: 1.6; }
     .title { text-align: center; font-size: 24pt; font-weight: bold; margin-bottom: 30px; }
-    .subtitle { text-align: center; font-size: 18pt; font-weight: bold; margin: 20px 0; }
-    .info-table { width: 100%; margin-bottom: 20px; }
+    .subtitle { text-align: center; font-size: 18pt; font-weight: bold; margin: 20px 0; page-break-after: avoid; }
+    .info-table { width: 100%; margin-bottom: 20px; margin-left: auto; margin-right: auto; }
     .info-table td { padding: 5px 10px; }
     .label { font-weight: bold; }
-    table { width: 100%; border-collapse: collapse; margin: 15px 0; }
+    table { width: 100%; border-collapse: collapse; margin: 15px auto; }
     th { background-color: #f0f0f0; font-weight: bold; }
     .summary { font-size: 14pt; font-weight: bold; margin: 20px 0; }
     .total { font-size: 16pt; color: #c53030; font-weight: bold; }
     .footer { margin-top: 50px; text-align: right; }
     .signature { margin-top: 80px; display: flex; justify-content: space-between; }
+    /* 分页控制：避免表格、段落、列表跨页断裂 */
+    table { page-break-inside: avoid; }
+    .subtitle { page-break-after: avoid; }
+    .summary { page-break-inside: avoid; }
+    ol { page-break-inside: avoid; }
+    .signature { page-break-inside: avoid; }
+    tr { page-break-inside: avoid; }
   </style>
 </head>
 <body>
@@ -340,16 +347,23 @@ export function generateEngineeringQuoteHTML(data: EngineeringQuoteExportData): 
   <style>
     body { font-family: 'SimSun', serif; font-size: 12pt; line-height: 1.6; }
     .title { text-align: center; font-size: 24pt; font-weight: bold; margin-bottom: 30px; }
-    .subtitle { text-align: center; font-size: 18pt; font-weight: bold; margin: 20px 0; }
-    .info-table { width: 100%; margin-bottom: 20px; }
+    .subtitle { text-align: center; font-size: 18pt; font-weight: bold; margin: 20px 0; page-break-after: avoid; }
+    .info-table { width: 100%; margin-bottom: 20px; margin-left: auto; margin-right: auto; }
     .info-table td { padding: 5px 10px; }
     .label { font-weight: bold; }
-    table { width: 100%; border-collapse: collapse; margin: 15px 0; }
+    table { width: 100%; border-collapse: collapse; margin: 15px auto; }
     th { background-color: #f0f0f0; font-weight: bold; }
     .summary { font-size: 14pt; font-weight: bold; margin: 20px 0; }
     .total { font-size: 16pt; color: #c53030; font-weight: bold; }
     .footer { margin-top: 50px; text-align: right; }
     .signature { margin-top: 80px; display: flex; justify-content: space-between; }
+    /* 分页控制：避免表格、段落、列表跨页断裂 */
+    table { page-break-inside: avoid; }
+    .subtitle { page-break-after: avoid; }
+    .summary { page-break-inside: avoid; }
+    ol { page-break-inside: avoid; }
+    .signature { page-break-inside: avoid; }
+    tr { page-break-inside: avoid; }
   </style>
 </head>
 <body>
@@ -454,6 +468,189 @@ export function generateEngineeringQuoteHTML(data: EngineeringQuoteExportData): 
 </body>
 </html>
 `;
+}
+
+/**
+ * 检查CSS文本是否包含 html2canvas 不支持的颜色函数（lab(), oklch() 等）
+ */
+function hasUnsupportedColorFunctions(cssText: string): boolean {
+  return /(?:^|[^-])lab\s*\(/i.test(cssText) || /oklch\s*\(/i.test(cssText);
+}
+
+/**
+ * 临时禁用主页面中包含不兼容颜色函数的样式表，返回恢复函数
+ */
+function disableIncompatibleStylesheets(): () => void {
+  const disabledSheets: { el: HTMLStyleElement | HTMLLinkElement; wasDisabled: boolean }[] = [];
+  const allElements = Array.from(document.querySelectorAll<HTMLStyleElement | HTMLLinkElement>('style, link[rel="stylesheet"]'));
+
+  for (const el of allElements) {
+    if (el.tagName === 'STYLE') {
+      if (el.textContent && hasUnsupportedColorFunctions(el.textContent)) {
+        disabledSheets.push({ el, wasDisabled: el.disabled });
+        el.disabled = true;
+      }
+    } else if (el.tagName === 'LINK') {
+      try {
+        const sheet = el.sheet;
+        if (sheet) {
+          const rules = Array.from(sheet.cssRules || []);
+          const hasUnsupported = rules.some((rule) => hasUnsupportedColorFunctions(rule.cssText));
+          if (hasUnsupported) {
+            disabledSheets.push({ el, wasDisabled: el.disabled });
+            el.disabled = true;
+          }
+        }
+      } catch {
+        // 跨域样式表无法访问 cssRules，检查 href
+        const href = (el as HTMLLinkElement).href || '';
+        if (/tailwind|tw-animate|globals/i.test(href)) {
+          disabledSheets.push({ el, wasDisabled: el.disabled });
+          el.disabled = true;
+        }
+      }
+    }
+  }
+
+  // 返回恢复函数
+  return () => {
+    disabledSheets.forEach(({ el, wasDisabled }) => {
+      el.disabled = wasDisabled;
+    });
+  };
+}
+
+/**
+ * 下载HTML为PDF文档
+ */
+export async function downloadAsPDF(html: string, filename: string): Promise<void> {
+  // 动态导入 html2pdf.js，避免 SSR 问题
+  const html2pdf = (await import('html2pdf.js')).default;
+
+  // 从完整HTML文档中提取body内容（避免嵌套html/body标签）
+  let bodyContent = html;
+  let styleContent = '';
+  
+  // 尝试解析HTML文档结构
+  const htmlMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+  if (htmlMatch) {
+    bodyContent = htmlMatch[1];
+  }
+  
+  // 提取style标签内容
+  const styleMatches = html.match(/<style[^>]*>([\s\S]*?)<\/style>/gi);
+  if (styleMatches) {
+    styleContent = styleMatches.join('\n');
+  }
+
+  // 创建iframe来隔离渲染环境，避免主页面样式（oklch等）影响PDF渲染
+  const iframe = document.createElement('iframe');
+  iframe.style.position = 'fixed';
+  iframe.style.left = '-9999px';
+  iframe.style.top = '0';
+  iframe.style.width = '840px'; // A4宽度 + 边距
+  iframe.style.height = '1200px';
+  iframe.style.border = 'none';
+  iframe.style.opacity = '1'; // 必须为1，html2canvas需要
+  iframe.style.visibility = 'visible'; // 必须visible
+  iframe.style.zIndex = '-1';
+  iframe.style.pointerEvents = 'none';
+  document.body.appendChild(iframe);
+
+  // 等待iframe加载完成
+  await new Promise<void>((resolve, reject) => {
+    iframe.onload = () => resolve();
+    iframe.onerror = () => reject(new Error('iframe加载失败'));
+    // 设置iframe内容
+    const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
+    if (!iframeDoc) {
+      reject(new Error('无法访问iframe文档'));
+      return;
+    }
+    iframeDoc.open();
+    iframeDoc.write(`<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body {
+      font-family: 'SimSun', 'Microsoft YaHei', 'Noto Sans SC', serif;
+      font-size: 12pt;
+      line-height: 1.6;
+      color: #000000;
+      background-color: #ffffff;
+      margin: 0;
+      padding: 20px;
+      width: 794px;
+    }
+    /* 确保表格和文字正常显示 */
+    table { width: 100%; border-collapse: collapse; margin: 15px auto; page-break-inside: avoid; }
+    th { background-color: #f0f0f0; font-weight: bold; }
+    td, th { border: 1px solid #333; padding: 8px; }
+    .title { text-align: center; font-size: 24pt; font-weight: bold; margin-bottom: 30px; }
+    .subtitle { text-align: center; font-size: 18pt; font-weight: bold; margin: 20px 0; page-break-after: avoid; }
+    .info-table { width: 100%; margin-bottom: 20px; margin-left: auto; margin-right: auto; }
+    .info-table td { padding: 5px 10px; }
+    .label { font-weight: bold; }
+    .summary { font-size: 14pt; font-weight: bold; margin: 20px 0; page-break-inside: avoid; }
+    .total { font-size: 16pt; color: #c53030; font-weight: bold; }
+    .footer { margin-top: 50px; text-align: right; }
+    .signature { margin-top: 80px; display: flex; justify-content: space-between; page-break-inside: avoid; }
+    /* 分页控制：避免元素跨页断裂 */
+    tr { page-break-inside: avoid; }
+    ol { page-break-inside: avoid; }
+  </style>
+  ${styleContent}
+</head>
+<body>
+  ${bodyContent}
+</body>
+</html>`);
+    iframeDoc.close();
+    // 给一点时间让内容渲染
+    setTimeout(resolve, 200);
+  });
+
+  const iframeBody = iframe.contentDocument?.body;
+  if (!iframeBody) {
+    document.body.removeChild(iframe);
+    throw new Error('无法访问iframe内容');
+  }
+
+  // 关键：在调用 html2canvas 前，临时禁用主页面中所有包含 lab()/oklch() 的样式表
+  // html2canvas 会遍历主页面所有样式表，遇到不兼容的颜色函数会报错
+  const restoreStylesheets = disableIncompatibleStylesheets();
+
+  const options = {
+    margin: [10, 10, 10, 10], // 上、左、下、右边距（mm）
+    filename: filename,
+    image: { type: 'jpeg', quality: 0.98 },
+    html2canvas: {
+      scale: 2,
+      useCORS: true,
+      letterRendering: true,
+      logging: false,
+      scrollX: 0,
+      scrollY: 0,
+      width: 840,
+      windowWidth: 840,
+    },
+    jsPDF: {
+      unit: 'mm',
+      format: 'a4',
+      orientation: 'portrait' as const,
+    },
+    pagebreak: { mode: ['css', 'legacy'] },
+  };
+
+  try {
+    await html2pdf().set(options).from(iframeBody).save();
+  } finally {
+    // 恢复被禁用的样式表
+    restoreStylesheets();
+    // 清理iframe
+    document.body.removeChild(iframe);
+  }
 }
 
 /**
