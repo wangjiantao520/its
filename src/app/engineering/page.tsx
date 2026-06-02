@@ -8,7 +8,8 @@ import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Plus, Trash2, Save, FileDown, Eye, FileSpreadsheet, Loader2, Search, Pencil, MoreHorizontal, RefreshCw, ClipboardList, ArrowRightLeft, X } from 'lucide-react';
+import { Plus, Trash2, Save, FileDown, Eye, FileSpreadsheet, Loader2, Search, Pencil, MoreHorizontal, RefreshCw, ClipboardList, ArrowRightLeft, X, BarChart3, TrendingUp, TrendingDown, Users, DollarSign, FileText, Activity } from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, AreaChart, Area } from 'recharts';
 import {
   generateEngineeringQuoteHTML,
   downloadAsWord,
@@ -68,6 +69,52 @@ interface EngineeringQuote {
   updated_at: string;
 }
 
+// 统计数据接口
+interface StatsOverview {
+  totalCount: number;
+  totalAmount: number;
+  avgAmount: number;
+  maxAmount: number;
+  minAmount: number;
+}
+
+interface StatsByStatus {
+  status: string;
+  count: number;
+  totalAmount: number;
+}
+
+interface StatsByMonth {
+  month: string;
+  count: number;
+  totalAmount: number;
+}
+
+interface StatsByClient {
+  clientName: string;
+  count: number;
+  totalAmount: number;
+}
+
+interface StatsByAmountRange {
+  range: string;
+  count: number;
+}
+
+interface StatsData {
+  overview: StatsOverview;
+  byStatus: StatsByStatus[];
+  byMonth: StatsByMonth[];
+  byClient: StatsByClient[];
+  byAmountRange: StatsByAmountRange[];
+  thisMonth: {
+    count: number;
+    totalAmount: number;
+    countChange: number;
+    amountChange: number;
+  };
+}
+
 export default function EngineeringPage() {
   const [customerName, setCustomerName] = useState('');
   const [projectName, setProjectName] = useState('');
@@ -116,6 +163,30 @@ export default function EngineeringPage() {
   // PDF导出状态
   const [isExportingPDF, setIsExportingPDF] = useState(false);
 
+  // 统计看板状态
+  const [statsData, setStatsData] = useState<StatsData | null>(null);
+  const [isLoadingStats, setIsLoadingStats] = useState(false);
+
+  // 加载统计数据
+  const fetchStats = useCallback(async () => {
+    setIsLoadingStats(true);
+    try {
+      const response = await fetch('/api/engineering-quotes/stats');
+      const result = await response.json();
+
+      if (result.success) {
+        setStatsData(result.data);
+      } else {
+        toast.error('加载统计失败', { description: result.error || '无法获取统计数据' });
+      }
+    } catch (error) {
+      console.error('加载统计数据失败:', error);
+      toast.error('加载失败', { description: '网络错误，请稍后重试' });
+    } finally {
+      setIsLoadingStats(false);
+    }
+  }, []);
+
   // 加载报价单列表
   const fetchQuotes = useCallback(async (page: number = 1, keyword: string = '', status: string = 'all') => {
     setIsLoadingList(true);
@@ -150,6 +221,13 @@ export default function EngineeringPage() {
   useEffect(() => {
     if (activeTab === 'list') {
       fetchQuotes(1, searchKeyword, statusFilter);
+    }
+  }, [activeTab]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 切换到统计Tab时加载数据
+  useEffect(() => {
+    if (activeTab === 'stats') {
+      fetchStats();
     }
   }, [activeTab]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -731,6 +809,10 @@ export default function EngineeringPage() {
             )}
           </TabsTrigger>
           <TabsTrigger value="quotas">定额库管理</TabsTrigger>
+          <TabsTrigger value="stats">
+            <BarChart3 className="h-4 w-4 mr-1" />
+            统计看板
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="create" className="space-y-6 mt-6">
@@ -1434,6 +1516,345 @@ export default function EngineeringPage() {
               </Table>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* 统计看板 */}
+        <TabsContent value="stats" className="mt-6 space-y-6">
+          {isLoadingStats ? (
+            <div className="grid gap-6 md:grid-cols-4">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <Card key={i}>
+                  <CardContent className="p-6">
+                    <Skeleton className="h-4 w-[80px] mb-2" />
+                    <Skeleton className="h-8 w-[120px] mb-1" />
+                    <Skeleton className="h-3 w-[60px]" />
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          ) : statsData ? (
+            <>
+              {/* 概览卡片 */}
+              <div className="grid gap-6 md:grid-cols-4">
+                <Card>
+                  <CardContent className="p-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-muted-foreground">报价总数</p>
+                        <p className="text-3xl font-bold mt-1">{statsData.overview.totalCount}</p>
+                        <div className="flex items-center gap-1 mt-1">
+                          {statsData.thisMonth.countChange >= 0 ? (
+                            <TrendingUp className="h-3 w-3 text-green-600" />
+                          ) : (
+                            <TrendingDown className="h-3 w-3 text-red-600" />
+                          )}
+                          <span className={`text-xs font-medium ${statsData.thisMonth.countChange >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            {statsData.thisMonth.countChange >= 0 ? '+' : ''}{statsData.thisMonth.countChange}%
+                          </span>
+                          <span className="text-xs text-muted-foreground">较上月</span>
+                        </div>
+                      </div>
+                      <div className="h-12 w-12 rounded-full bg-blue-100 flex items-center justify-center">
+                        <FileText className="h-6 w-6 text-blue-600" />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardContent className="p-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-muted-foreground">报价总额</p>
+                        <p className="text-3xl font-bold mt-1">¥{(statsData.overview.totalAmount / 10000).toFixed(1)}<span className="text-lg font-normal text-muted-foreground">万</span></p>
+                        <div className="flex items-center gap-1 mt-1">
+                          {statsData.thisMonth.amountChange >= 0 ? (
+                            <TrendingUp className="h-3 w-3 text-green-600" />
+                          ) : (
+                            <TrendingDown className="h-3 w-3 text-red-600" />
+                          )}
+                          <span className={`text-xs font-medium ${statsData.thisMonth.amountChange >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            {statsData.thisMonth.amountChange >= 0 ? '+' : ''}{statsData.thisMonth.amountChange}%
+                          </span>
+                          <span className="text-xs text-muted-foreground">较上月</span>
+                        </div>
+                      </div>
+                      <div className="h-12 w-12 rounded-full bg-green-100 flex items-center justify-center">
+                        <DollarSign className="h-6 w-6 text-green-600" />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardContent className="p-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-muted-foreground">平均报价</p>
+                        <p className="text-3xl font-bold mt-1">¥{(statsData.overview.avgAmount / 10000).toFixed(1)}<span className="text-lg font-normal text-muted-foreground">万</span></p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          最高 ¥{(statsData.overview.maxAmount / 10000).toFixed(1)}万 / 最低 ¥{(statsData.overview.minAmount / 10000).toFixed(1)}万
+                        </p>
+                      </div>
+                      <div className="h-12 w-12 rounded-full bg-purple-100 flex items-center justify-center">
+                        <Activity className="h-6 w-6 text-purple-600" />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardContent className="p-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-muted-foreground">本月新增</p>
+                        <p className="text-3xl font-bold mt-1">{statsData.thisMonth.count}<span className="text-lg font-normal text-muted-foreground">单</span></p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          本月总额 ¥{(statsData.thisMonth.totalAmount / 10000).toFixed(1)}万
+                        </p>
+                      </div>
+                      <div className="h-12 w-12 rounded-full bg-orange-100 flex items-center justify-center">
+                        <TrendingUp className="h-6 w-6 text-orange-600" />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* 图表区域 */}
+              <div className="grid gap-6 md:grid-cols-2">
+                {/* 月度趋势图 */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <TrendingUp className="h-5 w-5" />
+                      月度趋势
+                    </CardTitle>
+                    <CardDescription>近12个月报价数量与金额趋势</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {statsData.byMonth.length > 0 ? (
+                      <ResponsiveContainer width="100%" height={300}>
+                        <AreaChart data={statsData.byMonth}>
+                          <defs>
+                            <linearGradient id="colorAmount" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
+                              <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                            </linearGradient>
+                          </defs>
+                          <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+                          <XAxis dataKey="month" tick={{ fontSize: 12 }} tickFormatter={(v) => v.split('-')[1] + '月'} />
+                          <YAxis yAxisId="left" tick={{ fontSize: 12 }} tickFormatter={(v) => `${(v / 10000).toFixed(0)}万`} />
+                          <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 12 }} />
+                          <Tooltip
+                            formatter={(value: number, name: string) => {
+                              if (name === 'totalAmount') return [`¥${value.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}`, '报价金额'];
+                              return [value, '报价数量'];
+                            }}
+                            labelFormatter={(label) => `${label}`}
+                          />
+                          <Legend formatter={(value) => value === 'totalAmount' ? '报价金额' : '报价数量'} />
+                          <Area yAxisId="left" type="monotone" dataKey="totalAmount" stroke="#3b82f6" fill="url(#colorAmount)" name="totalAmount" />
+                          <Bar yAxisId="right" dataKey="count" fill="#93c5fd" radius={[4, 4, 0, 0]} name="count" barSize={20} />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+                        暂无数据
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* 状态分布饼图 */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Activity className="h-5 w-5" />
+                      状态分布
+                    </CardTitle>
+                    <CardDescription>各状态报价单数量占比</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {statsData.byStatus.length > 0 ? (
+                      <ResponsiveContainer width="100%" height={300}>
+                        <PieChart>
+                          <Pie
+                            data={statsData.byStatus.map(item => ({
+                              name: { draft: '草稿', submitted: '已提交', approved: '已审批', rejected: '已驳回' }[item.status] || item.status,
+                              value: item.count,
+                            }))}
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={60}
+                            outerRadius={100}
+                            paddingAngle={4}
+                            dataKey="value"
+                            label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                          >
+                            <Cell fill="#94a3b8" /> {/* draft - 灰色 */}
+                            <Cell fill="#3b82f6" /> {/* submitted - 蓝色 */}
+                            <Cell fill="#22c55e" /> {/* approved - 绿色 */}
+                            <Cell fill="#ef4444" /> {/* rejected - 红色 */}
+                          </Pie>
+                          <Tooltip formatter={(value: number) => [`${value}单`, '数量']} />
+                          <Legend />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+                        暂无数据
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+
+              <div className="grid gap-6 md:grid-cols-2">
+                {/* 客户报价频次 TOP10 */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Users className="h-5 w-5" />
+                      客户报价频次 TOP10
+                    </CardTitle>
+                    <CardDescription>报价次数最多的客户排名</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {statsData.byClient.length > 0 ? (
+                      <ResponsiveContainer width="100%" height={300}>
+                        <BarChart data={statsData.byClient} layout="vertical" margin={{ left: 20 }}>
+                          <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+                          <XAxis type="number" tick={{ fontSize: 12 }} />
+                          <YAxis type="category" dataKey="clientName" tick={{ fontSize: 12 }} width={80} />
+                          <Tooltip
+                            formatter={(value: number, name: string) => {
+                              if (name === 'totalAmount') return [`¥${(value / 10000).toFixed(2)}万`, '报价总额'];
+                              return [`${value}单`, '报价次数'];
+                            }}
+                          />
+                          <Legend formatter={(value) => value === 'count' ? '报价次数' : '报价总额'} />
+                          <Bar dataKey="count" fill="#3b82f6" radius={[0, 4, 4, 0]} name="count" barSize={16} />
+                          <Bar dataKey="totalAmount" fill="#93c5fd" radius={[0, 4, 4, 0]} name="totalAmount" barSize={16} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+                        暂无数据
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* 金额分布 */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <DollarSign className="h-5 w-5" />
+                      报价金额分布
+                    </CardTitle>
+                    <CardDescription>各金额区间的报价单数量</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {statsData.byAmountRange.length > 0 ? (
+                      <ResponsiveContainer width="100%" height={300}>
+                        <BarChart data={statsData.byAmountRange}>
+                          <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+                          <XAxis dataKey="range" tick={{ fontSize: 12 }} />
+                          <YAxis tick={{ fontSize: 12 }} />
+                          <Tooltip formatter={(value: number) => [`${value}单`, '数量']} />
+                          <Bar dataKey="count" fill="#8b5cf6" radius={[4, 4, 0, 0]} name="count" barSize={40}>
+                            {statsData.byAmountRange.map((_, index) => (
+                              <Cell key={`cell-${index}`} fill={['#3b82f6', '#6366f1', '#8b5cf6', '#a855f7', '#c084fc', '#d8b4fe'][index % 6]} />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+                        暂无数据
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* 状态明细表 */}
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle className="flex items-center gap-2">
+                        <ClipboardList className="h-5 w-5" />
+                        状态明细
+                      </CardTitle>
+                      <CardDescription>各状态报价单数量与金额统计</CardDescription>
+                    </div>
+                    <Button variant="outline" size="sm" onClick={fetchStats} disabled={isLoadingStats}>
+                      <RefreshCw className={`h-4 w-4 mr-2 ${isLoadingStats ? 'animate-spin' : ''}`} />
+                      刷新数据
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>状态</TableHead>
+                        <TableHead className="text-right">数量</TableHead>
+                        <TableHead className="text-right">占比</TableHead>
+                        <TableHead className="text-right">报价总额</TableHead>
+                        <TableHead className="text-right">平均报价</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {statsData.byStatus.map((item) => {
+                        const statusLabels: Record<string, string> = {
+                          draft: '草稿',
+                          submitted: '已提交',
+                          approved: '已审批',
+                          rejected: '已驳回',
+                        };
+                        const percentage = statsData.overview.totalCount > 0
+                          ? ((item.count / statsData.overview.totalCount) * 100).toFixed(1)
+                          : '0.0';
+                        const avgAmount = item.count > 0 ? item.totalAmount / item.count : 0;
+                        return (
+                          <TableRow key={item.status}>
+                            <TableCell>{getStatusBadge(item.status)}</TableCell>
+                            <TableCell className="text-right font-medium">{item.count}单</TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex items-center justify-end gap-2">
+                                <div className="w-20 bg-muted rounded-full h-2 overflow-hidden">
+                                  <div
+                                    className="h-full bg-primary rounded-full"
+                                    style={{ width: `${percentage}%` }}
+                                  />
+                                </div>
+                                <span className="text-sm">{percentage}%</span>
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-right font-semibold">¥{item.totalAmount.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</TableCell>
+                            <TableCell className="text-right text-muted-foreground">¥{avgAmount.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+            </>
+          ) : (
+            <Card>
+              <CardContent className="p-12">
+                <div className="flex flex-col items-center justify-center text-muted-foreground">
+                  <BarChart3 className="h-12 w-12 mb-4 opacity-50" />
+                  <p className="text-lg font-medium">暂无统计数据</p>
+                  <p className="text-sm mt-1">创建报价单后即可查看统计信息</p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
       </Tabs>
 
