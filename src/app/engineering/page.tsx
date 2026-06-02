@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Plus, Trash2, Save, FileDown, Eye, FileSpreadsheet, Loader2, Search, Pencil, MoreHorizontal, RefreshCw, ClipboardList, ArrowRightLeft, X, BarChart3, TrendingUp, TrendingDown, Users, DollarSign, FileText, Activity } from 'lucide-react';
+import { Plus, Trash2, Save, FileDown, Eye, FileSpreadsheet, Loader2, Search, Pencil, MoreHorizontal, RefreshCw, ClipboardList, ArrowRightLeft, X, BarChart3, TrendingUp, TrendingDown, Users, DollarSign, FileText, Activity, Upload, Download } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, AreaChart, Area } from 'recharts';
 import {
   generateEngineeringQuoteHTML,
@@ -24,6 +24,7 @@ import {
   type IntelligentItem,
 } from '@/lib/self-construction-quota';
 import { toast } from 'sonner';
+import * as XLSX from 'xlsx';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
@@ -167,6 +168,34 @@ export default function EngineeringPage() {
   const [statsData, setStatsData] = useState<StatsData | null>(null);
   const [isLoadingStats, setIsLoadingStats] = useState(false);
 
+  // 定额库搜索/筛选状态
+  const [quotaSearchKeyword, setQuotaSearchKeyword] = useState('');
+  const [quotaCategoryFilter, setQuotaCategoryFilter] = useState<string>('all');
+
+  // 定额库数据状态（从数据库加载）
+  const [dbSelfConstruction, setDbSelfConstruction] = useState<SelfConstructionItem[]>([]);
+  const [dbIntelligentProject, setDbIntelligentProject] = useState<IntelligentItem[]>([]);
+  const [isLoadingQuotas, setIsLoadingQuotas] = useState(false);
+
+  // 定额库编辑对话框状态
+  const [quotaEditDialogOpen, setQuotaEditDialogOpen] = useState(false);
+  const [quotaEditType, setQuotaEditType] = useState<'selfConstruction' | 'intelligent'>('selfConstruction');
+  const [quotaEditMode, setQuotaEditMode] = useState<'add' | 'edit'>('add');
+  const [quotaEditForm, setQuotaEditForm] = useState<Record<string, any>>({});
+
+  // 定额库删除确认对话框
+  const [quotaDeleteDialogOpen, setQuotaDeleteDialogOpen] = useState(false);
+  const [quotaDeleteTarget, setQuotaDeleteTarget] = useState<{ type: 'selfConstruction' | 'intelligent'; id: string; name: string } | null>(null);
+
+  // 定额库导入状态
+  const [quotaImportDialogOpen, setQuotaImportDialogOpen] = useState(false);
+  const [quotaImportType, setQuotaImportType] = useState<'selfConstruction' | 'intelligent'>('selfConstruction');
+  const [quotaImportData, setQuotaImportData] = useState<Record<string, any>[]>([]);
+  const [quotaImportErrors, setQuotaImportErrors] = useState<string[]>([]);
+  const [quotaImportFileName, setQuotaImportFileName] = useState('');
+  const [isImporting, setIsImporting] = useState(false);
+  const quotaFileInputRef = useRef<HTMLInputElement>(null);
+
   // 加载统计数据
   const fetchStats = useCallback(async () => {
     setIsLoadingStats(true);
@@ -185,6 +214,425 @@ export default function EngineeringPage() {
     } finally {
       setIsLoadingStats(false);
     }
+  }, []);
+
+  // 加载定额库数据
+  const fetchQuotas = useCallback(async () => {
+    setIsLoadingQuotas(true);
+    try {
+      const [selfRes, intelligentRes] = await Promise.all([
+        fetch('/api/self-construction-quotas'),
+        fetch('/api/intelligent-project-quotas'),
+      ]);
+      const selfResult = await selfRes.json();
+      const intelligentResult = await intelligentRes.json();
+
+      if (selfResult.success) {
+        setDbSelfConstruction(selfResult.data.map((row: any) => ({
+          id: row.id,
+          category: row.category,
+          name: row.name,
+          unit: row.unit,
+          quantity: Number(row.quantity),
+          price: Number(row.price),
+          remark: row.remark || '',
+        })));
+      }
+      if (intelligentResult.success) {
+        setDbIntelligentProject(intelligentResult.data.map((row: any) => ({
+          id: row.id,
+          serialNumber: Number(row.serial_number),
+          category: row.category,
+          name: row.name,
+          brandModel: row.brand_model || '',
+          description: row.description || '',
+          deductibleTaxRate: Number(row.deductible_tax_rate),
+          unit: row.unit,
+          price: Number(row.price),
+          remark: row.remark || '',
+        })));
+      }
+
+      // 如果数据库为空，自动初始化种子数据
+      if (selfResult.success && intelligentResult.success && selfResult.data.length === 0 && intelligentResult.data.length === 0) {
+        const seedRes = await fetch('/api/quotas-seed', { method: 'POST' });
+        const seedResult = await seedRes.json();
+        if (seedResult.success && (seedResult.data.selfInserted > 0 || seedResult.data.intelligentInserted > 0)) {
+          // 重新加载
+          const [selfRes2, intelligentRes2] = await Promise.all([
+            fetch('/api/self-construction-quotas'),
+            fetch('/api/intelligent-project-quotas'),
+          ]);
+          const selfResult2 = await selfRes2.json();
+          const intelligentResult2 = await intelligentRes2.json();
+          if (selfResult2.success) {
+            setDbSelfConstruction(selfResult2.data.map((row: any) => ({
+              id: row.id, category: row.category, name: row.name, unit: row.unit,
+              quantity: Number(row.quantity), price: Number(row.price), remark: row.remark || '',
+            })));
+          }
+          if (intelligentResult2.success) {
+            setDbIntelligentProject(intelligentResult2.data.map((row: any) => ({
+              id: row.id, serialNumber: Number(row.serial_number), category: row.category, name: row.name,
+              brandModel: row.brand_model || '', description: row.description || '',
+              deductibleTaxRate: Number(row.deductible_tax_rate), unit: row.unit,
+              price: Number(row.price), remark: row.remark || '',
+            })));
+          }
+          toast.success('定额数据已初始化');
+        }
+      }
+    } catch (error) {
+      console.error('加载定额库数据失败:', error);
+      toast.error('加载定额库失败', { description: '网络错误，请稍后重试' });
+    } finally {
+      setIsLoadingQuotas(false);
+    }
+  }, []);
+
+  // 保存定额项（新增或编辑）
+  const handleSaveQuota = useCallback(async () => {
+    const isSelf = quotaEditType === 'selfConstruction';
+    const apiUrl = isSelf ? '/api/self-construction-quotas' : '/api/intelligent-project-quotas';
+    const method = quotaEditMode === 'add' ? 'POST' : 'PUT';
+
+    const form = quotaEditForm;
+    if (!form.id || !form.category || !form.name || !form.unit || form.price === undefined || form.price === '') {
+      toast.error('请填写必填字段', { description: '编号、分类、名称、单位、单价为必填' });
+      return;
+    }
+
+    try {
+      let body: Record<string, any>;
+      if (isSelf) {
+        body = {
+          id: form.id,
+          category: form.category,
+          name: form.name,
+          unit: form.unit,
+          quantity: form.quantity || 1,
+          price: Number(form.price),
+          remark: form.remark || '',
+        };
+      } else {
+        body = {
+          id: form.id,
+          serialNumber: form.serialNumber || 0,
+          category: form.category,
+          name: form.name,
+          brandModel: form.brandModel || '',
+          description: form.description || '',
+          deductibleTaxRate: form.deductibleTaxRate || 0,
+          unit: form.unit,
+          price: Number(form.price),
+          remark: form.remark || '',
+        };
+      }
+
+      const response = await fetch(apiUrl, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const result = await response.json();
+
+      if (result.success) {
+        toast.success(quotaEditMode === 'add' ? '新增成功' : '保存成功');
+        setQuotaEditDialogOpen(false);
+        fetchQuotas();
+      } else {
+        toast.error('操作失败', { description: result.error || '请稍后重试' });
+      }
+    } catch (error) {
+      console.error('保存定额项失败:', error);
+      toast.error('保存失败', { description: '网络错误，请稍后重试' });
+    }
+  }, [quotaEditType, quotaEditMode, quotaEditForm, fetchQuotas]);
+
+  // 删除定额项
+  const handleDeleteQuota = useCallback(async () => {
+    if (!quotaDeleteTarget) return;
+    const apiUrl = quotaDeleteTarget.type === 'selfConstruction'
+      ? '/api/self-construction-quotas'
+      : '/api/intelligent-project-quotas';
+
+    try {
+      const response = await fetch(apiUrl, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: quotaDeleteTarget.id }),
+      });
+      const result = await response.json();
+
+      if (result.success) {
+        toast.success('删除成功');
+        setQuotaDeleteDialogOpen(false);
+        setQuotaDeleteTarget(null);
+        fetchQuotas();
+      } else {
+        toast.error('删除失败', { description: result.error || '请稍后重试' });
+      }
+    } catch (error) {
+      console.error('删除定额项失败:', error);
+      toast.error('删除失败', { description: '网络错误，请稍后重试' });
+    }
+  }, [quotaDeleteTarget, fetchQuotas]);
+
+  // 打开新增定额对话框
+  const openAddQuotaDialog = (type: 'selfConstruction' | 'intelligent') => {
+    setQuotaEditType(type);
+    setQuotaEditMode('add');
+    if (type === 'selfConstruction') {
+      setQuotaEditForm({ id: '', category: '', name: '', unit: '', quantity: 1, price: '', remark: '' });
+    } else {
+      setQuotaEditForm({ id: '', serialNumber: 0, category: '', name: '', brandModel: '', description: '', deductibleTaxRate: 13, unit: '', price: '', remark: '' });
+    }
+    setQuotaEditDialogOpen(true);
+  };
+
+  // 打开编辑定额对话框
+  const openEditQuotaDialog = (type: 'selfConstruction' | 'intelligent', item: any) => {
+    setQuotaEditType(type);
+    setQuotaEditMode('edit');
+    if (type === 'selfConstruction') {
+      setQuotaEditForm({
+        id: item.id, category: item.category, name: item.name, unit: item.unit,
+        quantity: item.quantity, price: item.price, remark: item.remark,
+      });
+    } else {
+      setQuotaEditForm({
+        id: item.id, serialNumber: item.serialNumber, category: item.category, name: item.name,
+        brandModel: item.brandModel, description: item.description,
+        deductibleTaxRate: item.deductibleTaxRate, unit: item.unit, price: item.price, remark: item.remark,
+      });
+    }
+    setQuotaEditDialogOpen(true);
+  };
+
+  // 打开删除确认对话框
+  const openDeleteQuotaDialog = (type: 'selfConstruction' | 'intelligent', id: string, name: string) => {
+    setQuotaDeleteTarget({ type, id, name });
+    setQuotaDeleteDialogOpen(true);
+  };
+
+  // 打开导入对话框
+  const openImportDialog = (type: 'selfConstruction' | 'intelligent') => {
+    setQuotaImportType(type);
+    setQuotaImportData([]);
+    setQuotaImportErrors([]);
+    setQuotaImportFileName('');
+    setQuotaImportDialogOpen(true);
+  };
+
+  // 解析Excel文件
+  const handleQuotaFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.name.match(/\.(xlsx|xls|csv)$/i)) {
+      toast.error('文件格式错误', { description: '请选择 .xlsx、.xls 或 .csv 格式的文件' });
+      return;
+    }
+
+    setQuotaImportFileName(file.name);
+    setQuotaImportErrors([]);
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const arrayBuffer = evt.target?.result;
+        if (!arrayBuffer) return;
+
+        const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+        const firstSheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[firstSheetName];
+        const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
+
+        if (jsonData.length < 2) {
+          setQuotaImportErrors(['文件内容为空或仅有表头行']);
+          setQuotaImportData([]);
+          return;
+        }
+
+        // 第一行为表头
+        const headers = jsonData[0].map((h: any) => String(h || '').trim());
+        const rows: Record<string, any>[] = [];
+        const errors: string[] = [];
+
+        for (let i = 1; i < jsonData.length; i++) {
+          const row = jsonData[i];
+          if (!row || row.length === 0 || !row[0]) continue;
+
+          const record: Record<string, any> = {};
+          headers.forEach((header, colIdx) => {
+            record[header] = row[colIdx] !== undefined ? String(row[colIdx]).trim() : '';
+          });
+
+          // 基本验证
+          const rowNum = i + 1;
+          if (!record['编号'] && !record['id'] && !record['ID']) {
+            errors.push(`第${rowNum}行：缺少编号`);
+          }
+          if (!record['分类'] && !record['category']) {
+            errors.push(`第${rowNum}行：缺少分类`);
+          }
+          if (!record['名称'] && !record['定额名称'] && !record['name']) {
+            errors.push(`第${rowNum}行：缺少名称`);
+          }
+
+          rows.push(record);
+        }
+
+        if (rows.length === 0) {
+          errors.push('未解析到有效数据行');
+        }
+
+        setQuotaImportData(rows);
+        setQuotaImportErrors(errors);
+      } catch (error) {
+        console.error('解析Excel失败:', error);
+        setQuotaImportErrors(['文件解析失败，请检查文件格式是否正确']);
+        setQuotaImportData([]);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+
+    // 重置input以支持重复选择同一文件
+    e.target.value = '';
+  }, []);
+
+  // 执行批量导入
+  const handleQuotaImport = useCallback(async () => {
+    if (quotaImportData.length === 0) return;
+    setIsImporting(true);
+
+    const isSelf = quotaImportType === 'selfConstruction';
+    const apiUrl = isSelf ? '/api/self-construction-quotas' : '/api/intelligent-project-quotas';
+
+    let successCount = 0;
+    let skipCount = 0;
+    let errorCount = 0;
+    const errors: string[] = [];
+
+    for (let i = 0; i < quotaImportData.length; i++) {
+      const record = quotaImportData[i];
+      const rowNum = i + 2;
+
+      try {
+        // 兼容中英文表头
+        const id = record['编号'] || record['id'] || record['ID'] || '';
+        const category = record['分类'] || record['category'] || '';
+        const name = record['名称'] || record['定额名称'] || record['name'] || '';
+        const unit = record['单位'] || record['unit'] || '';
+        const priceStr = record['单价'] || record['price'] || '0';
+        const remark = record['备注'] || record['remark'] || '';
+
+        if (!id || !category || !name || !unit) {
+          errors.push(`第${rowNum}行：必填字段不完整，已跳过`);
+          skipCount++;
+          continue;
+        }
+
+        const price = parseFloat(priceStr);
+        if (isNaN(price) || price < 0) {
+          errors.push(`第${rowNum}行：单价格式错误，已跳过`);
+          skipCount++;
+          continue;
+        }
+
+        let body: Record<string, any>;
+
+        if (isSelf) {
+          const quantity = parseFloat(record['数量'] || record['quantity'] || '1');
+          body = { id, category, name, unit, quantity: isNaN(quantity) ? 1 : quantity, price, remark };
+        } else {
+          const serialNumber = parseInt(record['序号'] || record['serialNumber'] || '0');
+          const brandModel = record['品牌型号'] || record['brandModel'] || record['品牌'] || '';
+          const description = record['描述'] || record['description'] || record['说明'] || '';
+          const taxRateStr = record['可抵扣税率'] || record['税率'] || record['deductibleTaxRate'] || '0';
+          const deductibleTaxRate = parseFloat(taxRateStr);
+          body = {
+            id, serialNumber: isNaN(serialNumber) ? 0 : serialNumber, category, name,
+            brandModel, description, deductibleTaxRate: isNaN(deductibleTaxRate) ? 0 : deductibleTaxRate,
+            unit, price, remark,
+          };
+        }
+
+        // 尝试新增，若ID已存在则更新
+        const postRes = await fetch(apiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const postResult = await postRes.json();
+
+        if (postResult.success) {
+          successCount++;
+        } else if (postResult.error?.includes('已存在')) {
+          // ID已存在，尝试更新
+          const putRes = await fetch(apiUrl, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+          const putResult = await putRes.json();
+          if (putResult.success) {
+            successCount++;
+          } else {
+            errors.push(`第${rowNum}行：更新失败 - ${putResult.error}`);
+            errorCount++;
+          }
+        } else {
+          errors.push(`第${rowNum}行：${postResult.error}`);
+          errorCount++;
+        }
+      } catch (err) {
+        errors.push(`第${rowNum}行：处理异常`);
+        errorCount++;
+      }
+    }
+
+    setIsImporting(false);
+
+    if (successCount > 0) {
+      toast.success('导入完成', {
+        description: `成功 ${successCount} 条${skipCount > 0 ? `，跳过 ${skipCount} 条` : ''}${errorCount > 0 ? `，失败 ${errorCount} 条` : ''}`,
+      });
+      fetchQuotas();
+    }
+
+    if (errors.length > 0) {
+      setQuotaImportErrors(errors);
+    } else {
+      setQuotaImportDialogOpen(false);
+    }
+  }, [quotaImportData, quotaImportType, fetchQuotas]);
+
+  // 下载导入模板
+  const handleDownloadTemplate = useCallback((type: 'selfConstruction' | 'intelligent') => {
+    const isSelf = type === 'selfConstruction';
+    const headers = isSelf
+      ? ['编号', '分类', '名称', '单位', '数量', '单价', '备注']
+      : ['编号', '序号', '分类', '名称', '品牌型号', '描述', '可抵扣税率', '单位', '单价', '备注'];
+
+    const sampleRows = isSelf
+      ? [
+          ['1', '宽带、专线项目', '光缆布放', '米', 1, 1.65, '施工测量、做拉线'],
+          ['2', '常规内部布线', '网线布放', '米', 1, 3.5, '含网线材料'],
+        ]
+      : [
+          ['I-1', 1, '设备', '高清摄像头', '海康威视DS-2CD3T46', '400万像素', 13, '台', 800, '含安装'],
+          ['I-2', 2, '施工安装', '摄像机安装', '', '包括定位、固定、接线', 6, '台', 150, '含辅料'],
+        ];
+
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...sampleRows]);
+
+    // 设置列宽
+    ws['!cols'] = headers.map(() => ({ wch: 16 }));
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, isSelf ? '自施工定额' : '智能化定额');
+    XLSX.writeFile(wb, isSelf ? '自施工定额导入模板.xlsx' : '智能化定额导入模板.xlsx');
   }, []);
 
   // 加载报价单列表
@@ -228,6 +676,13 @@ export default function EngineeringPage() {
   useEffect(() => {
     if (activeTab === 'stats') {
       fetchStats();
+    }
+  }, [activeTab]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 切换到定额库Tab时加载数据
+  useEffect(() => {
+    if (activeTab === 'quotas') {
+      fetchQuotas();
     }
   }, [activeTab]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -614,6 +1069,35 @@ export default function EngineeringPage() {
       return INTELLIGENT_PROJECT_QUOTA.find(item => item.id === itemId);
     }
   };
+
+  // 定额库筛选逻辑（使用数据库数据）
+  const filteredSelfConstruction = dbSelfConstruction.filter(item => {
+    const matchesCategory = quotaCategoryFilter === 'all' || item.category === quotaCategoryFilter;
+    const matchesSearch = !quotaSearchKeyword || 
+      item.name.toLowerCase().includes(quotaSearchKeyword.toLowerCase()) ||
+      item.id.toLowerCase().includes(quotaSearchKeyword.toLowerCase()) ||
+      item.category.toLowerCase().includes(quotaSearchKeyword.toLowerCase()) ||
+      item.remark.toLowerCase().includes(quotaSearchKeyword.toLowerCase());
+    return matchesCategory && matchesSearch;
+  });
+
+  const filteredIntelligentProject = dbIntelligentProject.filter(item => {
+    const matchesCategory = quotaCategoryFilter === 'all' || item.category === quotaCategoryFilter;
+    const matchesSearch = !quotaSearchKeyword || 
+      item.name.toLowerCase().includes(quotaSearchKeyword.toLowerCase()) ||
+      item.id.toLowerCase().includes(quotaSearchKeyword.toLowerCase()) ||
+      item.category.toLowerCase().includes(quotaSearchKeyword.toLowerCase()) ||
+      item.brandModel.toLowerCase().includes(quotaSearchKeyword.toLowerCase()) ||
+      item.description.toLowerCase().includes(quotaSearchKeyword.toLowerCase()) ||
+      item.remark.toLowerCase().includes(quotaSearchKeyword.toLowerCase());
+    return matchesCategory && matchesSearch;
+  });
+
+  // 获取所有分类（合并两个定额库）
+  const allQuotaCategories = Array.from(new Set([
+    ...dbSelfConstruction.map(item => item.category),
+    ...dbIntelligentProject.map(item => item.category),
+  ]));
 
   const calculateTotals = () => {
     let totalBase = 0;
@@ -1439,81 +1923,254 @@ export default function EngineeringPage() {
         </TabsContent>
 
         <TabsContent value="quotas" className="mt-6 space-y-6">
+          {/* 搜索与筛选栏 */}
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
+                <div className="flex flex-1 flex-col sm:flex-row gap-3 w-full sm:w-auto">
+                  <div className="relative flex-1 sm:max-w-[320px]">
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      placeholder="搜索定额名称、编号、备注、品牌型号..."
+                      value={quotaSearchKeyword}
+                      onChange={(e) => setQuotaSearchKeyword(e.target.value)}
+                      className="pl-9 pr-8"
+                    />
+                    {quotaSearchKeyword && (
+                      <button
+                        onClick={() => setQuotaSearchKeyword('')}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-0.5 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+                  <Select value={quotaCategoryFilter} onValueChange={setQuotaCategoryFilter}>
+                    <SelectTrigger className="w-full sm:w-[180px]">
+                      <SelectValue placeholder="分类筛选" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">全部分类</SelectItem>
+                      {allQuotaCategories.map((cat) => (
+                        <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-muted-foreground">自施工 <strong className="text-foreground">{filteredSelfConstruction.length}</strong>/{dbSelfConstruction.length}项</span>
+                  <span className="text-sm text-muted-foreground">智能化 <strong className="text-foreground">{filteredIntelligentProject.length}</strong>/{dbIntelligentProject.length}项</span>
+                  <div className="h-4 w-px bg-border" />
+                  <Button variant="outline" size="sm" onClick={() => openImportDialog('selfConstruction')}>
+                    <Upload className="h-3.5 w-3.5 mr-1" />
+                    导入自施工
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => openImportDialog('intelligent')}>
+                    <Upload className="h-3.5 w-3.5 mr-1" />
+                    导入智能化
+                  </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="sm">
+                        <Download className="h-3.5 w-3.5 mr-1" />
+                        下载模板
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={() => handleDownloadTemplate('selfConstruction')}>
+                        <FileSpreadsheet className="h-4 w-4 mr-2" />
+                        自施工定额导入模板
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => handleDownloadTemplate('intelligent')}>
+                        <FileSpreadsheet className="h-4 w-4 mr-2" />
+                        智能化定额导入模板
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
           {/* 自施工工序定额 */}
           <Card>
             <CardHeader>
-              <CardTitle>自施工工序定额</CardTitle>
-              <CardDescription>宽带、专线项目和常规内部布线施工工序</CardDescription>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>自施工工序定额</CardTitle>
+                  <CardDescription>宽带、专线项目和常规内部布线施工工序</CardDescription>
+                </div>
+                <Button size="sm" onClick={() => openAddQuotaDialog('selfConstruction')}>
+                  <Plus className="h-4 w-4 mr-1" />
+                  新增
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>编号</TableHead>
-                    <TableHead>分类</TableHead>
-                    <TableHead>定额名称</TableHead>
-                    <TableHead>单位</TableHead>
-                    <TableHead>单价</TableHead>
-                    <TableHead>备注</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {SELF_CONSTRUCTION_QUOTA.map((item) => (
-                    <TableRow key={item.id}>
-                      <TableCell>{item.id}</TableCell>
-                      <TableCell>
-                        <span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                          {item.category}
-                        </span>
-                      </TableCell>
-                      <TableCell>{item.name}</TableCell>
-                      <TableCell>{item.unit}</TableCell>
-                      <TableCell>¥{item.price.toFixed(2)}</TableCell>
-                      <TableCell className="text-muted-foreground">{item.remark || '-'}</TableCell>
-                    </TableRow>
+              {isLoadingQuotas ? (
+                <div className="space-y-3">
+                  {Array.from({ length: 3 }).map((_, i) => (
+                    <div key={i} className="flex gap-4">
+                      <Skeleton className="h-5 w-16" />
+                      <Skeleton className="h-5 w-20" />
+                      <Skeleton className="h-5 w-40" />
+                      <Skeleton className="h-5 w-12" />
+                      <Skeleton className="h-5 w-20" />
+                    </div>
                   ))}
-                </TableBody>
-              </Table>
+                </div>
+              ) : filteredSelfConstruction.length > 0 ? (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>编号</TableHead>
+                      <TableHead>分类</TableHead>
+                      <TableHead>定额名称</TableHead>
+                      <TableHead>单位</TableHead>
+                      <TableHead>单价</TableHead>
+                      <TableHead>备注</TableHead>
+                      <TableHead className="text-right">操作</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredSelfConstruction.map((item) => (
+                      <TableRow key={item.id}>
+                        <TableCell className="font-mono text-sm">{item.id}</TableCell>
+                        <TableCell>
+                          <span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                            {item.category}
+                          </span>
+                        </TableCell>
+                        <TableCell>{item.name}</TableCell>
+                        <TableCell>{item.unit}</TableCell>
+                        <TableCell>¥{item.price.toFixed(2)}</TableCell>
+                        <TableCell className="text-muted-foreground max-w-[200px] truncate">{item.remark || '-'}</TableCell>
+                        <TableCell className="text-right">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={() => openEditQuotaDialog('selfConstruction', item)}>
+                                <Pencil className="h-4 w-4 mr-2" />
+                                编辑
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                className="text-destructive focus:text-destructive"
+                                onClick={() => openDeleteQuotaDialog('selfConstruction', item.id, item.name)}
+                              >
+                                <Trash2 className="h-4 w-4 mr-2" />
+                                删除
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                  <Search className="h-8 w-8 mb-2 opacity-50" />
+                  <p className="text-sm">没有找到匹配的自施工定额项</p>
+                  <p className="text-xs mt-1">请尝试调整搜索关键词或分类筛选</p>
+                </div>
+              )}
             </CardContent>
           </Card>
 
           {/* 集成商智能化项目报价 */}
           <Card>
             <CardHeader>
-              <CardTitle>集成商智能化项目报价</CardTitle>
-              <CardDescription>设备和施工安装项目报价</CardDescription>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>集成商智能化项目报价</CardTitle>
+                  <CardDescription>设备和施工安装项目报价</CardDescription>
+                </div>
+                <Button size="sm" onClick={() => openAddQuotaDialog('intelligent')}>
+                  <Plus className="h-4 w-4 mr-1" />
+                  新增
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>编号</TableHead>
-                    <TableHead>分类</TableHead>
-                    <TableHead>定额名称</TableHead>
-                    <TableHead>单位</TableHead>
-                    <TableHead>单价</TableHead>
-                    <TableHead>可抵扣税率</TableHead>
-                    <TableHead>备注</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {INTELLIGENT_PROJECT_QUOTA.map((item) => (
-                    <TableRow key={item.id}>
-                      <TableCell>{item.id}</TableCell>
-                      <TableCell>
-                        <span className="px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
-                          {item.category}
-                        </span>
-                      </TableCell>
-                      <TableCell>{item.name}</TableCell>
-                      <TableCell>{item.unit}</TableCell>
-                      <TableCell>¥{item.price.toFixed(2)}</TableCell>
-                      <TableCell>{item.deductibleTaxRate}%</TableCell>
-                      <TableCell className="text-muted-foreground">{item.remark || '-'}</TableCell>
-                    </TableRow>
+              {isLoadingQuotas ? (
+                <div className="space-y-3">
+                  {Array.from({ length: 3 }).map((_, i) => (
+                    <div key={i} className="flex gap-4">
+                      <Skeleton className="h-5 w-16" />
+                      <Skeleton className="h-5 w-20" />
+                      <Skeleton className="h-5 w-40" />
+                      <Skeleton className="h-5 w-12" />
+                      <Skeleton className="h-5 w-20" />
+                    </div>
                   ))}
-                </TableBody>
-              </Table>
+                </div>
+              ) : filteredIntelligentProject.length > 0 ? (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>编号</TableHead>
+                      <TableHead>分类</TableHead>
+                      <TableHead>定额名称</TableHead>
+                      <TableHead>品牌型号</TableHead>
+                      <TableHead>单位</TableHead>
+                      <TableHead>单价</TableHead>
+                      <TableHead>可抵扣税率</TableHead>
+                      <TableHead>备注</TableHead>
+                      <TableHead className="text-right">操作</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredIntelligentProject.map((item) => (
+                      <TableRow key={item.id}>
+                        <TableCell className="font-mono text-sm">{item.id}</TableCell>
+                        <TableCell>
+                          <span className="px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+                            {item.category}
+                          </span>
+                        </TableCell>
+                        <TableCell>{item.name}</TableCell>
+                        <TableCell className="text-muted-foreground">{item.brandModel || '-'}</TableCell>
+                        <TableCell>{item.unit}</TableCell>
+                        <TableCell>¥{item.price.toFixed(2)}</TableCell>
+                        <TableCell>{item.deductibleTaxRate}%</TableCell>
+                        <TableCell className="text-muted-foreground max-w-[150px] truncate">{item.remark || '-'}</TableCell>
+                        <TableCell className="text-right">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={() => openEditQuotaDialog('intelligent', item)}>
+                                <Pencil className="h-4 w-4 mr-2" />
+                                编辑
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                className="text-destructive focus:text-destructive"
+                                onClick={() => openDeleteQuotaDialog('intelligent', item.id, item.name)}
+                              >
+                                <Trash2 className="h-4 w-4 mr-2" />
+                                删除
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                  <Search className="h-8 w-8 mb-2 opacity-50" />
+                  <p className="text-sm">没有找到匹配的智能化项目定额项</p>
+                  <p className="text-xs mt-1">请尝试调整搜索关键词或分类筛选</p>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -1857,6 +2514,326 @@ export default function EngineeringPage() {
           )}
         </TabsContent>
       </Tabs>
+
+      {/* 定额库编辑对话框 */}
+      <Dialog open={quotaEditDialogOpen} onOpenChange={setQuotaEditDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {quotaEditMode === 'add' ? <Plus className="h-5 w-5" /> : <Pencil className="h-5 w-5" />}
+              {quotaEditMode === 'add' ? '新增定额项' : '编辑定额项'}
+              <Badge variant="outline" className="ml-2">
+                {quotaEditType === 'selfConstruction' ? '自施工' : '智能化'}
+              </Badge>
+            </DialogTitle>
+            <DialogDescription>
+              {quotaEditMode === 'add' ? '填写定额项信息，添加到定额库中' : '修改定额项信息'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="quota-id">编号 <span className="text-destructive">*</span></Label>
+                <Input
+                  id="quota-id"
+                  value={quotaEditForm.id || ''}
+                  onChange={(e) => setQuotaEditForm({ ...quotaEditForm, id: e.target.value })}
+                  placeholder="如：39 或 I-38"
+                  disabled={quotaEditMode === 'edit'}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="quota-category">分类 <span className="text-destructive">*</span></Label>
+                <Select
+                  value={quotaEditForm.category || ''}
+                  onValueChange={(value) => setQuotaEditForm({ ...quotaEditForm, category: value })}
+                >
+                  <SelectTrigger id="quota-category">
+                    <SelectValue placeholder="选择分类" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {quotaEditType === 'selfConstruction' ? (
+                      <>
+                        <SelectItem value="宽带、专线项目">宽带、专线项目</SelectItem>
+                        <SelectItem value="常规内部布线">常规内部布线</SelectItem>
+                      </>
+                    ) : (
+                      <>
+                        <SelectItem value="设备">设备</SelectItem>
+                        <SelectItem value="施工安装">施工安装</SelectItem>
+                      </>
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="quota-name">定额名称 <span className="text-destructive">*</span></Label>
+              <Input
+                id="quota-name"
+                value={quotaEditForm.name || ''}
+                onChange={(e) => setQuotaEditForm({ ...quotaEditForm, name: e.target.value })}
+                placeholder="输入定额名称"
+              />
+            </div>
+            {quotaEditType === 'intelligent' && (
+              <>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="quota-serialNumber">序号</Label>
+                    <Input
+                      id="quota-serialNumber"
+                      type="number"
+                      value={quotaEditForm.serialNumber || ''}
+                      onChange={(e) => setQuotaEditForm({ ...quotaEditForm, serialNumber: Number(e.target.value) })}
+                      placeholder="序号"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="quota-brandModel">品牌型号</Label>
+                    <Input
+                      id="quota-brandModel"
+                      value={quotaEditForm.brandModel || ''}
+                      onChange={(e) => setQuotaEditForm({ ...quotaEditForm, brandModel: e.target.value })}
+                      placeholder="品牌型号"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="quota-description">描述</Label>
+                  <Input
+                    id="quota-description"
+                    value={quotaEditForm.description || ''}
+                    onChange={(e) => setQuotaEditForm({ ...quotaEditForm, description: e.target.value })}
+                    placeholder="项目描述"
+                  />
+                </div>
+              </>
+            )}
+            <div className="grid grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="quota-unit">单位 <span className="text-destructive">*</span></Label>
+                <Input
+                  id="quota-unit"
+                  value={quotaEditForm.unit || ''}
+                  onChange={(e) => setQuotaEditForm({ ...quotaEditForm, unit: e.target.value })}
+                  placeholder="如：米、个、台"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="quota-price">单价 <span className="text-destructive">*</span></Label>
+                <Input
+                  id="quota-price"
+                  type="number"
+                  step="0.01"
+                  value={quotaEditForm.price || ''}
+                  onChange={(e) => setQuotaEditForm({ ...quotaEditForm, price: e.target.value })}
+                  placeholder="0.00"
+                />
+              </div>
+              {quotaEditType === 'selfConstruction' ? (
+                <div className="space-y-2">
+                  <Label htmlFor="quota-quantity">默认数量</Label>
+                  <Input
+                    id="quota-quantity"
+                    type="number"
+                    value={quotaEditForm.quantity || ''}
+                    onChange={(e) => setQuotaEditForm({ ...quotaEditForm, quantity: Number(e.target.value) })}
+                    placeholder="1"
+                  />
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <Label htmlFor="quota-taxRate">可抵扣税率(%)</Label>
+                  <Input
+                    id="quota-taxRate"
+                    type="number"
+                    step="0.01"
+                    value={quotaEditForm.deductibleTaxRate || ''}
+                    onChange={(e) => setQuotaEditForm({ ...quotaEditForm, deductibleTaxRate: Number(e.target.value) })}
+                    placeholder="13"
+                  />
+                </div>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="quota-remark">备注</Label>
+              <Input
+                id="quota-remark"
+                value={quotaEditForm.remark || ''}
+                onChange={(e) => setQuotaEditForm({ ...quotaEditForm, remark: e.target.value })}
+                placeholder="备注信息（可选）"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setQuotaEditDialogOpen(false)}>取消</Button>
+            <Button onClick={handleSaveQuota}>
+              <Save className="h-4 w-4 mr-2" />
+              {quotaEditMode === 'add' ? '新增' : '保存'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 定额库删除确认对话框 */}
+      <Dialog open={quotaDeleteDialogOpen} onOpenChange={setQuotaDeleteDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <Trash2 className="h-5 w-5" />
+              确认删除
+            </DialogTitle>
+            <DialogDescription>
+              确定要删除定额项「{quotaDeleteTarget?.name}」（编号：{quotaDeleteTarget?.id}）吗？此操作不可撤销。
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setQuotaDeleteDialogOpen(false); setQuotaDeleteTarget(null); }}>取消</Button>
+            <Button variant="destructive" onClick={handleDeleteQuota}>
+              <Trash2 className="h-4 w-4 mr-2" />
+              确认删除
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 定额库导入对话框 */}
+      <Dialog open={quotaImportDialogOpen} onOpenChange={setQuotaImportDialogOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Upload className="h-5 w-5" />
+              批量导入定额数据
+              <Badge variant="outline" className="ml-2">
+                {quotaImportType === 'selfConstruction' ? '自施工' : '智能化'}
+              </Badge>
+            </DialogTitle>
+            <DialogDescription>
+              从Excel文件批量导入定额数据，支持 .xlsx、.xls、.csv 格式。ID已存在的数据将自动更新。
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            {/* 文件选择区域 */}
+            <div
+              className="border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:border-primary/50 hover:bg-muted/50 transition-colors"
+              onClick={() => quotaFileInputRef.current?.click()}
+            >
+              <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
+              <p className="text-sm font-medium">点击选择文件或拖拽文件到此处</p>
+              <p className="text-xs text-muted-foreground mt-1">支持 .xlsx、.xls、.csv 格式</p>
+              {quotaImportFileName && (
+                <div className="mt-3 flex items-center justify-center gap-2 text-sm">
+                  <FileSpreadsheet className="h-4 w-4 text-green-600" />
+                  <span className="font-medium">{quotaImportFileName}</span>
+                  <Badge variant="secondary">{quotaImportData.length} 条数据</Badge>
+                </div>
+              )}
+            </div>
+            <input
+              ref={quotaFileInputRef}
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              className="hidden"
+              onChange={handleQuotaFileSelect}
+            />
+
+            {/* 表头格式提示 */}
+            <div className="rounded-md bg-muted/50 p-3">
+              <p className="text-xs font-medium mb-1">Excel表头格式要求：</p>
+              {quotaImportType === 'selfConstruction' ? (
+                <p className="text-xs text-muted-foreground">编号、分类、名称、单位、数量、单价、备注</p>
+              ) : (
+                <p className="text-xs text-muted-foreground">编号、序号、分类、名称、品牌型号、描述、可抵扣税率、单位、单价、备注</p>
+              )}
+              <p className="text-xs text-muted-foreground mt-1">
+                也可下载导入模板填写后上传，支持中英文表头
+              </p>
+            </div>
+
+            {/* 解析错误提示 */}
+            {quotaImportErrors.length > 0 && (
+              <div className="rounded-md bg-destructive/10 border border-destructive/20 p-3">
+                <p className="text-xs font-medium text-destructive mb-1">
+                  发现 {quotaImportErrors.length} 个问题：
+                </p>
+                <div className="max-h-[120px] overflow-y-auto">
+                  {quotaImportErrors.map((err, idx) => (
+                    <p key={idx} className="text-xs text-destructive/80">{err}</p>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* 数据预览 */}
+            {quotaImportData.length > 0 && (
+              <div className="border rounded-md overflow-hidden">
+                <div className="bg-muted/50 px-3 py-2 flex items-center justify-between">
+                  <span className="text-xs font-medium">数据预览（前5条）</span>
+                  <Badge variant="secondary">{quotaImportData.length} 条</Badge>
+                </div>
+                <div className="max-h-[200px] overflow-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="text-xs h-8">编号</TableHead>
+                        <TableHead className="text-xs h-8">分类</TableHead>
+                        <TableHead className="text-xs h-8">名称</TableHead>
+                        <TableHead className="text-xs h-8">单位</TableHead>
+                        <TableHead className="text-xs h-8">单价</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {quotaImportData.slice(0, 5).map((record, idx) => {
+                        const id = record['编号'] || record['id'] || record['ID'] || '';
+                        const category = record['分类'] || record['category'] || '';
+                        const name = record['名称'] || record['定额名称'] || record['name'] || '';
+                        const unit = record['单位'] || record['unit'] || '';
+                        const price = record['单价'] || record['price'] || '';
+                        return (
+                          <TableRow key={idx}>
+                            <TableCell className="text-xs py-1.5 font-mono">{id}</TableCell>
+                            <TableCell className="text-xs py-1.5">{category}</TableCell>
+                            <TableCell className="text-xs py-1.5">{name}</TableCell>
+                            <TableCell className="text-xs py-1.5">{unit}</TableCell>
+                            <TableCell className="text-xs py-1.5">{price}</TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+                {quotaImportData.length > 5 && (
+                  <div className="bg-muted/30 px-3 py-1.5 text-center">
+                    <span className="text-xs text-muted-foreground">还有 {quotaImportData.length - 5} 条数据未显示</span>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setQuotaImportDialogOpen(false)} disabled={isImporting}>取消</Button>
+            <Button
+              onClick={handleQuotaImport}
+              disabled={quotaImportData.length === 0 || isImporting}
+            >
+              {isImporting ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  导入中...
+                </>
+              ) : (
+                <>
+                  <Upload className="h-4 w-4 mr-2" />
+                  确认导入 ({quotaImportData.length} 条)
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* 预览对话框 */}
       <Dialog open={previewDialogOpen} onOpenChange={setPreviewDialogOpen}>

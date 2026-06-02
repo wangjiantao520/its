@@ -120,6 +120,45 @@ export async function initDatabase() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
 
+    // 创建自施工工序定额表
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS self_construction_quotas (
+        id VARCHAR(20) PRIMARY KEY,
+        category VARCHAR(50) NOT NULL,
+        name VARCHAR(200) NOT NULL,
+        unit VARCHAR(20) NOT NULL,
+        quantity DECIMAL(10,2) DEFAULT 1,
+        price DECIMAL(15,2) NOT NULL,
+        remark TEXT,
+        sort_order INT DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_category (category),
+        INDEX idx_name (name)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    // 创建集成商智能化项目定额表
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS intelligent_project_quotas (
+        id VARCHAR(20) PRIMARY KEY,
+        serial_number INT NOT NULL,
+        category VARCHAR(50) NOT NULL,
+        name VARCHAR(200) NOT NULL,
+        brand_model VARCHAR(200) DEFAULT '',
+        description TEXT,
+        deductible_tax_rate DECIMAL(5,2) DEFAULT 0,
+        unit VARCHAR(20) NOT NULL,
+        price DECIMAL(15,2) NOT NULL,
+        remark TEXT,
+        sort_order INT DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_category (category),
+        INDEX idx_name (name)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
     console.log('✅ 数据库表初始化成功');
     connection.release();
     return true;
