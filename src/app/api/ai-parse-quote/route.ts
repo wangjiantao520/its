@@ -53,11 +53,8 @@ export async function POST(request: NextRequest) {
     const { text } = await request.json();
     console.log('[AI] 输入文本:', text);
 
-    // 系统提示词
+    // 简化的系统提示词，加快响应
     const systemPrompt = `你是一个专业的维保报价需求识别助手。请从用户的自然语言描述中提取以下信息，并以JSON格式返回。
-
-设备定额库参考（优先匹配以下设备）：
-${FULL_DEVICE_QUOTAS.slice(0, 20).map((d: any) => `- ${d.name} (${d.category})`).join('\\n')}
 
 需要提取的字段：
 - customerName?: string - 客户名称
@@ -75,6 +72,7 @@ ${FULL_DEVICE_QUOTAS.slice(0, 20).map((d: any) => `- ${d.name} (${d.category})`)
     model?: string; - 规格型号
     quantity?: number; - 数量
     useYears?: number; - 使用年限
+    underWarranty?: boolean; - 是否在保
     confidence: number; - 匹配置信度0-1
     warnings?: string[]; - 警告信息
   }>
@@ -113,7 +111,13 @@ ${FULL_DEVICE_QUOTAS.slice(0, 20).map((d: any) => `- ${d.name} (${d.category})`)
       throw new Error(`DeepSeek API error: ${response.status} ${response.statusText}`);
     }
 
-    const result = await response.json();
+    // 添加超时处理，避免卡住
+    const resultPromise = response.json();
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('API响应超时')), 30000)
+    );
+    
+    const result = await Promise.race([resultPromise, timeoutPromise]) as any;
     console.log('[AI] DeepSeek API返回:', JSON.stringify(result, null, 2));
     
     const aiResponse = result.choices?.[0]?.message?.content;
@@ -155,11 +159,12 @@ ${FULL_DEVICE_QUOTAS.slice(0, 20).map((d: any) => `- ${d.name} (${d.category})`)
         model: d.model,
         quantity: d.quantity,
         useYears: d.useYears,
+        underWarranty: d.underWarranty,
         confidence: match ? match.confidence : (d.confidence || 0.7),
         warnings: d.warnings || [],
         matchedDeviceId: match?.matchedDevice?.id,
         matchedDeviceName: match?.matchedDevice?.name,
-        candidateDevices: match?.candidates?.map(c => ({
+        candidateDevices: match?.candidates?.map((c: any) => ({
           id: c.id,
           name: c.name,
           category: c.category
