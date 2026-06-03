@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: quotation_mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-root123456}
+      MYSQL_DATABASE: ${DB_NAME:-quotation_system}
+      MYSQL_USER: ${DB_USER:-quotation_user}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-quotation123}
+    ports:
+      - "${DB_PORT:-3306}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./docker/mysql/init:/docker-entrypoint-initdb.d
+    networks:
+      - quotation_network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_PASSWORD:-root123456}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  phpmyadmin:
+    image: phpmyadmin:latest
+    container_name: quotation_phpmyadmin
+    environment:
+      PMA_HOST: mysql
+      PMA_PORT: 3306
+      PMA_USER: ${DB_USER:-quotation_user}
+      PMA_PASSWORD: ${DB_PASSWORD:-quotation123}
+    ports:
+      - "8080:80"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - quotation_network
+    restart: unless-stopped
+
+volumes:
+  mysql_data:
+    name: quotation_mysql_data
+
+networks:
+  quotation_network:
+    name: quotation_network
+    driver: bridge
