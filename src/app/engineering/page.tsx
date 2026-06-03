@@ -26,6 +26,7 @@ import {
 import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationPrevious, PaginationNext, PaginationEllipsis } from '@/components/ui/pagination';
@@ -163,6 +164,10 @@ export default function EngineeringPage() {
 
   // PDF导出状态
   const [isExportingPDF, setIsExportingPDF] = useState(false);
+
+  // 批量选中状态
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [isBatchExporting, setIsBatchExporting] = useState(false);
 
   // 统计看板状态
   const [statsData, setStatsData] = useState<StatsData | null>(null);
@@ -654,6 +659,7 @@ export default function EngineeringPage() {
         setTotalPages(result.pagination?.totalPages || 1);
         setTotalCount(result.pagination?.total || 0);
         setCurrentPage(page);
+        setSelectedIds(new Set()); // 切换页面时清空选中
       } else {
         toast.error('加载失败', { description: result.error || '无法获取报价列表' });
       }
@@ -1030,6 +1036,268 @@ export default function EngineeringPage() {
     const quoteNumber = previewTitle.split(' - ').pop() || 'unknown';
     downloadAsWord(previewHtml, `工程报价单_${quoteNumber}.doc`);
   }, [previewHtml, previewTitle]);
+
+  // 切换选中状态
+  const toggleSelect = useCallback((id: number) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }, []);
+
+  // 全选/取消全选
+  const toggleSelectAll = useCallback(() => {
+    if (selectedIds.size === quotes.length && quotes.length > 0) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(quotes.map(q => q.id)));
+    }
+  }, [selectedIds.size, quotes]);
+
+  // 批量导出为Word（逐个下载）
+  const handleBatchExportWord = useCallback(async () => {
+    if (selectedIds.size === 0) {
+      toast.error('请先选择报价单', { description: '勾选需要导出的报价单后再点击批量导出' });
+      return;
+    }
+
+    setIsBatchExporting(true);
+    try {
+      const response = await fetch('/api/engineering-quotes/batch-export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: Array.from(selectedIds) }),
+      });
+      const result = await response.json();
+
+      if (!result.success) {
+        toast.error('批量导出失败', { description: result.error || '获取报价数据失败' });
+        return;
+      }
+
+      const quoteList: EngineeringQuote[] = result.data;
+      const num = (v: any) => Number(v) || 0;
+
+      let exportedCount = 0;
+      for (const data of quoteList) {
+        const exportData: EngineeringQuoteExportData = {
+          projectName: data.project_name,
+          clientName: data.client_name || '',
+          contactPerson: data.contact_person || '',
+          contactPhone: data.contact_phone || '',
+          quoteNumber: data.quote_number,
+          quoteDate: new Date(data.created_at).toISOString().split('T')[0],
+          items: (data.items || []).map(item => ({
+            name: item.name,
+            unit: item.unit,
+            quantity: num(item.quantity),
+            unitPrice: num(item.price) * (1 + num(data.management_rate) / 100 + num(data.profit_rate) / 100 + num(data.regulatory_rate) / 100),
+            amount: num(item.price) * (1 + num(data.management_rate) / 100 + num(data.profit_rate) / 100 + num(data.regulatory_rate) / 100) * num(item.quantity),
+          })),
+          rates: {
+            managementRate: num(data.management_rate),
+            profitRate: num(data.profit_rate),
+            regulatoryRate: num(data.regulatory_rate),
+            taxRate: num(data.tax_rate),
+          },
+          summary: {
+            subtotal: num(data.subtotal),
+            managementFee: num(data.management_fee),
+            profit: num(data.profit),
+            regulatoryFee: num(data.regulatory_fee),
+            tax: num(data.tax),
+            grandTotal: num(data.total),
+            grandTotalRMB: convertToChineseCurrency(num(data.total)),
+          },
+        };
+
+        const html = generateEngineeringQuoteHTML(exportData);
+        downloadAsWord(html, `工程报价单_${data.quote_number}.doc`);
+        exportedCount++;
+
+        // 每个文件间隔300ms下载，避免浏览器拦截
+        if (exportedCount < quoteList.length) {
+          await new Promise(resolve => setTimeout(resolve, 300));
+        }
+      }
+
+      toast.success('批量导出成功', { description: `已导出 ${exportedCount} 份报价单（Word格式）` });
+    } catch (error) {
+      console.error('批量导出失败:', error);
+      toast.error('批量导出失败', { description: '网络错误，请稍后重试' });
+    } finally {
+      setIsBatchExporting(false);
+    }
+  }, [selectedIds]);
+
+  // 批量导出为Excel
+  const handleBatchExportExcel = useCallback(async () => {
+    if (selectedIds.size === 0) {
+      toast.error('请先选择报价单', { description: '勾选需要导出的报价单后再点击批量导出' });
+      return;
+    }
+
+    setIsBatchExporting(true);
+    try {
+      const response = await fetch('/api/engineering-quotes/batch-export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: Array.from(selectedIds) }),
+      });
+      const result = await response.json();
+
+      if (!result.success) {
+        toast.error('批量导出失败', { description: result.error || '获取报价数据失败' });
+        return;
+      }
+
+      const quoteList: EngineeringQuote[] = result.data;
+      const num = (v: any) => Number(v) || 0;
+
+      const wb = XLSX.utils.book_new();
+
+      // 汇总表
+      const summaryData = quoteList.map((data, idx) => ({
+        '序号': idx + 1,
+        '报价单号': data.quote_number,
+        '项目名称': data.project_name,
+        '客户名称': data.client_name || '',
+        '联系人': data.contact_person || '',
+        '联系电话': data.contact_phone || '',
+        '直接工程费': num(data.subtotal),
+        '管理费': num(data.management_fee),
+        '利润': num(data.profit),
+        '规费': num(data.regulatory_fee),
+        '税金': num(data.tax),
+        '报价总额': num(data.total),
+        '状态': data.status === 'draft' ? '草稿' : data.status === 'submitted' ? '已提交' : data.status === 'approved' ? '已审批' : data.status === 'rejected' ? '已驳回' : data.status,
+        '创建时间': new Date(data.created_at).toLocaleString('zh-CN'),
+      }));
+      const summaryWs = XLSX.utils.json_to_sheet(summaryData);
+      summaryWs['!cols'] = [
+        { wch: 6 }, { wch: 20 }, { wch: 24 }, { wch: 16 }, { wch: 10 }, { wch: 14 },
+        { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 14 },
+        { wch: 8 }, { wch: 20 },
+      ];
+      XLSX.utils.book_append_sheet(wb, summaryWs, '报价汇总');
+
+      // 每个报价单一个明细sheet
+      for (const data of quoteList) {
+        const sheetName = data.quote_number.substring(0, 31); // Excel sheet名最长31字符
+        const detailData = (data.items || []).map((item, idx) => ({
+          '序号': idx + 1,
+          '项目名称': item.name,
+          '单位': item.unit,
+          '数量': num(item.quantity),
+          '单价（元）': num(item.price) * (1 + num(data.management_rate) / 100 + num(data.profit_rate) / 100 + num(data.regulatory_rate) / 100),
+          '金额（元）': num(item.price) * (1 + num(data.management_rate) / 100 + num(data.profit_rate) / 100 + num(data.regulatory_rate) / 100) * num(item.quantity),
+        }));
+
+        // 追加汇总行
+        detailData.push({ '序号': '', '项目名称': '直接工程费小计', '单位': '', '数量': '', '单价（元）': '', '金额（元）': num(data.subtotal) });
+        detailData.push({ '序号': '', '项目名称': `管理费（${num(data.management_rate)}%）`, '单位': '', '数量': '', '单价（元）': '', '金额（元）': num(data.management_fee) });
+        detailData.push({ '序号': '', '项目名称': `利润（${num(data.profit_rate)}%）`, '单位': '', '数量': '', '单价（元）': '', '金额（元）': num(data.profit) });
+        detailData.push({ '序号': '', '项目名称': `规费（${num(data.regulatory_rate)}%）`, '单位': '', '数量': '', '单价（元）': '', '金额（元）': num(data.regulatory_fee) });
+        detailData.push({ '序号': '', '项目名称': `增值税（${num(data.tax_rate)}%）`, '单位': '', '数量': '', '单价（元）': '', '金额（元）': num(data.tax) });
+        detailData.push({ '序号': '', '项目名称': '报价总计', '单位': '', '数量': '', '单价（元）': '', '金额（元）': num(data.total) });
+
+        const detailWs = XLSX.utils.json_to_sheet(detailData);
+        detailWs['!cols'] = [
+          { wch: 6 }, { wch: 30 }, { wch: 8 }, { wch: 8 }, { wch: 14 }, { wch: 14 },
+        ];
+        XLSX.utils.book_append_sheet(wb, detailWs, sheetName);
+      }
+
+      XLSX.writeFile(wb, `工程报价批量导出_${new Date().toISOString().split('T')[0]}.xlsx`);
+      toast.success('批量导出成功', { description: `已导出 ${quoteList.length} 份报价单（Excel格式）` });
+    } catch (error) {
+      console.error('批量导出失败:', error);
+      toast.error('批量导出失败', { description: '网络错误，请稍后重试' });
+    } finally {
+      setIsBatchExporting(false);
+    }
+  }, [selectedIds]);
+
+  // 批量导出为PDF（逐个下载）
+  const handleBatchExportPDF = useCallback(async () => {
+    if (selectedIds.size === 0) {
+      toast.error('请先选择报价单', { description: '勾选需要导出的报价单后再点击批量导出' });
+      return;
+    }
+
+    setIsBatchExporting(true);
+    try {
+      const response = await fetch('/api/engineering-quotes/batch-export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: Array.from(selectedIds) }),
+      });
+      const result = await response.json();
+
+      if (!result.success) {
+        toast.error('批量导出失败', { description: result.error || '获取报价数据失败' });
+        return;
+      }
+
+      const quoteList: EngineeringQuote[] = result.data;
+      const num = (v: any) => Number(v) || 0;
+
+      let exportedCount = 0;
+      for (const data of quoteList) {
+        const exportData: EngineeringQuoteExportData = {
+          projectName: data.project_name,
+          clientName: data.client_name || '',
+          contactPerson: data.contact_person || '',
+          contactPhone: data.contact_phone || '',
+          quoteNumber: data.quote_number,
+          quoteDate: new Date(data.created_at).toISOString().split('T')[0],
+          items: (data.items || []).map(item => ({
+            name: item.name,
+            unit: item.unit,
+            quantity: num(item.quantity),
+            unitPrice: num(item.price) * (1 + num(data.management_rate) / 100 + num(data.profit_rate) / 100 + num(data.regulatory_rate) / 100),
+            amount: num(item.price) * (1 + num(data.management_rate) / 100 + num(data.profit_rate) / 100 + num(data.regulatory_rate) / 100) * num(item.quantity),
+          })),
+          rates: {
+            managementRate: num(data.management_rate),
+            profitRate: num(data.profit_rate),
+            regulatoryRate: num(data.regulatory_rate),
+            taxRate: num(data.tax_rate),
+          },
+          summary: {
+            subtotal: num(data.subtotal),
+            managementFee: num(data.management_fee),
+            profit: num(data.profit),
+            regulatoryFee: num(data.regulatory_fee),
+            tax: num(data.tax),
+            grandTotal: num(data.total),
+            grandTotalRMB: convertToChineseCurrency(num(data.total)),
+          },
+        };
+
+        const html = generateEngineeringQuoteHTML(exportData);
+        await downloadAsPDF(html, `工程报价单_${data.quote_number}.pdf`);
+        exportedCount++;
+
+        // 每个文件间隔500ms下载，避免浏览器拦截和html2pdf渲染冲突
+        if (exportedCount < quoteList.length) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      }
+
+      toast.success('批量导出成功', { description: `已导出 ${exportedCount} 份报价单（PDF格式）` });
+    } catch (error) {
+      console.error('批量导出PDF失败:', error);
+      toast.error('批量导出失败', { description: 'PDF生成出错，请稍后重试' });
+    } finally {
+      setIsBatchExporting(false);
+    }
+  }, [selectedIds]);
 
   // 获取状态徽章样式
   const getStatusBadge = (status: string) => {
@@ -1599,6 +1867,52 @@ export default function EngineeringPage() {
                   </Button>
                 </div>
                 <div className="flex gap-2">
+                  {selectedIds.size > 0 && (
+                    <>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleBatchExportWord}
+                        disabled={isBatchExporting}
+                        className="text-blue-700 border-blue-300 hover:bg-blue-50"
+                      >
+                        {isBatchExporting ? (
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        ) : (
+                          <FileSpreadsheet className="h-4 w-4 mr-2" />
+                        )}
+                        批量导出Word ({selectedIds.size})
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleBatchExportExcel}
+                        disabled={isBatchExporting}
+                        className="text-green-700 border-green-300 hover:bg-green-50"
+                      >
+                        {isBatchExporting ? (
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        ) : (
+                          <Download className="h-4 w-4 mr-2" />
+                        )}
+                        批量导出Excel ({selectedIds.size})
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleBatchExportPDF}
+                        disabled={isBatchExporting}
+                        className="text-red-700 border-red-300 hover:bg-red-50"
+                      >
+                        {isBatchExporting ? (
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        ) : (
+                          <FileDown className="h-4 w-4 mr-2" />
+                        )}
+                        批量导出PDF ({selectedIds.size})
+                      </Button>
+                    </>
+                  )}
                   <Button
                     variant="outline"
                     size="sm"
@@ -1682,6 +1996,13 @@ export default function EngineeringPage() {
                     <Table>
                       <TableHeader>
                         <TableRow>
+                          <TableHead className="w-[40px]">
+                            <Checkbox
+                              checked={quotes.length > 0 && selectedIds.size === quotes.length}
+                              onCheckedChange={toggleSelectAll}
+                              aria-label="全选"
+                            />
+                          </TableHead>
                           <TableHead className="w-[120px]">报价单号</TableHead>
                           <TableHead>项目名称</TableHead>
                           <TableHead className="w-[120px]">客户名称</TableHead>
@@ -1694,7 +2015,14 @@ export default function EngineeringPage() {
                       </TableHeader>
                       <TableBody>
                         {quotes.map((quote) => (
-                          <TableRow key={quote.id}>
+                          <TableRow key={quote.id} className={selectedIds.has(quote.id) ? 'bg-muted/50' : ''}>
+                            <TableCell>
+                              <Checkbox
+                                checked={selectedIds.has(quote.id)}
+                                onCheckedChange={() => toggleSelect(quote.id)}
+                                aria-label={`选择 ${quote.quote_number}`}
+                              />
+                            </TableCell>
                             <TableCell className="font-mono text-sm">
                               {quote.quote_number}
                             </TableCell>
