@@ -520,21 +520,31 @@ export default function MaintenanceQuotePage() {
   // 更新在保状态
   const handleUpdateWarranty = (index: number, inWarranty: boolean) => {
     const newDevices = [...selectedDevices];
-    newDevices[index].inWarranty = inWarranty;
+    newDevices[index] = {
+      ...newDevices[index],
+      inWarranty
+    };
     setSelectedDevices(newDevices);
   };
   
   // 更新是否需要备件
   const handleUpdateNeedSparePart = (index: number, needSparePart: boolean) => {
     const newDevices = [...selectedDevices];
-    newDevices[index].needSparePart = needSparePart;
+    // 创建新的对象以确保React能检测到变化
+    newDevices[index] = {
+      ...newDevices[index],
+      needSparePart
+    };
     setSelectedDevices(newDevices);
   };
   
   // 更新合同年限
   const handleUpdateContractYears = (index: number, years: number) => {
     const newDevices = [...selectedDevices];
-    newDevices[index].contractYears = years;
+    newDevices[index] = {
+      ...newDevices[index],
+      contractYears: years
+    };
     setSelectedDevices(newDevices);
   };
 
@@ -542,18 +552,24 @@ export default function MaintenanceQuotePage() {
   const handleUpdateUseYears = (index: number, useYears: number) => {
     const newDevices = [...selectedDevices];
     const safeUseYears = useYears || 1;
-    newDevices[index].useYears = safeUseYears;
     // 根据使用年限自动推荐成新率
     const recommendedGrade = getRecommendedDepreciationGrade(safeUseYears);
-    newDevices[index].depreciationGrade = recommendedGrade;
-    newDevices[index].depreciationLevel = recommendedGrade;
+    newDevices[index] = {
+      ...newDevices[index],
+      useYears: safeUseYears,
+      depreciationGrade: recommendedGrade,
+      depreciationLevel: recommendedGrade
+    };
     setSelectedDevices(newDevices);
   };
 
   // 更新设备分档
   const handleUpdateDeviceGrade = (index: number, grade: string) => {
     const newDevices = [...selectedDevices];
-    newDevices[index].deviceGrade = grade;
+    newDevices[index] = {
+      ...newDevices[index],
+      deviceGrade: grade
+    };
     setSelectedDevices(newDevices);
   };
 
