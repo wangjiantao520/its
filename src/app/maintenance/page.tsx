@@ -196,6 +196,7 @@ export default function MaintenanceQuotePage() {
       initialPrices.toolAmortization = firstItem.toolAmortization;
       initialPrices.consumableFee = firstItem.consumableFee;
       initialPrices.sparePartReserve = firstItem.sparePartReserve;
+      initialPrices.inWarrantyFactor = 0.5; // 默认在保系数0.5
     }
     setPriceSettings(initialPrices);
     setShowPriceSettings(true);
@@ -282,7 +283,7 @@ export default function MaintenanceQuotePage() {
                                 if (grade === 5) return 0.45;
                                 return 0.6; // 默认
                               })() * 
-                              (updatedItem.inWarranty ? 0.5 : 1.0);
+                              (updatedItem.inWarranty ? (priceSettings.inWarrantyFactor ?? 0.5) : 1.0);
           
           updatedItem.cityPrice = newCityPrice;
           // 其他地区价格按城区价格计算
@@ -3783,6 +3784,29 @@ export default function MaintenanceQuotePage() {
                   />
                 </div>
               </div>
+            </div>
+
+            {/* 系数设置 */}
+            <div className="space-y-4">
+              <h3 className="text-lg font-semibold">系数设置</h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex items-center gap-4">
+                  <Label className="min-w-[100px]">在保系数</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={priceSettings.inWarrantyFactor}
+                    onChange={(e) => setPriceSettings(prev => ({
+                      ...prev,
+                      inWarrantyFactor: Number(e.target.value) || 0.5
+                    }))}
+                    className="flex-1"
+                  />
+                </div>
+              </div>
+              <p className="text-sm text-gray-500">
+                在保系数：在保设备价格调整系数，0.5表示减半，1表示不调整
+              </p>
             </div>
 
             {/* 保存类型选择 */}

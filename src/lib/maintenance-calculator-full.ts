@@ -122,11 +122,14 @@ export function calculateFullDeviceQuote(
   inWarranty: boolean,
   needSparePart: boolean,
   contractYears: number = 1,
-  slaConfig: SLAConfig = DEFAULT_SLA_CONFIG
+  slaConfig: SLAConfig = DEFAULT_SLA_CONFIG,
+  customInWarrantyFactor?: number
 ): FullDeviceQuoteItemResult {
   const slaTotalFactor = calculateSLATotalFactor(slaConfig);
   const depreciationFactor = getDepreciationFactor(deviceGrade, depreciationGrade);
-  const inWarrantyFactor = inWarranty ? 0.5 : 1.0;
+  const inWarrantyFactor = customInWarrantyFactor !== undefined 
+    ? (inWarranty ? customInWarrantyFactor : 1.0) 
+    : (inWarranty ? 0.5 : 1.0);
   const yearDiscountFactor = MULTI_YEAR_DISCOUNTS[contractYears as keyof typeof MULTI_YEAR_DISCOUNTS] || MULTI_YEAR_DISCOUNTS[1];
   
   // Excel公式：=IF(G4="否",AE4+AJ4+AO4+AW4+AY4,AE4+AJ4+AO4+AW4+AD+BA4)*F4
