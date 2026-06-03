@@ -24,8 +24,8 @@ export function AppLayout({ children }: AppLayoutProps) {
   const { isLoggedIn } = useUser();
   const currentPage = pathNameMap[pathname] || '页面';
 
-  // 如果是登录页面，只显示内容，不显示侧边栏
-  if (pathname === '/login' || !isLoggedIn) {
+  // 如果是登录页面或分享页面，只显示内容，不显示侧边栏
+  if (pathname === '/login' || pathname.startsWith('/share/') || !isLoggedIn) {
     return <>{children}</>;
   }
 

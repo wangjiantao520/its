@@ -13,6 +13,9 @@ interface AuthProtectedProps {
 // 不需要登录的路径
 const PUBLIC_PATHS = ['/login'];
 
+// 不需要登录的路径前缀
+const PUBLIC_PATH_PREFIXES = ['/share/'];
+
 // 角色权限映射
 const ROLE_PATHS: Record<UserRole, string[]> = {
   'its_member': ['/device-import', '/maintenance', '/survey-upload', '/'],
@@ -27,6 +30,11 @@ export function AuthProtected({ children, allowedRoles }: AuthProtectedProps) {
   useEffect(() => {
     // 如果是公开路径，不需要登录
     if (PUBLIC_PATHS.includes(pathname)) {
+      return;
+    }
+
+    // 如果是公开路径前缀，不需要登录
+    if (PUBLIC_PATH_PREFIXES.some(prefix => pathname.startsWith(prefix))) {
       return;
     }
 
@@ -64,6 +72,11 @@ export function AuthProtected({ children, allowedRoles }: AuthProtectedProps) {
 
   // 如果是公开路径，直接渲染
   if (PUBLIC_PATHS.includes(pathname)) {
+    return <>{children}</>;
+  }
+
+  // 如果是公开路径前缀，直接渲染
+  if (PUBLIC_PATH_PREFIXES.some(prefix => pathname.startsWith(prefix))) {
     return <>{children}</>;
   }
 

@@ -159,6 +159,26 @@ export async function initDatabase() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
 
+    // 创建报价分享记录表
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS quote_shares (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        quote_id INT NOT NULL,
+        share_token VARCHAR(64) UNIQUE NOT NULL,
+        password VARCHAR(20) DEFAULT NULL,
+        expires_at TIMESTAMP NULL DEFAULT NULL,
+        max_views INT DEFAULT 0,
+        view_count INT DEFAULT 0,
+        is_active TINYINT(1) DEFAULT 1,
+        remark TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_share_token (share_token),
+        INDEX idx_quote_id (quote_id),
+        INDEX idx_expires_at (expires_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
     console.log('✅ 数据库表初始化成功');
     connection.release();
     return true;

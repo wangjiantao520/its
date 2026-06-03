@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Plus, Trash2, Save, FileDown, Eye, FileSpreadsheet, Loader2, Search, Pencil, MoreHorizontal, RefreshCw, ClipboardList, ArrowRightLeft, X, BarChart3, TrendingUp, TrendingDown, Users, DollarSign, FileText, Activity, Upload, Download } from 'lucide-react';
+import { Plus, Trash2, Save, FileDown, Eye, FileSpreadsheet, Loader2, Search, Pencil, MoreHorizontal, RefreshCw, ClipboardList, ArrowRightLeft, X, BarChart3, TrendingUp, TrendingDown, Users, DollarSign, FileText, Activity, Upload, Download, Share2, Link2, Copy, Check, Clock, ShieldCheck } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, AreaChart, Area } from 'recharts';
 import {
   generateEngineeringQuoteHTML,
@@ -208,6 +208,22 @@ export default function EngineeringPage() {
   const [quotaImportFileName, setQuotaImportFileName] = useState('');
   const [isImporting, setIsImporting] = useState(false);
   const quotaFileInputRef = useRef<HTMLInputElement>(null);
+
+  // 分享链接状态
+  const [shareDialogOpen, setShareDialogOpen] = useState(false);
+  const [shareTarget, setShareTarget] = useState<EngineeringQuote | null>(null);
+  const [sharePassword, setSharePassword] = useState('');
+  const [shareExpiresDays, setShareExpiresDays] = useState(7);
+  const [shareMaxViews, setShareMaxViews] = useState(0);
+  const [shareRemark, setShareRemark] = useState('');
+  const [isCreatingShare, setIsCreatingShare] = useState(false);
+  const [shareResult, setShareResult] = useState<{ shareUrl: string; shareToken: string } | null>(null);
+  const [shareCopied, setShareCopied] = useState(false);
+
+  // 分享记录管理状态
+  const [shareListDialogOpen, setShareListDialogOpen] = useState(false);
+  const [shareList, setShareList] = useState<any[]>([]);
+  const [isLoadingShareList, setIsLoadingShareList] = useState(false);
 
   // 加载统计数据
   const fetchStats = useCallback(async () => {
@@ -1405,6 +1421,120 @@ export default function EngineeringPage() {
     return merged;
   }, [compareDataA, compareDataB]);
 
+  // 打开分享对话框
+  const handleOpenShareDialog = (quote: EngineeringQuote) => {
+    setShareTarget(quote);
+    setSharePassword('');
+    setShareExpiresDays(7);
+    setShareMaxViews(0);
+    setShareRemark('');
+    setShareResult(null);
+    setShareCopied(false);
+    setShareDialogOpen(true);
+  };
+
+  // 创建分享链接
+  const handleCreateShare = useCallback(async () => {
+    if (!shareTarget) return;
+    setIsCreatingShare(true);
+    try {
+      const response = await fetch('/api/quote-shares', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          quoteId: shareTarget.id,
+          password: sharePassword || null,
+          expiresInDays: shareExpiresDays,
+          maxViews: shareMaxViews,
+          remark: shareRemark || null,
+        }),
+      });
+      const result = await response.json();
+
+      if (result.success) {
+        const fullUrl = `${window.location.origin}${result.data.shareUrl}`;
+        setShareResult({ shareUrl: fullUrl, shareToken: result.data.shareToken });
+        toast.success('分享链接已创建');
+      } else {
+        toast.error('创建分享链接失败', { description: result.error || '请稍后重试' });
+      }
+    } catch (error) {
+      console.error('创建分享链接失败:', error);
+      toast.error('创建分享链接失败', { description: '网络错误，请稍后重试' });
+    } finally {
+      setIsCreatingShare(false);
+    }
+  }, [shareTarget, sharePassword, shareExpiresDays, shareMaxViews, shareRemark]);
+
+  // 复制分享链接
+  const handleCopyShareUrl = useCallback(async () => {
+    if (!shareResult) return;
+    try {
+      await navigator.clipboard.writeText(shareResult.shareUrl);
+      setShareCopied(true);
+      toast.success('链接已复制到剪贴板');
+      setTimeout(() => setShareCopied(false), 2000);
+    } catch {
+      // fallback
+      const textarea = document.createElement('textarea');
+      textarea.value = shareResult.shareUrl;
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+      setShareCopied(true);
+      toast.success('链接已复制到剪贴板');
+      setTimeout(() => setShareCopied(false), 2000);
+    }
+  }, [shareResult]);
+
+  // 打开分享记录管理对话框
+  const handleOpenShareList = useCallback(async (quote: EngineeringQuote) => {
+    setShareTarget(quote);
+    setShareListDialogOpen(true);
+    setIsLoadingShareList(true);
+    try {
+      const response = await fetch(`/api/quote-shares?quoteId=${quote.id}`);
+      const result = await response.json();
+      if (result.success) {
+        setShareList(result.data);
+      } else {
+        toast.error('获取分享记录失败', { description: result.error });
+      }
+    } catch (error) {
+      console.error('获取分享记录失败:', error);
+      toast.error('获取分享记录失败');
+    } finally {
+      setIsLoadingShareList(false);
+    }
+  }, []);
+
+  // 停用分享链接
+  const handleDeactivateShare = useCallback(async (shareId: number) => {
+    try {
+      const response = await fetch('/api/quote-shares', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: shareId }),
+      });
+      const result = await response.json();
+      if (result.success) {
+        toast.success('分享链接已停用');
+        // 刷新分享列表
+        if (shareTarget) {
+          const listRes = await fetch(`/api/quote-shares?quoteId=${shareTarget.id}`);
+          const listResult = await listRes.json();
+          if (listResult.success) setShareList(listResult.data);
+        }
+      } else {
+        toast.error('停用失败', { description: result.error });
+      }
+    } catch (error) {
+      console.error('停用分享链接失败:', error);
+      toast.error('停用失败');
+    }
+  }, [shareTarget]);
+
   // 获取状态徽章样式
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -2173,6 +2303,14 @@ export default function EngineeringPage() {
                                   <DropdownMenuItem onClick={() => handleOpenStatusDialog(quote)}>
                                     <ArrowRightLeft className="h-4 w-4 mr-2" />
                                     变更状态
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem onClick={() => handleOpenShareDialog(quote)}>
+                                    <Share2 className="h-4 w-4 mr-2" />
+                                    生成分享链接
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem onClick={() => handleOpenShareList(quote)}>
+                                    <Link2 className="h-4 w-4 mr-2" />
+                                    分享记录
                                   </DropdownMenuItem>
                                   <DropdownMenuItem
                                     onClick={() => handleOpenDeleteDialog(quote)}
@@ -3830,6 +3968,312 @@ export default function EngineeringPage() {
               sandbox="allow-same-origin"
             />
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 创建分享链接对话框 */}
+      <Dialog open={shareDialogOpen} onOpenChange={setShareDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Share2 className="h-5 w-5" />
+              生成分享链接
+            </DialogTitle>
+            <DialogDescription>
+              为报价单「{shareTarget?.quote_number} - {shareTarget?.project_name}」创建临时分享链接，客户无需登录即可在线查看
+            </DialogDescription>
+          </DialogHeader>
+
+          {!shareResult ? (
+            <div className="space-y-4 py-2">
+              {/* 报价单信息 */}
+              <div className="rounded-lg bg-muted/50 p-3 text-sm">
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <span className="text-muted-foreground">报价单号：</span>
+                    <span className="font-mono">{shareTarget?.quote_number}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">项目名称：</span>
+                    <span>{shareTarget?.project_name}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">客户名称：</span>
+                    <span>{shareTarget?.client_name || '-'}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">报价总额：</span>
+                    <span className="font-semibold">¥{shareTarget ? Number(shareTarget.total).toLocaleString('zh-CN', { minimumFractionDigits: 2 }) : '0.00'}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* 分享设置 */}
+              <div className="space-y-3">
+                <div className="space-y-2">
+                  <Label htmlFor="share-password" className="flex items-center gap-1">
+                    <ShieldCheck className="h-3.5 w-3.5" />
+                    访问密码（可选，留空则无需密码）
+                  </Label>
+                  <Input
+                    id="share-password"
+                    type="text"
+                    placeholder="设置访问密码，留空则无需密码"
+                    value={sharePassword}
+                    onChange={(e) => setSharePassword(e.target.value)}
+                    maxLength={20}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="share-expires" className="flex items-center gap-1">
+                    <Clock className="h-3.5 w-3.5" />
+                    有效期（天）
+                  </Label>
+                  <Select value={String(shareExpiresDays)} onValueChange={(val) => setShareExpiresDays(Number(val))}>
+                    <SelectTrigger id="share-expires">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="1">1天</SelectItem>
+                      <SelectItem value="3">3天</SelectItem>
+                      <SelectItem value="7">7天（推荐）</SelectItem>
+                      <SelectItem value="15">15天</SelectItem>
+                      <SelectItem value="30">30天</SelectItem>
+                      <SelectItem value="0">永久有效</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="share-max-views">最大查看次数（0为不限制）</Label>
+                  <Input
+                    id="share-max-views"
+                    type="number"
+                    min={0}
+                    placeholder="0 = 不限制"
+                    value={shareMaxViews}
+                    onChange={(e) => setShareMaxViews(Math.max(0, parseInt(e.target.value) || 0))}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="share-remark">备注（可选）</Label>
+                  <Input
+                    id="share-remark"
+                    placeholder="例如：发送给张总审批"
+                    value={shareRemark}
+                    onChange={(e) => setShareRemark(e.target.value)}
+                    maxLength={100}
+                  />
+                </div>
+              </div>
+            </div>
+          ) : (
+            /* 创建成功 - 显示链接 */
+            <div className="space-y-4 py-2">
+              <div className="flex flex-col items-center justify-center py-4">
+                <div className="h-14 w-14 rounded-full bg-green-100 flex items-center justify-center mb-3">
+                  <Check className="h-7 w-7 text-green-600" />
+                </div>
+                <p className="text-base font-semibold">分享链接已创建</p>
+                <p className="text-sm text-muted-foreground mt-1">复制以下链接发送给客户即可查看报价单</p>
+              </div>
+
+              <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
+                <p className="text-xs font-medium text-muted-foreground">分享链接</p>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 text-sm bg-background px-3 py-2 rounded border break-all select-all">
+                    {shareResult.shareUrl}
+                  </code>
+                  <Button variant="outline" size="sm" onClick={handleCopyShareUrl} className="shrink-0">
+                    {shareCopied ? (
+                      <><Check className="h-4 w-4 mr-1 text-green-600" /> 已复制</>
+                    ) : (
+                      <><Copy className="h-4 w-4 mr-1" /> 复制</>
+                    )}
+                  </Button>
+                </div>
+              </div>
+
+              {sharePassword && (
+                <div className="rounded-lg border bg-blue-50/50 p-3 space-y-1">
+                  <p className="text-xs font-medium text-blue-700">访问密码</p>
+                  <p className="text-lg font-mono font-bold tracking-widest text-blue-800">{sharePassword}</p>
+                  <p className="text-xs text-muted-foreground">请将密码一并发送给客户</p>
+                </div>
+              )}
+
+              <div className="rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground space-y-1">
+                <p>• 客户打开链接后可直接查看报价单，无需登录</p>
+                {shareExpiresDays > 0 && <p>• 链接将在 {shareExpiresDays} 天后过期</p>}
+                {shareExpiresDays === 0 && <p>• 链接永久有效，建议手动停用</p>}
+                {shareMaxViews > 0 && <p>• 最多可查看 {shareMaxViews} 次</p>}
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            {!shareResult ? (
+              <>
+                <Button variant="outline" onClick={() => setShareDialogOpen(false)}>取消</Button>
+                <Button onClick={handleCreateShare} disabled={isCreatingShare}>
+                  {isCreatingShare ? (
+                    <><Loader2 className="h-4 w-4 mr-2 animate-spin" />创建中...</>
+                  ) : (
+                    <><Link2 className="h-4 w-4 mr-2" />创建分享链接</>
+                  )}
+                </Button>
+              </>
+            ) : (
+              <Button variant="outline" onClick={() => setShareDialogOpen(false)}>关闭</Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 分享记录管理对话框 */}
+      <Dialog open={shareListDialogOpen} onOpenChange={setShareListDialogOpen}>
+        <DialogContent className="max-w-4xl w-[calc(100%-2rem)] max-h-[85vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Link2 className="h-5 w-5" />
+              分享记录
+            </DialogTitle>
+            <DialogDescription>
+              报价单「{shareTarget?.quote_number} - {shareTarget?.project_name}」的所有分享链接
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex-1 overflow-auto -mx-6 px-6">
+            {isLoadingShareList ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : shareList.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                <Share2 className="h-8 w-8 mb-2 opacity-50" />
+                <p className="text-sm">暂无分享记录</p>
+                <p className="text-xs mt-1">点击「生成分享链接」创建第一个分享</p>
+              </div>
+            ) : (
+              <div className="rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="text-xs whitespace-nowrap">状态</TableHead>
+                      <TableHead className="text-xs whitespace-nowrap">密码</TableHead>
+                      <TableHead className="text-xs whitespace-nowrap">有效期</TableHead>
+                      <TableHead className="text-xs whitespace-nowrap">查看次数</TableHead>
+                      <TableHead className="text-xs whitespace-nowrap">备注</TableHead>
+                      <TableHead className="text-xs whitespace-nowrap">创建时间</TableHead>
+                      <TableHead className="text-xs whitespace-nowrap text-right">操作</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {shareList.map((share: any) => {
+                      const isExpired = share.isExpired;
+                      const isActive = share.isActive && !isExpired;
+                      return (
+                        <TableRow key={share.id}>
+                          <TableCell>
+                            {isActive ? (
+                              <Badge className="bg-green-100 text-green-800 border-green-200 text-xs">有效</Badge>
+                            ) : isExpired ? (
+                              <Badge variant="outline" className="text-yellow-700 border-yellow-300 text-xs">已过期</Badge>
+                            ) : (
+                              <Badge variant="secondary" className="text-xs">已停用</Badge>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-xs whitespace-nowrap">
+                            {share.hasPassword ? (
+                              <span className="flex items-center gap-1"><ShieldCheck className="h-3 w-3 text-blue-600" />{share.password}</span>
+                            ) : (
+                              <span className="text-muted-foreground">无</span>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-xs whitespace-nowrap">
+                            {share.expiresAt ? (
+                              <span className={isExpired ? 'text-yellow-600' : ''}>
+                                {new Date(share.expiresAt).toLocaleDateString('zh-CN')}
+                              </span>
+                            ) : (
+                              <span className="text-muted-foreground">永久</span>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-xs whitespace-nowrap">
+                            {share.maxViews > 0 ? (
+                              <span>{share.viewCount}/{share.maxViews}</span>
+                            ) : (
+                              <span>{share.viewCount}次</span>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-xs text-muted-foreground max-w-[120px] truncate">
+                            {share.remark || '-'}
+                          </TableCell>
+                          <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                            {new Date(share.createdAt).toLocaleString('zh-CN')}
+                          </TableCell>
+                          <TableCell className="text-right whitespace-nowrap">
+                            <div className="flex items-center justify-end gap-1">
+                              {isActive && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 text-xs text-destructive hover:text-destructive"
+                                  onClick={() => handleDeactivateShare(share.id)}
+                                >
+                                  停用
+                                </Button>
+                              )}
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 text-xs"
+                                onClick={async () => {
+                                  const url = `${window.location.origin}${share.shareUrl}`;
+                                  try {
+                                    await navigator.clipboard.writeText(url);
+                                    toast.success('链接已复制');
+                                  } catch {
+                                    const textarea = document.createElement('textarea');
+                                    textarea.value = url;
+                                    document.body.appendChild(textarea);
+                                    textarea.select();
+                                    document.execCommand('copy');
+                                    document.body.removeChild(textarea);
+                                    toast.success('链接已复制');
+                                  }
+                                }}
+                              >
+                                <Copy className="h-3 w-3 mr-1" />
+                                复制
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="shrink-0">
+            <Button variant="outline" onClick={() => setShareListDialogOpen(false)}>关闭</Button>
+            {shareTarget && (
+              <Button
+                onClick={() => {
+                  setShareListDialogOpen(false);
+                  setTimeout(() => handleOpenShareDialog(shareTarget), 200);
+                }}
+              >
+                <Share2 className="h-4 w-4 mr-2" />
+                新建分享
+              </Button>
+            )}
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
