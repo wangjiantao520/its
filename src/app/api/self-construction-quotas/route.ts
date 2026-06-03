@@ -9,6 +9,9 @@ export async function GET(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams;
     const keyword = searchParams.get('keyword') || '';
     const category = searchParams.get('category') || '';
+    const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10));
+    const limit = Math.max(1, Math.min(200, parseInt(searchParams.get('limit') || '20', 10)));
+    const offset = (page - 1) * limit;
 
     let whereClause = '';
     const params: any[] = [];
@@ -27,14 +30,30 @@ export async function GET(request: NextRequest) {
       params.push(category);
     }
 
-    const [rows] = await pool.execute(
-      `SELECT * FROM self_construction_quotas${whereClause} ORDER BY sort_order ASC, id ASC`,
+    // 获取总数
+    const [countResult] = await pool.execute(
+      `SELECT COUNT(*) as total FROM self_construction_quotas${whereClause}`,
       params
     );
+    const total = (countResult as any[])[0].total;
+
+    // 分页查询（LIMIT/OFFSET 不支持预编译占位符，直接拼接整数）
+    const [rows] = await pool.execute(
+      `SELECT * FROM self_construction_quotas${whereClause} ORDER BY sort_order ASC, id ASC LIMIT ${limit} OFFSET ${offset}`,
+      params
+    );
+
+    const totalPages = Math.ceil(total / limit);
 
     return NextResponse.json({
       success: true,
       data: rows,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+      },
     });
   } catch (error) {
     console.error('获取自施工定额列表失败:', error);

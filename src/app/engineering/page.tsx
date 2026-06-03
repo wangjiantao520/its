@@ -190,6 +190,15 @@ export default function EngineeringPage() {
   const [dbIntelligentProject, setDbIntelligentProject] = useState<IntelligentItem[]>([]);
   const [isLoadingQuotas, setIsLoadingQuotas] = useState(false);
 
+  // 定额库分页状态
+  const [selfConstructionPage, setSelfConstructionPage] = useState(1);
+  const [selfConstructionTotalPages, setSelfConstructionTotalPages] = useState(1);
+  const [selfConstructionTotal, setSelfConstructionTotal] = useState(0);
+  const [intelligentPage, setIntelligentPage] = useState(1);
+  const [intelligentTotalPages, setIntelligentTotalPages] = useState(1);
+  const [intelligentTotal, setIntelligentTotal] = useState(0);
+  const quotaPageSize = 10;
+
   // 定额库编辑对话框状态
   const [quotaEditDialogOpen, setQuotaEditDialogOpen] = useState(false);
   const [quotaEditType, setQuotaEditType] = useState<'selfConstruction' | 'intelligent'>('selfConstruction');
@@ -245,13 +254,37 @@ export default function EngineeringPage() {
     }
   }, []);
 
-  // 加载定额库数据
-  const fetchQuotas = useCallback(async () => {
+  // 加载定额库数据（支持服务端分页、搜索和筛选）
+  const fetchQuotas = useCallback(async (options?: {
+    selfPage?: number;
+    intelligentPage?: number;
+    keyword?: string;
+    category?: string;
+  }) => {
     setIsLoadingQuotas(true);
+    const sPage = options?.selfPage ?? selfConstructionPage;
+    const iPage = options?.intelligentPage ?? intelligentPage;
+    const keyword = options?.keyword ?? quotaSearchKeyword;
+    const category = options?.category ?? quotaCategoryFilter;
+
     try {
+      const selfParams = new URLSearchParams({
+        page: String(sPage),
+        limit: String(quotaPageSize),
+      });
+      if (keyword) selfParams.set('keyword', keyword);
+      if (category && category !== 'all') selfParams.set('category', category);
+
+      const intelligentParams = new URLSearchParams({
+        page: String(iPage),
+        limit: String(quotaPageSize),
+      });
+      if (keyword) intelligentParams.set('keyword', keyword);
+      if (category && category !== 'all') intelligentParams.set('category', category);
+
       const [selfRes, intelligentRes] = await Promise.all([
-        fetch('/api/self-construction-quotas'),
-        fetch('/api/intelligent-project-quotas'),
+        fetch(`/api/self-construction-quotas?${selfParams.toString()}`),
+        fetch(`/api/intelligent-project-quotas?${intelligentParams.toString()}`),
       ]);
       const selfResult = await selfRes.json();
       const intelligentResult = await intelligentRes.json();
@@ -266,6 +299,11 @@ export default function EngineeringPage() {
           price: Number(row.price),
           remark: row.remark || '',
         })));
+        if (selfResult.pagination) {
+          setSelfConstructionTotalPages(selfResult.pagination.totalPages);
+          setSelfConstructionTotal(selfResult.pagination.total);
+          setSelfConstructionPage(selfResult.pagination.page);
+        }
       }
       if (intelligentResult.success) {
         setDbIntelligentProject(intelligentResult.data.map((row: any) => ({
@@ -280,17 +318,22 @@ export default function EngineeringPage() {
           price: Number(row.price),
           remark: row.remark || '',
         })));
+        if (intelligentResult.pagination) {
+          setIntelligentTotalPages(intelligentResult.pagination.totalPages);
+          setIntelligentTotal(intelligentResult.pagination.total);
+          setIntelligentPage(intelligentResult.pagination.page);
+        }
       }
 
-      // 如果数据库为空，自动初始化种子数据
-      if (selfResult.success && intelligentResult.success && selfResult.data.length === 0 && intelligentResult.data.length === 0) {
+      // 如果数据库为空（无筛选条件时），自动初始化种子数据
+      if (!keyword && (!category || category === 'all') && selfResult.success && intelligentResult.success && selfResult.pagination?.total === 0 && intelligentResult.pagination?.total === 0) {
         const seedRes = await fetch('/api/quotas-seed', { method: 'POST' });
         const seedResult = await seedRes.json();
         if (seedResult.success && (seedResult.data.selfInserted > 0 || seedResult.data.intelligentInserted > 0)) {
           // 重新加载
           const [selfRes2, intelligentRes2] = await Promise.all([
-            fetch('/api/self-construction-quotas'),
-            fetch('/api/intelligent-project-quotas'),
+            fetch(`/api/self-construction-quotas?page=1&limit=${quotaPageSize}`),
+            fetch(`/api/intelligent-project-quotas?page=1&limit=${quotaPageSize}`),
           ]);
           const selfResult2 = await selfRes2.json();
           const intelligentResult2 = await intelligentRes2.json();
@@ -299,6 +342,11 @@ export default function EngineeringPage() {
               id: row.id, category: row.category, name: row.name, unit: row.unit,
               quantity: Number(row.quantity), price: Number(row.price), remark: row.remark || '',
             })));
+            if (selfResult2.pagination) {
+              setSelfConstructionTotalPages(selfResult2.pagination.totalPages);
+              setSelfConstructionTotal(selfResult2.pagination.total);
+              setSelfConstructionPage(1);
+            }
           }
           if (intelligentResult2.success) {
             setDbIntelligentProject(intelligentResult2.data.map((row: any) => ({
@@ -307,6 +355,11 @@ export default function EngineeringPage() {
               deductibleTaxRate: Number(row.deductible_tax_rate), unit: row.unit,
               price: Number(row.price), remark: row.remark || '',
             })));
+            if (intelligentResult2.pagination) {
+              setIntelligentTotalPages(intelligentResult2.pagination.totalPages);
+              setIntelligentTotal(intelligentResult2.pagination.total);
+              setIntelligentPage(1);
+            }
           }
           toast.success('定额数据已初始化');
         }
@@ -317,7 +370,7 @@ export default function EngineeringPage() {
     } finally {
       setIsLoadingQuotas(false);
     }
-  }, []);
+  }, [selfConstructionPage, intelligentPage, quotaSearchKeyword, quotaCategoryFilter, quotaPageSize]);
 
   // 保存定额项（新增或编辑）
   const handleSaveQuota = useCallback(async () => {
@@ -713,6 +766,7 @@ export default function EngineeringPage() {
   useEffect(() => {
     if (activeTab === 'quotas') {
       fetchQuotas();
+      fetchQuotaCategories();
     }
   }, [activeTab]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1574,34 +1628,103 @@ export default function EngineeringPage() {
     }
   };
 
-  // 定额库筛选逻辑（使用数据库数据）
-  const filteredSelfConstruction = dbSelfConstruction.filter(item => {
-    const matchesCategory = quotaCategoryFilter === 'all' || item.category === quotaCategoryFilter;
-    const matchesSearch = !quotaSearchKeyword || 
-      item.name.toLowerCase().includes(quotaSearchKeyword.toLowerCase()) ||
-      item.id.toLowerCase().includes(quotaSearchKeyword.toLowerCase()) ||
-      item.category.toLowerCase().includes(quotaSearchKeyword.toLowerCase()) ||
-      item.remark.toLowerCase().includes(quotaSearchKeyword.toLowerCase());
-    return matchesCategory && matchesSearch;
-  });
+  // 定额库分类与分页逻辑
+  const [allQuotaCategories, setAllQuotaCategories] = useState<string[]>([]);
+  const fetchQuotaCategories = useCallback(async () => {
+    try {
+      const [selfRes, intelligentRes] = await Promise.all([
+        fetch('/api/self-construction-quotas?limit=9999'),
+        fetch('/api/intelligent-project-quotas?limit=9999'),
+      ]);
+      const selfResult = await selfRes.json();
+      const intelligentResult = await intelligentRes.json();
+      const categories = Array.from(new Set([
+        ...(selfResult.success ? selfResult.data.map((r: any) => r.category) : []),
+        ...(intelligentResult.success ? intelligentResult.data.map((r: any) => r.category) : []),
+      ]));
+      setAllQuotaCategories(categories);
+    } catch {
+      // 静默失败
+    }
+  }, []);
 
-  const filteredIntelligentProject = dbIntelligentProject.filter(item => {
-    const matchesCategory = quotaCategoryFilter === 'all' || item.category === quotaCategoryFilter;
-    const matchesSearch = !quotaSearchKeyword || 
-      item.name.toLowerCase().includes(quotaSearchKeyword.toLowerCase()) ||
-      item.id.toLowerCase().includes(quotaSearchKeyword.toLowerCase()) ||
-      item.category.toLowerCase().includes(quotaSearchKeyword.toLowerCase()) ||
-      item.brandModel.toLowerCase().includes(quotaSearchKeyword.toLowerCase()) ||
-      item.description.toLowerCase().includes(quotaSearchKeyword.toLowerCase()) ||
-      item.remark.toLowerCase().includes(quotaSearchKeyword.toLowerCase());
-    return matchesCategory && matchesSearch;
-  });
+  // 搜索/筛选变更时触发服务端重新请求
+  useEffect(() => {
+    if (activeTab === 'quotas') {
+      fetchQuotas({ selfPage: 1, intelligentPage: 1 });
+    }
+  }, [quotaSearchKeyword, quotaCategoryFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 获取所有分类（合并两个定额库）
-  const allQuotaCategories = Array.from(new Set([
-    ...dbSelfConstruction.map(item => item.category),
-    ...dbIntelligentProject.map(item => item.category),
-  ]));
+  // 定额库分页辅助函数
+  const handleSelfConstructionPageChange = (page: number) => {
+    fetchQuotas({ selfPage: page });
+  };
+  const handleIntelligentPageChange = (page: number) => {
+    fetchQuotas({ intelligentPage: page });
+  };
+
+  // 渲染定额库分页
+  const renderQuotaPagination = (
+    currentPage: number,
+    totalPages: number,
+    total: number,
+    onPageChange: (page: number) => void
+  ) => {
+    if (totalPages <= 1) return null;
+    const pages: (number | 'ellipsis')[] = [];
+    if (totalPages <= 7) {
+      for (let i = 1; i <= totalPages; i++) pages.push(i);
+    } else {
+      pages.push(1);
+      if (currentPage > 3) pages.push('ellipsis');
+      const start = Math.max(2, currentPage - 1);
+      const end = Math.min(totalPages - 1, currentPage + 1);
+      for (let i = start; i <= end; i++) pages.push(i);
+      if (currentPage < totalPages - 2) pages.push('ellipsis');
+      pages.push(totalPages);
+    }
+
+    return (
+      <div className="mt-4 flex items-center justify-between">
+        <span className="text-sm text-muted-foreground">
+          共 {total} 条，第 {currentPage}/{totalPages} 页
+        </span>
+        <Pagination>
+          <PaginationContent>
+            <PaginationItem>
+              <PaginationPrevious
+                onClick={() => currentPage > 1 && onPageChange(currentPage - 1)}
+                className={currentPage <= 1 ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
+              />
+            </PaginationItem>
+            {pages.map((page, index) =>
+              page === 'ellipsis' ? (
+                <PaginationItem key={`ellipsis-${index}`}>
+                  <PaginationEllipsis />
+                </PaginationItem>
+              ) : (
+                <PaginationItem key={page}>
+                  <PaginationLink
+                    isActive={currentPage === page}
+                    onClick={() => onPageChange(page)}
+                    className="cursor-pointer"
+                  >
+                    {page}
+                  </PaginationLink>
+                </PaginationItem>
+              )
+            )}
+            <PaginationItem>
+              <PaginationNext
+                onClick={() => currentPage < totalPages && onPageChange(currentPage + 1)}
+                className={currentPage >= totalPages ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
+              />
+            </PaginationItem>
+          </PaginationContent>
+        </Pagination>
+      </div>
+    );
+  };
 
   const calculateTotals = () => {
     let totalBase = 0;
@@ -3053,8 +3176,8 @@ export default function EngineeringPage() {
                   </Select>
                 </div>
                 <div className="flex items-center gap-3">
-                  <span className="text-sm text-muted-foreground">自施工 <strong className="text-foreground">{filteredSelfConstruction.length}</strong>/{dbSelfConstruction.length}项</span>
-                  <span className="text-sm text-muted-foreground">智能化 <strong className="text-foreground">{filteredIntelligentProject.length}</strong>/{dbIntelligentProject.length}项</span>
+                  <span className="text-sm text-muted-foreground">自施工 <strong className="text-foreground">{selfConstructionTotal}</strong>项</span>
+                  <span className="text-sm text-muted-foreground">智能化 <strong className="text-foreground">{intelligentTotal}</strong>项</span>
                   <div className="h-4 w-px bg-border" />
                   <Button variant="outline" size="sm" onClick={() => openImportDialog('selfConstruction')}>
                     <Upload className="h-3.5 w-3.5 mr-1" />
@@ -3114,7 +3237,8 @@ export default function EngineeringPage() {
                     </div>
                   ))}
                 </div>
-              ) : filteredSelfConstruction.length > 0 ? (
+              ) : dbSelfConstruction.length > 0 ? (
+              <>
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -3128,7 +3252,7 @@ export default function EngineeringPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredSelfConstruction.map((item) => (
+                    {dbSelfConstruction.map((item) => (
                       <TableRow key={item.id}>
                         <TableCell className="font-mono text-sm">{item.id}</TableCell>
                         <TableCell>
@@ -3166,15 +3290,17 @@ export default function EngineeringPage() {
                     ))}
                   </TableBody>
                 </Table>
-              ) : (
-                <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
-                  <Search className="h-8 w-8 mb-2 opacity-50" />
-                  <p className="text-sm">没有找到匹配的自施工定额项</p>
-                  <p className="text-xs mt-1">请尝试调整搜索关键词或分类筛选</p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+                {renderQuotaPagination(selfConstructionPage, selfConstructionTotalPages, selfConstructionTotal, handleSelfConstructionPageChange)}
+              </>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                <Search className="h-8 w-8 mb-2 opacity-50" />
+                <p className="text-sm">没有找到匹配的自施工定额项</p>
+                <p className="text-xs mt-1">请尝试调整搜索关键词或分类筛选</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
           {/* 集成商智能化项目报价 */}
           <Card>
@@ -3203,7 +3329,8 @@ export default function EngineeringPage() {
                     </div>
                   ))}
                 </div>
-              ) : filteredIntelligentProject.length > 0 ? (
+              ) : dbIntelligentProject.length > 0 ? (
+              <>
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -3219,7 +3346,7 @@ export default function EngineeringPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredIntelligentProject.map((item) => (
+                    {dbIntelligentProject.map((item) => (
                       <TableRow key={item.id}>
                         <TableCell className="font-mono text-sm">{item.id}</TableCell>
                         <TableCell>
@@ -3259,15 +3386,17 @@ export default function EngineeringPage() {
                     ))}
                   </TableBody>
                 </Table>
-              ) : (
-                <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
-                  <Search className="h-8 w-8 mb-2 opacity-50" />
-                  <p className="text-sm">没有找到匹配的智能化项目定额项</p>
-                  <p className="text-xs mt-1">请尝试调整搜索关键词或分类筛选</p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+                {renderQuotaPagination(intelligentPage, intelligentTotalPages, intelligentTotal, handleIntelligentPageChange)}
+              </>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                <Search className="h-8 w-8 mb-2 opacity-50" />
+                <p className="text-sm">没有找到匹配的智能化项目定额项</p>
+                <p className="text-xs mt-1">请尝试调整搜索关键词或分类筛选</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
         </TabsContent>
 
         {/* 统计看板 */}
