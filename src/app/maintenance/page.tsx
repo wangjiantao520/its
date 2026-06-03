@@ -309,6 +309,59 @@ export default function MaintenanceQuotePage() {
         return updatedItem;
       });
       
+      // 重新计算汇总数据
+      const taxRate = 0.13;
+      const FULL_REGION_FACTORS = {
+        '城区': 1,
+        '市区县城郊区': 1.1,
+        '乡镇': 1.3,
+        '农村': 1.5
+      };
+      
+      updatedResult.totalDevices = updatedResult.deviceItems.reduce((sum, item) => sum + item.quantity, 0);
+      updatedResult.subtotalBeforeDiscount = updatedResult.deviceItems.reduce((sum, item) => sum + item.totalBeforeDiscount, 0);
+      updatedResult.subtotalAfterDiscount = updatedResult.deviceItems.reduce((sum, item) => sum + item.totalAfterDiscount, 0);
+      updatedResult.bulkDiscountAmount = updatedResult.subtotalBeforeDiscount - updatedResult.subtotalAfterDiscount;
+      updatedResult.taxRate = taxRate;
+      updatedResult.taxAmount = updatedResult.subtotalAfterDiscount * taxRate;
+      updatedResult.finalTotal = updatedResult.subtotalAfterDiscount * (1 + taxRate);
+      
+      // 重新计算分地区报价
+      const calculateRegionTotal = (regionType: any) => {
+        const subtotal = updatedResult.deviceItems.reduce((sum, item) => {
+          // 根据地区获取对应的单价
+          let regionPrice = 0;
+          switch (regionType) {
+            case '城区':
+              regionPrice = item.cityPrice;
+              break;
+            case '市区县城郊区':
+              regionPrice = item.urbanPrice;
+              break;
+            case '乡镇':
+              regionPrice = item.townPrice;
+              break;
+            case '农村':
+              regionPrice = item.ruralPrice;
+              break;
+            default:
+              regionPrice = item.cityPrice;
+          }
+          return sum + regionPrice * item.quantity * (item.bulkDiscountFactor || 1.0) * 
+                       (item.yearDiscountFactor || 1.0) * item.contractYears;
+        }, 0);
+        const taxAmount = subtotal * taxRate;
+        const total = subtotal + taxAmount;
+        return { subtotal, taxAmount, total };
+      };
+      
+      updatedResult.totalByRegion = {
+        '城区': calculateRegionTotal('城区'),
+        '市区县城郊区': calculateRegionTotal('市区县城郊区'),
+        '乡镇': calculateRegionTotal('乡镇'),
+        '农村': calculateRegionTotal('农村'),
+      };
+      
       setFullQuoteResult(updatedResult);
     }
     
