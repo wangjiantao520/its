@@ -35,9 +35,14 @@ import { Skeleton } from '@/components/ui/skeleton';
 
 interface QuoteItem {
   id: number;
-  itemType: 'selfConstruction' | 'intelligent';
+  itemType: 'selfConstruction' | 'intelligent' | 'custom';
   itemId: string;
   quantity: number;
+  // 自定义明细字段
+  customName?: string;
+  customUnit?: string;
+  customPrice?: number;
+  customRemark?: string;
 }
 
 interface EngineeringQuote {
@@ -66,6 +71,7 @@ interface EngineeringQuote {
     name: string;
     unit: string;
     price: number;
+    customRemark?: string;
   }> | null;
   created_at: string;
   updated_at: string;
@@ -796,9 +802,13 @@ export default function EngineeringPage() {
       if (data.items && Array.isArray(data.items)) {
         const loadedItems: QuoteItem[] = data.items.map((item: any, index: number) => ({
           id: index + 1,
-          itemType: item.itemType as 'selfConstruction' | 'intelligent',
-          itemId: item.itemId,
+          itemType: (item.itemType || 'selfConstruction') as 'selfConstruction' | 'intelligent' | 'custom',
+          itemId: item.itemId || `custom_${index + 1}`,
           quantity: item.quantity,
+          customName: item.itemType === 'custom' ? item.name : undefined,
+          customUnit: item.itemType === 'custom' ? item.unit : undefined,
+          customPrice: item.itemType === 'custom' ? item.price : undefined,
+          customRemark: item.customRemark || undefined,
         }));
         setQuoteItems(loadedItems);
         setNextItemId(loadedItems.length + 1);
@@ -975,13 +985,18 @@ export default function EngineeringPage() {
     // 自行计算汇总数据，避免依赖后定义的 totals
     let totalBase = 0;
     quoteItems.forEach(item => {
-      const quotaItem = item.itemType === 'selfConstruction'
-        ? SELF_CONSTRUCTION_QUOTA.find(q => q.id === item.itemId)
-        : INTELLIGENT_PROJECT_QUOTA.find(q => q.id === item.itemId);
-      if (quotaItem) {
-        totalBase += quotaItem.price * item.quantity;
+      if (item.itemType === 'custom') {
+        totalBase += (item.customPrice || 0) * item.quantity;
+      } else {
+        const quotaItem = item.itemType === 'selfConstruction'
+            ? SELF_CONSTRUCTION_QUOTA.find(q => q.id === item.itemId)
+            : INTELLIGENT_PROJECT_QUOTA.find(q => q.id === item.itemId);
+        if (quotaItem) {
+          totalBase += quotaItem.price * item.quantity;
+        }
       }
     });
+
 
     const subtotal = totalBase;
     const managementFee = subtotal * (managementFeeRate / 100);
@@ -1001,6 +1016,16 @@ export default function EngineeringPage() {
       quoteNumber,
       quoteDate: new Date().toISOString().split('T')[0],
       items: quoteItems.map(item => {
+        if (item.itemType === 'custom') {
+          const unitPrice = (item.customPrice || 0) * (1 + managementFeeRate / 100 + profitRate / 100 + regulatoryFeeRate / 100);
+          return {
+            name: item.customName || '',
+            unit: item.customUnit || '',
+            quantity: item.quantity,
+            unitPrice: unitPrice,
+            amount: unitPrice * item.quantity,
+          };
+        }
         const quotaItem = item.itemType === 'selfConstruction'
           ? SELF_CONSTRUCTION_QUOTA.find(q => q.id === item.itemId)
           : INTELLIGENT_PROJECT_QUOTA.find(q => q.id === item.itemId);
@@ -1620,12 +1645,35 @@ export default function EngineeringPage() {
     ));
   };
 
-  const getItemById = (itemType: 'selfConstruction' | 'intelligent', itemId: string) => {
+  const getItemById = (itemType: 'selfConstruction' | 'intelligent' | 'custom', itemId: string) => {
     if (itemType === 'selfConstruction') {
       return SELF_CONSTRUCTION_QUOTA.find(item => item.id === itemId);
-    } else {
+    } else if (itemType === 'intelligent') {
       return INTELLIGENT_PROJECT_QUOTA.find(item => item.id === itemId);
     }
+    return undefined; // custom类型没有定额项
+  };
+
+  // 添加自定义明细
+  const addCustomQuoteItem = () => {
+    setQuoteItems([...quoteItems, {
+      id: nextItemId,
+      itemType: 'custom',
+      itemId: `custom_${nextItemId}`,
+      quantity: 1,
+      customName: '',
+      customUnit: '项',
+      customPrice: 0,
+      customRemark: '',
+    }]);
+    setNextItemId(nextItemId + 1);
+  };
+
+  // 更新自定义明细字段
+  const updateCustomField = (itemId: number, field: 'customName' | 'customUnit' | 'customPrice' | 'customRemark', value: string | number) => {
+    setQuoteItems(quoteItems.map(item =>
+      item.id === itemId ? { ...item, [field]: value } : item
+    ));
   };
 
   // 定额库分类与分页逻辑
@@ -1730,9 +1778,13 @@ export default function EngineeringPage() {
     let totalBase = 0;
 
     quoteItems.forEach(item => {
-      const quotaItem = getItemById(item.itemType, item.itemId);
-      if (quotaItem) {
-        totalBase += quotaItem.price * item.quantity;
+      if (item.itemType === 'custom') {
+        totalBase += (item.customPrice || 0) * item.quantity;
+      } else {
+        const quotaItem = getItemById(item.itemType, item.itemId);
+        if (quotaItem) {
+          totalBase += quotaItem.price * item.quantity;
+        }
       }
     });
 
@@ -1792,6 +1844,17 @@ export default function EngineeringPage() {
         tax: totals.taxAmount,
         total: totals.total,
         items: quoteItems.map(item => {
+          if (item.itemType === 'custom') {
+            return {
+              itemType: 'custom',
+              itemId: item.itemId,
+              quantity: item.quantity,
+              name: item.customName || '',
+              unit: item.customUnit || '',
+              price: item.customPrice || 0,
+              customRemark: item.customRemark || '',
+            };
+          }
           const quotaItem = getItemById(item.itemType, item.itemId);
           return {
             itemType: item.itemType,
@@ -1981,7 +2044,7 @@ export default function EngineeringPage() {
                   <CardTitle>报价明细</CardTitle>
                   <CardDescription>添加工序和数量</CardDescription>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-2 flex-wrap">
                   <Select onValueChange={(value) => addQuoteItem('selfConstruction', value)}>
                     <SelectTrigger className="w-[200px]">
                       <SelectValue placeholder="添加自施工工序" />
@@ -2006,6 +2069,10 @@ export default function EngineeringPage() {
                       ))}
                     </SelectContent>
                   </Select>
+                  <Button variant="outline" onClick={addCustomQuoteItem}>
+                    <Plus className="h-4 w-4 mr-1" />
+                    自定义明细
+                  </Button>
                 </div>
               </div>
             </CardHeader>
@@ -2015,7 +2082,7 @@ export default function EngineeringPage() {
                   <TableRow>
                     <TableHead className="w-[50px]">操作</TableHead>
                     <TableHead>类型</TableHead>
-                    <TableHead>定额名称</TableHead>
+                    <TableHead>名称</TableHead>
                     <TableHead className="w-[100px]">单位</TableHead>
                     <TableHead className="w-[120px]">数量</TableHead>
                     <TableHead className="w-[120px]">单价</TableHead>
@@ -2024,40 +2091,99 @@ export default function EngineeringPage() {
                 </TableHeader>
                 <TableBody>
                   {quoteItems.map((item) => {
-                    const quotaItem = getItemById(item.itemType, item.itemId);
-                    if (!quotaItem) return null;
-                    const baseFee = quotaItem.price * item.quantity;
-                    const subtotal = baseFee * (1 + managementFeeRate / 100 + profitRate / 100 + regulatoryFeeRate / 100);
-                    return (
-                      <TableRow key={item.id}>
-                        <TableCell>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => removeQuoteItem(item.id)}
-                          >
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
-                        </TableCell>
-                        <TableCell>
-                          <span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                            {item.itemType === 'selfConstruction' ? '自施工' : '智能化'}
-                          </span>
-                        </TableCell>
-                        <TableCell>{quotaItem.name}</TableCell>
-                        <TableCell>{quotaItem.unit}</TableCell>
-                        <TableCell>
-                          <Input
-                            type="number"
-                            value={item.quantity}
-                            onChange={(e) => updateQuantity(item.id, parseInt(e.target.value) || 0)}
-                            className="w-full"
-                          />
-                        </TableCell>
-                        <TableCell>¥{quotaItem.price.toFixed(2)}</TableCell>
-                        <TableCell>¥{subtotal.toFixed(2)}</TableCell>
-                      </TableRow>
-                    );
+                    if (item.itemType === 'custom') {
+                      // 自定义明细行 - 可编辑
+                      const baseFee = (item.customPrice || 0) * item.quantity;
+                      const subtotal = baseFee * (1 + managementFeeRate / 100 + profitRate / 100 + regulatoryFeeRate / 100);
+                      return (
+                        <TableRow key={item.id} className="bg-purple-50/50">
+                          <TableCell>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => removeQuoteItem(item.id)}
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </TableCell>
+                          <TableCell>
+                            <span className="px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+                              自定义
+                            </span>
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              placeholder="输入名称"
+                              value={item.customName || ''}
+                              onChange={(e) => updateCustomField(item.id, 'customName', e.target.value)}
+                              className="min-w-[120px]"
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              placeholder="单位"
+                              value={item.customUnit || ''}
+                              onChange={(e) => updateCustomField(item.id, 'customUnit', e.target.value)}
+                              className="w-[80px]"
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              type="number"
+                              value={item.quantity}
+                              onChange={(e) => updateQuantity(item.id, parseInt(e.target.value) || 0)}
+                              className="w-full"
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              type="number"
+                              placeholder="单价"
+                              value={item.customPrice || 0}
+                              onChange={(e) => updateCustomField(item.id, 'customPrice', parseFloat(e.target.value) || 0)}
+                              className="w-[100px]"
+                            />
+                          </TableCell>
+                          <TableCell>¥{subtotal.toFixed(2)}</TableCell>
+                        </TableRow>
+                      );
+                    } else {
+                      // 定额库明细行 - 原有逻辑
+                      const quotaItem = getItemById(item.itemType, item.itemId);
+                      if (!quotaItem) return null;
+                      const baseFee = quotaItem.price * item.quantity;
+                      const subtotal = baseFee * (1 + managementFeeRate / 100 + profitRate / 100 + regulatoryFeeRate / 100);
+                      return (
+                        <TableRow key={item.id}>
+                          <TableCell>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => removeQuoteItem(item.id)}
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </TableCell>
+                          <TableCell>
+                            <span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                              {item.itemType === 'selfConstruction' ? '自施工' : '智能化'}
+                            </span>
+                          </TableCell>
+                          <TableCell>{quotaItem.name}</TableCell>
+                          <TableCell>{quotaItem.unit}</TableCell>
+                          <TableCell>
+                            <Input
+                              type="number"
+                              value={item.quantity}
+                              onChange={(e) => updateQuantity(item.id, parseInt(e.target.value) || 0)}
+                              className="w-full"
+                            />
+                          </TableCell>
+                          <TableCell>¥{quotaItem.price.toFixed(2)}</TableCell>
+                          <TableCell>¥{subtotal.toFixed(2)}</TableCell>
+                        </TableRow>
+                      );
+                    }
                   })}
                 </TableBody>
               </Table>
