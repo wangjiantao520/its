@@ -214,25 +214,29 @@ export default function MaintenanceQuotePage() {
     if (useFullData && fullQuoteResult) {
       const updatedResult = { ...fullQuoteResult };
       
-      // 更新设备价格
+      // 检查是否修改了费用项目
+      const hasFeeChanges = priceSettings.inspectionFee !== undefined || 
+                           priceSettings.onSiteFee !== undefined ||
+                           priceSettings.faultHandlingFee !== undefined ||
+                           priceSettings.toolAmortization !== undefined ||
+                           priceSettings.consumableFee !== undefined ||
+                           priceSettings.sparePartReserve !== undefined;
+      
+      // 更新设备价格和费用项目
       updatedResult.deviceItems = updatedResult.deviceItems.map((item, index) => {
+        let updatedItem = { ...item };
         const key = `device_${index}`;
+        
+        // 更新设备单价（如果有自定义）
         if (priceSettings[key] !== undefined) {
           const newPrice = priceSettings[key];
-          return {
-            ...item,
-            cityPrice: newPrice,
-            urbanPrice: newPrice,
-            townPrice: newPrice,
-            ruralPrice: newPrice
-          };
+          updatedItem.cityPrice = newPrice;
+          updatedItem.urbanPrice = newPrice;
+          updatedItem.townPrice = newPrice;
+          updatedItem.ruralPrice = newPrice;
         }
-        return item;
-      });
-      
-      // 更新费用项目（应用到所有设备）
-      updatedResult.deviceItems = updatedResult.deviceItems.map((item) => {
-        const updatedItem = { ...item };
+        
+        // 更新费用项目
         if (priceSettings.inspectionFee !== undefined) {
           updatedItem.inspectionFee = priceSettings.inspectionFee;
         }
@@ -251,6 +255,57 @@ export default function MaintenanceQuotePage() {
         if (priceSettings.sparePartReserve !== undefined) {
           updatedItem.sparePartReserve = priceSettings.sparePartReserve;
         }
+        
+        // 如果修改了费用项目，重新计算单价
+        if (hasFeeChanges && priceSettings[key] === undefined) {
+          // 重新计算基础价格：巡检费 + 上门费 + 故障处理费 + 工具摊销 + 耗材费
+          // 如果需要备件，再加备件准备金
+          let basePrice = updatedItem.inspectionFee + 
+                         updatedItem.onSiteFee + 
+                         updatedItem.faultHandlingFee + 
+                         updatedItem.toolAmortization + 
+                         updatedItem.consumableFee;
+          
+          if (updatedItem.needSparePart) {
+            basePrice += updatedItem.sparePartReserve;
+          }
+          
+          // 应用SLA系数、折旧系数、在保系数
+          const newCityPrice = basePrice * updatedItem.slaTotalFactor * 
+                              (() => {
+                                // 获取折旧系数，这里简化处理
+                                const grade = updatedItem.depreciationGrade;
+                                if (grade === 1) return 1.0;
+                                if (grade === 2) return 0.9;
+                                if (grade === 3) return 0.75;
+                                if (grade === 4) return 0.6;
+                                if (grade === 5) return 0.45;
+                                return 0.6; // 默认
+                              })() * 
+                              (updatedItem.inWarranty ? 0.5 : 1.0);
+          
+          updatedItem.cityPrice = newCityPrice;
+          // 其他地区价格按城区价格计算
+          const REGION_FACTORS = {
+            '城区': 1,
+            '市区县城郊区': 1.1,
+            '乡镇': 1.3,
+            '农村': 1.5
+          };
+          updatedItem.urbanPrice = newCityPrice * REGION_FACTORS['市区县城郊区'];
+          updatedItem.townPrice = newCityPrice * REGION_FACTORS['乡镇'];
+          updatedItem.ruralPrice = newCityPrice * REGION_FACTORS['农村'];
+        }
+        
+        // 重新计算小计
+        updatedItem.totalBeforeDiscount = updatedItem.cityPrice * updatedItem.quantity;
+        const bulkDiscountFactor = updatedItem.quantity >= 10 ? 0.95 : 1.0;
+        const yearDiscountFactor = updatedItem.contractYears >= 3 ? 0.9 : 
+                                   updatedItem.contractYears >= 2 ? 0.95 : 1.0;
+        updatedItem.totalAfterDiscount = updatedItem.totalBeforeDiscount * 
+                                         bulkDiscountFactor * yearDiscountFactor * 
+                                         updatedItem.contractYears;
+        
         return updatedItem;
       });
       
