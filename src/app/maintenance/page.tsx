@@ -1981,20 +1981,9 @@ export default function MaintenanceQuotePage() {
                                 </TableHeader>
                                 <TableBody>
                                   {(() => {
-                                    // 根据选中地区计算各项费用
-                                    const getRegionPrice = (item: any, region: RegionType) => {
-                                      switch(region) {
-                                        case '城区': return item.cityPrice;
-                                        case '市区县城郊区': return item.urbanPrice;
-                                        case '乡镇': return item.townPrice;
-                                        case '农村': return item.ruralPrice;
-                                        default: return item.cityPrice;
-                                      }
-                                    };
-                                    
                                     const regionFactor = FULL_REGION_FACTORS[selectedRegionForSummary as keyof typeof FULL_REGION_FACTORS];
                                     
-                                    // 计算基础费用（仅地区系数）
+                                    // 计算基础费用（上面表格中显示的费用 × 数量 × 地区系数）
                                     const baseInspectionFee = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.inspectionFee * item.quantity * regionFactor, 0);
                                     const baseOnSiteFee = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.onSiteFee * item.quantity * regionFactor, 0);
                                     const baseFaultHandlingFee = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.faultHandlingFee * item.quantity * regionFactor, 0);
