@@ -163,7 +163,8 @@ export default function MaintenanceQuotePage() {
   const handleOpenPriceSettings = () => {
     // 初始化价格设置
     const initialPrices: Record<string, number> = {};
-    if (useFullData && fullQuoteResult) {
+    if (useFullData && fullQuoteResult && fullQuoteResult.deviceItems.length > 0) {
+      // 初始化所有设备价格
       fullQuoteResult.deviceItems.forEach((item, index) => {
         const key = `device_${index}`;
         // 根据当前地区获取对应的价格
@@ -186,6 +187,15 @@ export default function MaintenanceQuotePage() {
         }
         initialPrices[key] = currentPrice;
       });
+      
+      // 初始化费用项目（使用第一个设备的值作为默认值）
+      const firstItem = fullQuoteResult.deviceItems[0];
+      initialPrices.inspectionFee = firstItem.inspectionFee;
+      initialPrices.onSiteFee = firstItem.onSiteFee;
+      initialPrices.faultHandlingFee = firstItem.faultHandlingFee;
+      initialPrices.toolAmortization = firstItem.toolAmortization;
+      initialPrices.consumableFee = firstItem.consumableFee;
+      initialPrices.sparePartReserve = firstItem.sparePartReserve;
     }
     setPriceSettings(initialPrices);
     setShowPriceSettings(true);
@@ -198,9 +208,58 @@ export default function MaintenanceQuotePage() {
         alert('管理员密码错误！');
         return;
       }
+    }
+    
+    // 应用价格修改到报价结果
+    if (useFullData && fullQuoteResult) {
+      const updatedResult = { ...fullQuoteResult };
+      
+      // 更新设备价格
+      updatedResult.deviceItems = updatedResult.deviceItems.map((item, index) => {
+        const key = `device_${index}`;
+        if (priceSettings[key] !== undefined) {
+          const newPrice = priceSettings[key];
+          return {
+            ...item,
+            cityPrice: newPrice,
+            urbanPrice: newPrice,
+            townPrice: newPrice,
+            ruralPrice: newPrice
+          };
+        }
+        return item;
+      });
+      
+      // 更新费用项目（应用到所有设备）
+      updatedResult.deviceItems = updatedResult.deviceItems.map((item) => {
+        const updatedItem = { ...item };
+        if (priceSettings.inspectionFee !== undefined) {
+          updatedItem.inspectionFee = priceSettings.inspectionFee;
+        }
+        if (priceSettings.onSiteFee !== undefined) {
+          updatedItem.onSiteFee = priceSettings.onSiteFee;
+        }
+        if (priceSettings.faultHandlingFee !== undefined) {
+          updatedItem.faultHandlingFee = priceSettings.faultHandlingFee;
+        }
+        if (priceSettings.toolAmortization !== undefined) {
+          updatedItem.toolAmortization = priceSettings.toolAmortization;
+        }
+        if (priceSettings.consumableFee !== undefined) {
+          updatedItem.consumableFee = priceSettings.consumableFee;
+        }
+        if (priceSettings.sparePartReserve !== undefined) {
+          updatedItem.sparePartReserve = priceSettings.sparePartReserve;
+        }
+        return updatedItem;
+      });
+      
+      setFullQuoteResult(updatedResult);
+    }
+    
+    if (saveType === 'permanent') {
       alert('价格已永久保存！');
     } else {
-      // 暂时保存
       alert('价格已暂时保存！');
     }
     setShowPriceSettings(false);
@@ -3533,6 +3592,85 @@ export default function MaintenanceQuotePage() {
                 </div>
               </div>
             )}
+
+            {/* 费用项目设置 */}
+            <div className="space-y-4">
+              <h3 className="text-lg font-semibold">费用项目设置</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="flex items-center gap-4">
+                  <Label className="min-w-[100px]">巡检费</Label>
+                  <Input
+                    type="number"
+                    value={priceSettings.inspectionFee}
+                    onChange={(e) => setPriceSettings(prev => ({
+                      ...prev,
+                      inspectionFee: Number(e.target.value) || 0
+                    }))}
+                    className="flex-1"
+                  />
+                </div>
+                <div className="flex items-center gap-4">
+                  <Label className="min-w-[100px]">上门费</Label>
+                  <Input
+                    type="number"
+                    value={priceSettings.onSiteFee}
+                    onChange={(e) => setPriceSettings(prev => ({
+                      ...prev,
+                      onSiteFee: Number(e.target.value) || 0
+                    }))}
+                    className="flex-1"
+                  />
+                </div>
+                <div className="flex items-center gap-4">
+                  <Label className="min-w-[100px]">故障处理费</Label>
+                  <Input
+                    type="number"
+                    value={priceSettings.faultHandlingFee}
+                    onChange={(e) => setPriceSettings(prev => ({
+                      ...prev,
+                      faultHandlingFee: Number(e.target.value) || 0
+                    }))}
+                    className="flex-1"
+                  />
+                </div>
+                <div className="flex items-center gap-4">
+                  <Label className="min-w-[100px]">工具摊销</Label>
+                  <Input
+                    type="number"
+                    value={priceSettings.toolAmortization}
+                    onChange={(e) => setPriceSettings(prev => ({
+                      ...prev,
+                      toolAmortization: Number(e.target.value) || 0
+                    }))}
+                    className="flex-1"
+                  />
+                </div>
+                <div className="flex items-center gap-4">
+                  <Label className="min-w-[100px]">耗材费</Label>
+                  <Input
+                    type="number"
+                    value={priceSettings.consumableFee}
+                    onChange={(e) => setPriceSettings(prev => ({
+                      ...prev,
+                      consumableFee: Number(e.target.value) || 0
+                    }))}
+                    className="flex-1"
+                  />
+                </div>
+                <div className="flex items-center gap-4">
+                  <Label className="min-w-[100px]">备件准备金</Label>
+                  <Input
+                    type="number"
+                    value={priceSettings.sparePartReserve}
+                    onChange={(e) => setPriceSettings(prev => ({
+                      ...prev,
+                      sparePartReserve: Number(e.target.value) || 0
+                    }))}
+                    className="flex-1"
+                  />
+                </div>
+              </div>
+            </div>
 
             {/* 保存类型选择 */}
             <div className="space-y-4">
