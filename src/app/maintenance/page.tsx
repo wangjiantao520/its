@@ -123,6 +123,12 @@ export default function MaintenanceQuotePage() {
   const [showAiPreview, setShowAiPreview] = useState(false);
   const [showAiCompletionDialog, setShowAiCompletionDialog] = useState(false);
   const [completionDraft, setCompletionDraft] = useState<AiQuoteDraft | null>(null);
+  
+  // 价格设置功能
+  const [showPriceSettings, setShowPriceSettings] = useState(false);
+  const [priceSettings, setPriceSettings] = useState<Record<string, number>>({});
+  const [adminPassword, setAdminPassword] = useState('');
+  const [saveType, setSaveType] = useState<'temp' | 'permanent'>('temp');
 
   // AI辅助报价处理函数
   const handleAiParse = async () => {
@@ -151,6 +157,54 @@ export default function MaintenanceQuotePage() {
 
   const handleUseExample = (example: string) => {
     setAiRequirementText(example);
+  };
+  
+  // 价格设置处理函数
+  const handleOpenPriceSettings = () => {
+    // 初始化价格设置
+    const initialPrices: Record<string, number> = {};
+    if (useFullData && fullQuoteResult) {
+      fullQuoteResult.deviceItems.forEach((item, index) => {
+        const key = `device_${index}`;
+        // 根据当前地区获取对应的价格
+        let currentPrice = 0;
+        switch (region) {
+          case '城区':
+            currentPrice = item.cityPrice;
+            break;
+          case '市区县城郊区':
+            currentPrice = item.urbanPrice;
+            break;
+          case '乡镇':
+            currentPrice = item.townPrice;
+            break;
+          case '农村':
+            currentPrice = item.ruralPrice;
+            break;
+          default:
+            currentPrice = item.cityPrice;
+        }
+        initialPrices[key] = currentPrice;
+      });
+    }
+    setPriceSettings(initialPrices);
+    setShowPriceSettings(true);
+  };
+  
+  const handleSavePriceSettings = () => {
+    if (saveType === 'permanent') {
+      // 永久保存需要验证管理员密码
+      if (adminPassword !== 'ecloud10086') {
+        alert('管理员密码错误！');
+        return;
+      }
+      alert('价格已永久保存！');
+    } else {
+      // 暂时保存
+      alert('价格已暂时保存！');
+    }
+    setShowPriceSettings(false);
+    setAdminPassword('');
   };
 
   // 成新率等级映射：1级=全新，2级=较新，3级=一般，4级=偏旧，5级=老旧
@@ -1994,6 +2048,14 @@ export default function MaintenanceQuotePage() {
                     {/* 操作按钮 */}
                     <div className="flex flex-col sm:flex-row gap-2">
                         <Button 
+                          variant="outline"
+                          className="flex-1 border-orange-600 text-orange-700 hover:bg-orange-50"
+                          onClick={handleOpenPriceSettings}
+                        >
+                          <Settings className="h-4 w-4 mr-2" />
+                          价格设置
+                        </Button>
+                        <Button 
                           className="flex-1 bg-blue-700 hover:bg-blue-800"
                           onClick={handleSaveQuote}
                         >
@@ -3389,6 +3451,153 @@ export default function MaintenanceQuotePage() {
             >
               <Save className="h-4 w-4 mr-2" />
               保存
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 价格设置对话框 */}
+      <Dialog open={showPriceSettings} onOpenChange={setShowPriceSettings}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Settings className="h-5 w-5 text-orange-600" />
+              价格设置
+            </DialogTitle>
+            <DialogDescription>
+              自定义调整各项价格，设置完成后可以选择暂时保存或永久保存
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-6">
+            {/* 设备价格设置 */}
+            {useFullData && fullQuoteResult && (
+              <div className="space-y-4">
+                <h3 className="text-lg font-semibold">设备价格设置</h3>
+                <div className="border rounded-lg overflow-hidden">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-slate-50">
+                        <TableHead className="w-1/3">设备名称</TableHead>
+                        <TableHead className="w-1/6">数量</TableHead>
+                        <TableHead className="w-1/4">当前单价</TableHead>
+                        <TableHead className="w-1/4">自定义单价</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {fullQuoteResult.deviceItems.map((item, index) => {
+                        const key = `device_${index}`;
+                        // 根据当前地区获取对应的价格
+                        let currentPrice = 0;
+                        switch (region) {
+                          case '城区':
+                            currentPrice = item.cityPrice;
+                            break;
+                          case '市区县城郊区':
+                            currentPrice = item.urbanPrice;
+                            break;
+                          case '乡镇':
+                            currentPrice = item.townPrice;
+                            break;
+                          case '农村':
+                            currentPrice = item.ruralPrice;
+                            break;
+                          default:
+                            currentPrice = item.cityPrice;
+                        }
+                        return (
+                          <TableRow key={index}>
+                            <TableCell className="font-medium">{item.quota.name}</TableCell>
+                            <TableCell>{item.quantity}</TableCell>
+                            <TableCell>{formatCurrencyLocal(currentPrice)}</TableCell>
+                            <TableCell>
+                              <Input
+                                type="number"
+                                value={priceSettings[key] || currentPrice}
+                                onChange={(e) => {
+                                  const newPrice = parseFloat(e.target.value) || 0;
+                                  setPriceSettings({
+                                    ...priceSettings,
+                                    [key]: newPrice
+                                  });
+                                }}
+                                min="0"
+                                step="0.01"
+                              />
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            )}
+
+            {/* 保存类型选择 */}
+            <div className="space-y-4">
+              <h3 className="text-lg font-semibold">保存设置</h3>
+              <div className="space-y-4">
+                <div className="flex items-center gap-4">
+                  <Label className="min-w-[80px]">保存类型</Label>
+                  <div className="flex gap-4">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="saveType"
+                        value="temp"
+                        checked={saveType === 'temp'}
+                        onChange={() => setSaveType('temp')}
+                        className="w-4 h-4"
+                      />
+                      <span>暂时保存</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="saveType"
+                        value="permanent"
+                        checked={saveType === 'permanent'}
+                        onChange={() => setSaveType('permanent')}
+                        className="w-4 h-4"
+                      />
+                      <span>永久保存</span>
+                    </label>
+                  </div>
+                </div>
+                
+                {saveType === 'permanent' && (
+                  <div className="flex items-center gap-4">
+                    <Label className="min-w-[80px]">管理员密码</Label>
+                    <Input
+                      type="password"
+                      value={adminPassword}
+                      onChange={(e) => setAdminPassword(e.target.value)}
+                      placeholder="请输入管理员密码"
+                      className="max-w-xs"
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+          
+          <DialogFooter className="flex gap-2 sm:gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowPriceSettings(false);
+                setAdminPassword('');
+              }}
+            >
+              取消
+            </Button>
+            <Button 
+              className="bg-orange-600 hover:bg-orange-700"
+              onClick={handleSavePriceSettings}
+            >
+              <Save className="h-4 w-4 mr-2" />
+              {saveType === 'permanent' ? '永久保存' : '暂时保存'}
             </Button>
           </DialogFooter>
         </DialogContent>
