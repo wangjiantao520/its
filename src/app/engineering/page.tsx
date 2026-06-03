@@ -169,6 +169,14 @@ export default function EngineeringPage() {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [isBatchExporting, setIsBatchExporting] = useState(false);
 
+  // 报价对比状态
+  const [compareDialogOpen, setCompareDialogOpen] = useState(false);
+  const [compareQuoteA, setCompareQuoteA] = useState<EngineeringQuote | null>(null);
+  const [compareQuoteB, setCompareQuoteB] = useState<EngineeringQuote | null>(null);
+  const [compareDataA, setCompareDataA] = useState<EngineeringQuote | null>(null);
+  const [compareDataB, setCompareDataB] = useState<EngineeringQuote | null>(null);
+  const [isLoadingCompare, setIsLoadingCompare] = useState(false);
+
   // 统计看板状态
   const [statsData, setStatsData] = useState<StatsData | null>(null);
   const [isLoadingStats, setIsLoadingStats] = useState(false);
@@ -1189,7 +1197,7 @@ export default function EngineeringPage() {
       // 每个报价单一个明细sheet
       for (const data of quoteList) {
         const sheetName = data.quote_number.substring(0, 31); // Excel sheet名最长31字符
-        const detailData = (data.items || []).map((item, idx) => ({
+        const detailData: Record<string, string | number>[] = (data.items || []).map((item, idx) => ({
           '序号': idx + 1,
           '项目名称': item.name,
           '单位': item.unit,
@@ -1297,7 +1305,105 @@ export default function EngineeringPage() {
     } finally {
       setIsBatchExporting(false);
     }
+
   }, [selectedIds]);
+
+  // 打开报价对比对话框（从列表选择第一份）
+  const handleOpenCompare = useCallback((quote: EngineeringQuote) => {
+    setCompareQuoteA(quote);
+    setCompareQuoteB(null);
+    setCompareDataA(null);
+    setCompareDataB(null);
+    setCompareDialogOpen(true);
+  }, []);
+
+  // 执行报价对比
+  const handleExecuteCompare = useCallback(async () => {
+    if (!compareQuoteA || !compareQuoteB) {
+      toast.error('请选择两份报价单', { description: '需要选择两份报价单才能进行对比' });
+      return;
+    }
+    if (compareQuoteA.id === compareQuoteB.id) {
+      toast.error('不能对比同一份报价单', { description: '请选择两份不同的报价单' });
+      return;
+    }
+
+    setIsLoadingCompare(true);
+    try {
+      const response = await fetch('/api/engineering-quotes/batch-export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: [compareQuoteA.id, compareQuoteB.id] }),
+      });
+      const result = await response.json();
+
+      if (!result.success) {
+        toast.error('对比失败', { description: result.error || '获取报价数据失败' });
+        return;
+      }
+
+      const quoteList: EngineeringQuote[] = result.data;
+      const dataA = quoteList.find(q => q.id === compareQuoteA.id) || null;
+      const dataB = quoteList.find(q => q.id === compareQuoteB.id) || null;
+      setCompareDataA(dataA);
+      setCompareDataB(dataB);
+    } catch (error) {
+      console.error('报价对比失败:', error);
+      toast.error('对比失败', { description: '网络错误，请稍后重试' });
+    } finally {
+      setIsLoadingCompare(false);
+    }
+  }, [compareQuoteA, compareQuoteB]);
+
+  // 对比明细项合并：按名称+单位匹配，找出差异
+  const getMergedItems = useCallback(() => {
+    if (!compareDataA || !compareDataB) return [];
+    const itemsA = compareDataA.items || [];
+    const itemsB = compareDataB.items || [];
+    const num = (v: any) => Number(v) || 0;
+
+    // 用 Map 按 name+unit 做合并
+    const mapA = new Map<string, typeof itemsA[0]>();
+    itemsA.forEach(item => mapA.set(`${item.name}__${item.unit}`, item));
+    const mapB = new Map<string, typeof itemsB[0]>();
+    itemsB.forEach(item => mapB.set(`${item.name}__${item.unit}`, item));
+
+    const allKeys = new Set([...mapA.keys(), ...mapB.keys()]);
+    const merged = Array.from(allKeys).map(key => {
+      const a = mapA.get(key);
+      const b = mapB.get(key);
+      const unitPriceA = a ? num(a.price) * (1 + num(compareDataA.management_rate) / 100 + num(compareDataA.profit_rate) / 100 + num(compareDataA.regulatory_rate) / 100) : 0;
+      const unitPriceB = b ? num(b.price) * (1 + num(compareDataB.management_rate) / 100 + num(compareDataB.profit_rate) / 100 + num(compareDataB.regulatory_rate) / 100) : 0;
+      const amountA = a ? unitPriceA * num(a.quantity) : 0;
+      const amountB = b ? unitPriceB * num(b.quantity) : 0;
+      return {
+        name: (a || b)!.name,
+        unit: (a || b)!.unit,
+        onlyInA: !!a && !b,
+        onlyInB: !a && !!b,
+        quantityA: a ? num(a.quantity) : null,
+        quantityB: b ? num(b.quantity) : null,
+        priceA: a ? num(a.price) : null,
+        priceB: b ? num(b.price) : null,
+        unitPriceA,
+        unitPriceB,
+        amountA,
+        amountB,
+        diffAmount: amountB - amountA,
+      };
+    });
+
+    // 排序：先共有项，再A独有，再B独有
+    merged.sort((a, b) => {
+      if (a.onlyInA && !b.onlyInA) return 1;
+      if (!a.onlyInA && b.onlyInA) return -1;
+      if (a.onlyInB && !b.onlyInB) return 1;
+      if (!a.onlyInB && b.onlyInB) return -1;
+      return 0;
+    });
+
+    return merged;
+  }, [compareDataA, compareDataB]);
 
   // 获取状态徽章样式
   const getStatusBadge = (status: string) => {
@@ -2060,6 +2166,10 @@ export default function EngineeringPage() {
                                     <Pencil className="h-4 w-4 mr-2" />
                                     编辑加载
                                   </DropdownMenuItem>
+                                  <DropdownMenuItem onClick={() => handleOpenCompare(quote)}>
+                                    <ClipboardList className="h-4 w-4 mr-2" />
+                                    报价对比
+                                  </DropdownMenuItem>
                                   <DropdownMenuItem onClick={() => handleOpenStatusDialog(quote)}>
                                     <ArrowRightLeft className="h-4 w-4 mr-2" />
                                     变更状态
@@ -2248,6 +2358,525 @@ export default function EngineeringPage() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
+
+          {/* 报价对比 - 全页面 */}
+          {compareDialogOpen && (
+            <div className="fixed inset-0 z-50 bg-background flex flex-col">
+              {/* 顶部栏 */}
+              <div className="sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b px-6 py-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <ClipboardList className="h-5 w-5 text-purple-600" />
+                    <h2 className="text-lg font-semibold">报价对比</h2>
+                    <span className="text-sm text-muted-foreground">— 选择两份报价单进行差异对比（明细项、费率、总价）</span>
+                  </div>
+                  <Button variant="ghost" size="icon" onClick={() => {
+                    setCompareQuoteA(null);
+                    setCompareQuoteB(null);
+                    setCompareDataA(null);
+                    setCompareDataB(null);
+                    setCompareDialogOpen(false);
+                  }}>
+                    <X className="h-5 w-5" />
+                  </Button>
+                </div>
+              </div>
+
+              {/* 内容区域 - 可滚动 */}
+              <div className="flex-1 overflow-y-auto px-6 py-6">
+              {/* 选择报价单 */}
+              {!compareDataA || !compareDataB ? (
+                <div className="space-y-6 max-w-5xl mx-auto py-2">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* 报价单 A */}
+                    <Card className={compareQuoteA ? 'border-blue-200 bg-blue-50/30' : ''}>
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-sm flex items-center gap-2">
+                          <span className="inline-flex items-center justify-center h-6 w-6 rounded-full bg-blue-100 text-blue-700 text-xs font-bold">A</span>
+                          报价单 A
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        {compareQuoteA ? (
+                          <div className="space-y-2 text-sm">
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">报价单号</span>
+                              <span className="font-mono">{compareQuoteA.quote_number}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">项目名称</span>
+                              <span className="font-medium">{compareQuoteA.project_name}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">客户名称</span>
+                              <span>{compareQuoteA.client_name || '-'}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">报价总额</span>
+                              <span className="font-semibold text-blue-700">¥{Number(compareQuoteA.total).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</span>
+                            </div>
+                            <Button variant="ghost" size="sm" className="w-full mt-2" onClick={() => { setCompareQuoteA(null); }}>
+                              <X className="h-3 w-3 mr-1" /> 取消选择
+                            </Button>
+                          </div>
+                        ) : (
+                          <p className="text-sm text-muted-foreground text-center py-4">从列表中选择报价单A</p>
+                        )}
+                      </CardContent>
+                    </Card>
+
+                    {/* 报价单 B */}
+                    <Card className={compareQuoteB ? 'border-orange-200 bg-orange-50/30' : ''}>
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-sm flex items-center gap-2">
+                          <span className="inline-flex items-center justify-center h-6 w-6 rounded-full bg-orange-100 text-orange-700 text-xs font-bold">B</span>
+                          报价单 B
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        {compareQuoteB ? (
+                          <div className="space-y-2 text-sm">
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">报价单号</span>
+                              <span className="font-mono">{compareQuoteB.quote_number}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">项目名称</span>
+                              <span className="font-medium">{compareQuoteB.project_name}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">客户名称</span>
+                              <span>{compareQuoteB.client_name || '-'}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">报价总额</span>
+                              <span className="font-semibold text-orange-700">¥{Number(compareQuoteB.total).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</span>
+                            </div>
+                            <Button variant="ghost" size="sm" className="w-full mt-2" onClick={() => { setCompareQuoteB(null); }}>
+                              <X className="h-3 w-3 mr-1" /> 取消选择
+                            </Button>
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            <p className="text-sm text-muted-foreground text-center py-2">从下方列表选择报价单B</p>
+                            <Select onValueChange={(val) => {
+                              const found = quotes.find(q => q.id === Number(val));
+                              if (found) setCompareQuoteB(found);
+                            }}>
+                              <SelectTrigger>
+                                <SelectValue placeholder="选择报价单..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {quotes.filter(q => q.id !== compareQuoteA?.id).map(q => (
+                                  <SelectItem key={q.id} value={String(q.id)}>
+                                    {q.quote_number} - {q.project_name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </div>
+
+                  <div className="flex justify-center">
+                    <Button
+                      onClick={handleExecuteCompare}
+                      disabled={!compareQuoteA || !compareQuoteB || isLoadingCompare}
+                      className="px-8"
+                    >
+                      {isLoadingCompare ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : (
+                        <ArrowRightLeft className="h-4 w-4 mr-2" />
+                      )}
+                      开始对比
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                /* 对比结果 */
+                <div className="space-y-6 max-w-6xl mx-auto py-2">
+                  {(() => {
+                    const num = (v: any) => Number(v) || 0;
+                    const mergedItems = getMergedItems();
+                    const totalDiff = num(compareDataB.total) - num(compareDataA.total);
+                    const totalDiffPercent = num(compareDataA.total) > 0 ? ((totalDiff / num(compareDataA.total)) * 100).toFixed(2) : '0.00';
+
+                    return (
+                      <>
+                        {/* 基本信息对比 */}
+                        <Card>
+                          <CardHeader className="pb-3">
+                            <CardTitle className="text-base">基本信息对比</CardTitle>
+                          </CardHeader>
+                          <CardContent>
+                            <Table>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead className="w-[140px]">对比项</TableHead>
+                                  <TableHead className="text-center">
+                                    <span className="inline-flex items-center gap-1">
+                                      <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-blue-100 text-blue-700 text-xs font-bold">A</span>
+                                      {compareDataA.quote_number}
+                                    </span>
+                                  </TableHead>
+                                  <TableHead className="text-center">
+                                    <span className="inline-flex items-center gap-1">
+                                      <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-orange-100 text-orange-700 text-xs font-bold">B</span>
+                                      {compareDataB.quote_number}
+                                    </span>
+                                  </TableHead>
+                                  <TableHead className="text-center w-[120px]">差异</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                <TableRow>
+                                  <TableCell className="text-muted-foreground">项目名称</TableCell>
+                                  <TableCell className="text-center">{compareDataA.project_name}</TableCell>
+                                  <TableCell className="text-center">{compareDataB.project_name}</TableCell>
+                                  <TableCell className="text-center">
+                                    {compareDataA.project_name !== compareDataB.project_name && (
+                                      <Badge variant="outline" className="text-yellow-700 border-yellow-300">不同</Badge>
+                                    )}
+                                  </TableCell>
+                                </TableRow>
+                                <TableRow>
+                                  <TableCell className="text-muted-foreground">客户名称</TableCell>
+                                  <TableCell className="text-center">{compareDataA.client_name || '-'}</TableCell>
+                                  <TableCell className="text-center">{compareDataB.client_name || '-'}</TableCell>
+                                  <TableCell className="text-center">
+                                    {(compareDataA.client_name || '') !== (compareDataB.client_name || '') && (
+                                      <Badge variant="outline" className="text-yellow-700 border-yellow-300">不同</Badge>
+                                    )}
+                                  </TableCell>
+                                </TableRow>
+                                <TableRow>
+                                  <TableCell className="text-muted-foreground">联系人</TableCell>
+                                  <TableCell className="text-center">{compareDataA.contact_person || '-'}</TableCell>
+                                  <TableCell className="text-center">{compareDataB.contact_person || '-'}</TableCell>
+                                  <TableCell className="text-center">
+                                    {(compareDataA.contact_person || '') !== (compareDataB.contact_person || '') && (
+                                      <Badge variant="outline" className="text-yellow-700 border-yellow-300">不同</Badge>
+                                    )}
+                                  </TableCell>
+                                </TableRow>
+                              </TableBody>
+                            </Table>
+                          </CardContent>
+                        </Card>
+
+                        {/* 费率对比 */}
+                        <Card>
+                          <CardHeader className="pb-3">
+                            <CardTitle className="text-base">费率对比</CardTitle>
+                          </CardHeader>
+                          <CardContent>
+                            <Table>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead className="w-[140px]">费率项</TableHead>
+                                  <TableHead className="text-center text-blue-700">报价单 A</TableHead>
+                                  <TableHead className="text-center text-orange-700">报价单 B</TableHead>
+                                  <TableHead className="text-center w-[120px]">差异</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {[
+                                  { label: '管理费率', key: 'management_rate', suffix: '%' },
+                                  { label: '利润率', key: 'profit_rate', suffix: '%' },
+                                  { label: '规费率', key: 'regulatory_rate', suffix: '%' },
+                                  { label: '增值税率', key: 'tax_rate', suffix: '%' },
+                                ].map(({ label, key, suffix }) => {
+                                  const valA = num((compareDataA as any)[key]);
+                                  const valB = num((compareDataB as any)[key]);
+                                  const diff = valB - valA;
+                                  return (
+                                    <TableRow key={key}>
+                                      <TableCell className="text-muted-foreground">{label}</TableCell>
+                                      <TableCell className="text-center font-mono">{valA}{suffix}</TableCell>
+                                      <TableCell className="text-center font-mono">{valB}{suffix}</TableCell>
+                                      <TableCell className="text-center">
+                                        {diff !== 0 ? (
+                                          <span className={diff > 0 ? 'text-red-600 font-medium' : 'text-green-600 font-medium'}>
+                                            {diff > 0 ? '+' : ''}{diff}{suffix}
+                                          </span>
+                                        ) : (
+                                          <span className="text-muted-foreground">相同</span>
+                                        )}
+                                      </TableCell>
+                                    </TableRow>
+                                  );
+                                })}
+                              </TableBody>
+                            </Table>
+                          </CardContent>
+                        </Card>
+
+                        {/* 总价对比 */}
+                        <Card>
+                          <CardHeader className="pb-3">
+                            <CardTitle className="text-base">总价对比</CardTitle>
+                          </CardHeader>
+                          <CardContent>
+                            <Table>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead className="w-[140px]">费用项</TableHead>
+                                  <TableHead className="text-center text-blue-700">报价单 A</TableHead>
+                                  <TableHead className="text-center text-orange-700">报价单 B</TableHead>
+                                  <TableHead className="text-center w-[120px]">差异</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {[
+                                  { label: '直接工程费', keyA: 'subtotal', keyB: 'subtotal' },
+                                  { label: '管理费', keyA: 'management_fee', keyB: 'management_fee' },
+                                  { label: '利润', keyA: 'profit', keyB: 'profit' },
+                                  { label: '规费', keyA: 'regulatory_fee', keyB: 'regulatory_fee' },
+                                  { label: '税金', keyA: 'tax', keyB: 'tax' },
+                                ].map(({ label, keyA, keyB }) => {
+                                  const valA = num((compareDataA as any)[keyA]);
+                                  const valB = num((compareDataB as any)[keyB]);
+                                  const diff = valB - valA;
+                                  return (
+                                    <TableRow key={label}>
+                                      <TableCell className="text-muted-foreground">{label}</TableCell>
+                                      <TableCell className="text-center font-mono">¥{valA.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</TableCell>
+                                      <TableCell className="text-center font-mono">¥{valB.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</TableCell>
+                                      <TableCell className="text-center">
+                                        {diff !== 0 ? (
+                                          <span className={diff > 0 ? 'text-red-600 font-medium' : 'text-green-600 font-medium'}>
+                                            {diff > 0 ? '+' : ''}¥{diff.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
+                                          </span>
+                                        ) : (
+                                          <span className="text-muted-foreground">相同</span>
+                                        )}
+                                      </TableCell>
+                                    </TableRow>
+                                  );
+                                })}
+                                {/* 报价总计 */}
+                                <TableRow className="bg-muted/30 font-bold">
+                                  <TableCell>报价总计</TableCell>
+                                  <TableCell className="text-center font-mono text-blue-700">
+                                    ¥{num(compareDataA.total).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
+                                  </TableCell>
+                                  <TableCell className="text-center font-mono text-orange-700">
+                                    ¥{num(compareDataB.total).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
+                                  </TableCell>
+                                  <TableCell className="text-center">
+                                    <span className={totalDiff > 0 ? 'text-red-600' : totalDiff < 0 ? 'text-green-600' : 'text-muted-foreground'}>
+                                      {totalDiff > 0 ? '+' : ''}¥{totalDiff.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
+                                      <span className="text-xs ml-1">({totalDiff > 0 ? '+' : ''}{totalDiffPercent}%)</span>
+                                    </span>
+                                  </TableCell>
+                                </TableRow>
+                              </TableBody>
+                            </Table>
+                          </CardContent>
+                        </Card>
+
+                        {/* 明细项对比 */}
+                        <Card className="overflow-hidden">
+                          <CardHeader className="pb-3 bg-gradient-to-r from-blue-50/80 via-purple-50/50 to-orange-50/80 border-b">
+                            <CardTitle className="text-base flex items-center justify-between">
+                              <span className="flex items-center gap-2">
+                                <ClipboardList className="h-4 w-4 text-purple-600" />
+                                明细项对比
+                              </span>
+                              <div className="flex gap-4 text-xs font-normal">
+                                <span className="flex items-center gap-1.5 text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">
+                                  <span className="inline-block w-2 h-2 rounded-full bg-blue-500" /> A独有 {mergedItems.filter(i => i.onlyInA).length}项
+                                </span>
+                                <span className="flex items-center gap-1.5 text-orange-600 bg-orange-50 px-2 py-0.5 rounded-full border border-orange-200">
+                                  <span className="inline-block w-2 h-2 rounded-full bg-orange-500" /> B独有 {mergedItems.filter(i => i.onlyInB).length}项
+                                </span>
+                                <span className="flex items-center gap-1.5 text-green-600 bg-green-50 px-2 py-0.5 rounded-full border border-green-200">
+                                  <span className="inline-block w-2 h-2 rounded-full bg-green-500" /> 相同 {mergedItems.filter(i => !i.onlyInA && !i.onlyInB && i.diffAmount === 0).length}项
+                                </span>
+                                <span className="flex items-center gap-1.5 text-red-600 bg-red-50 px-2 py-0.5 rounded-full border border-red-200">
+                                  <span className="inline-block w-2 h-2 rounded-full bg-red-500" /> 差异 {mergedItems.filter(i => !i.onlyInA && !i.onlyInB && i.diffAmount !== 0).length}项
+                                </span>
+                              </div>
+                            </CardTitle>
+                          </CardHeader>
+                          <CardContent className="p-0">
+                            {mergedItems.length === 0 ? (
+                              <div className="text-center text-muted-foreground py-12">
+                                <ClipboardList className="h-10 w-10 mx-auto mb-3 opacity-30" />
+                                <p>暂无明细项数据</p>
+                              </div>
+                            ) : (
+                              <div className="divide-y divide-dashed">
+                                {mergedItems.map((item, idx) => {
+                                  const isSame = !item.onlyInA && !item.onlyInB && item.diffAmount === 0;
+                                  const isDiff = !item.onlyInA && !item.onlyInB && item.diffAmount !== 0;
+                                  const diffPercent = item.amountA > 0 ? ((item.diffAmount / item.amountA) * 100).toFixed(1) : '0.0';
+
+                                  return (
+                                    <div
+                                      key={idx}
+                                      className={
+                                        `px-5 py-3.5 transition-colors ` +
+                                        (item.onlyInA ? 'bg-blue-50/60 border-l-[3px] border-l-blue-400' :
+                                         item.onlyInB ? 'bg-orange-50/60 border-l-[3px] border-l-orange-400' :
+                                         isSame ? 'border-l-[3px] border-l-green-400' :
+                                         'bg-red-50/30 border-l-[3px] border-l-red-400')
+                                      }
+                                    >
+                                      {/* 项目名称行 */}
+                                      <div className="flex items-center gap-2 mb-2">
+                                        <span className="text-xs text-muted-foreground font-mono w-6">{idx + 1}.</span>
+                                        <span className="font-semibold text-sm">{item.name}</span>
+                                        <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">{item.unit}</span>
+                                        {item.onlyInA && (
+                                          <span className="text-[10px] font-medium text-blue-700 bg-blue-100 px-1.5 py-0.5 rounded-full border border-blue-200">仅A</span>
+                                        )}
+                                        {item.onlyInB && (
+                                          <span className="text-[10px] font-medium text-orange-700 bg-orange-100 px-1.5 py-0.5 rounded-full border border-orange-200">仅B</span>
+                                        )}
+                                        {isDiff && (
+                                          <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full border ${
+                                            item.diffAmount > 0 ? 'text-red-700 bg-red-100 border-red-200' : 'text-emerald-700 bg-emerald-100 border-emerald-200'
+                                          }`}>
+                                            {item.diffAmount > 0 ? 'B更高' : 'A更高'}
+                                          </span>
+                                        )}
+                                        {isSame && (
+                                          <span className="text-[10px] font-medium text-green-700 bg-green-100 px-1.5 py-0.5 rounded-full border border-green-200">一致</span>
+                                        )}
+                                      </div>
+
+                                      {/* 左右对比 */}
+                                      <div className="grid grid-cols-[1fr,auto,1fr] gap-3 items-center ml-6">
+                                        {/* 报价单A */}
+                                        <div className={`rounded-lg px-3 py-2 text-sm ${
+                                          item.onlyInA ? 'bg-blue-100/80 ring-1 ring-blue-200' :
+                                          item.quantityA !== null ? 'bg-blue-50/50 ring-1 ring-blue-100' : 'bg-muted/30'
+                                        }`}>
+                                          <div className="flex items-center gap-1.5 mb-1">
+                                            <span className="inline-flex items-center justify-center h-4 w-4 rounded-full bg-blue-500 text-white text-[9px] font-bold">A</span>
+                                            <span className="text-xs text-muted-foreground">
+                                              {item.quantityA !== null ? `${item.quantityA} ${item.unit} × ¥${item.priceA!.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}` : '无此项目'}
+                                            </span>
+                                          </div>
+                                          <div className="font-mono font-semibold text-blue-800">
+                                            {item.amountA > 0 ? `¥${item.amountA.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}` : '-'}
+                                          </div>
+                                        </div>
+
+                                        {/* 中间差异指示 */}
+                                        <div className="flex flex-col items-center gap-0.5 min-w-[80px]">
+                                          {isDiff ? (
+                                            <>
+                                              <span className={`text-xs font-bold ${item.diffAmount > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                                                {item.diffAmount > 0 ? '↑' : '↓'}
+                                              </span>
+                                              <span className={`text-xs font-semibold ${item.diffAmount > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                                                {item.diffAmount > 0 ? '+' : ''}¥{item.diffAmount.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
+                                              </span>
+                                              <span className={`text-[10px] ${item.diffAmount > 0 ? 'text-red-500' : 'text-emerald-500'}`}>
+                                                ({item.diffAmount > 0 ? '+' : ''}{diffPercent}%)
+                                              </span>
+                                            </>
+                                          ) : isSame ? (
+                                            <span className="text-green-500 text-lg">＝</span>
+                                          ) : item.onlyInA ? (
+                                            <span className="text-blue-400 text-xs">→ 仅A</span>
+                                          ) : (
+                                            <span className="text-orange-400 text-xs">仅B ←</span>
+                                          )}
+                                        </div>
+
+                                        {/* 报价单B */}
+                                        <div className={`rounded-lg px-3 py-2 text-sm ${
+                                          item.onlyInB ? 'bg-orange-100/80 ring-1 ring-orange-200' :
+                                          item.quantityB !== null ? 'bg-orange-50/50 ring-1 ring-orange-100' : 'bg-muted/30'
+                                        }`}>
+                                          <div className="flex items-center gap-1.5 mb-1">
+                                            <span className="inline-flex items-center justify-center h-4 w-4 rounded-full bg-orange-500 text-white text-[9px] font-bold">B</span>
+                                            <span className="text-xs text-muted-foreground">
+                                              {item.quantityB !== null ? `${item.quantityB} ${item.unit} × ¥${item.priceB!.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}` : '无此项目'}
+                                            </span>
+                                          </div>
+                                          <div className="font-mono font-semibold text-orange-800">
+                                            {item.amountB > 0 ? `¥${item.amountB.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}` : '-'}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+
+                                {/* 明细合计行 */}
+                                <div className="px-5 py-4 bg-gradient-to-r from-blue-50/40 via-purple-50/30 to-orange-50/40 border-l-[3px] border-l-purple-400">
+                                  <div className="grid grid-cols-[1fr,auto,1fr] gap-3 items-center ml-6">
+                                    <div className="rounded-lg px-3 py-2.5 bg-blue-100/60 ring-1 ring-blue-200">
+                                      <div className="text-xs text-muted-foreground mb-0.5">A 明细合计</div>
+                                      <div className="font-mono font-bold text-blue-800 text-base">
+                                        ¥{mergedItems.reduce((s, i) => s + i.amountA, 0).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
+                                      </div>
+                                    </div>
+                                    <div className="flex flex-col items-center min-w-[80px]">
+                                      <span className="text-xs text-muted-foreground mb-0.5">明细差异</span>
+                                      {(() => {
+                                        const totalItemDiff = mergedItems.reduce((s, i) => s + i.diffAmount, 0);
+                                        return (
+                                          <span className={`font-mono font-bold text-sm ${totalItemDiff > 0 ? 'text-red-600' : totalItemDiff < 0 ? 'text-emerald-600' : 'text-muted-foreground'}`}>
+                                            {totalItemDiff > 0 ? '+' : ''}¥{totalItemDiff.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
+                                          </span>
+                                        );
+                                      })()}
+                                    </div>
+                                    <div className="rounded-lg px-3 py-2.5 bg-orange-100/60 ring-1 ring-orange-200">
+                                      <div className="text-xs text-muted-foreground mb-0.5">B 明细合计</div>
+                                      <div className="font-mono font-bold text-orange-800 text-base">
+                                        ¥{mergedItems.reduce((s, i) => s + i.amountB, 0).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </CardContent>
+                        </Card>
+
+                        {/* 返回选择 */}
+                        <div className="flex justify-center gap-3">
+                          <Button
+                            variant="outline"
+                            onClick={() => {
+                              setCompareDataA(null);
+                              setCompareDataB(null);
+                            }}
+                          >
+                            <ArrowRightLeft className="h-4 w-4 mr-2" />
+                            重新选择
+                          </Button>
+                          <Button
+                            variant="outline"
+                            onClick={() => {
+                              setCompareQuoteA(null);
+                              setCompareQuoteB(null);
+                              setCompareDataA(null);
+                              setCompareDataB(null);
+                              setCompareDialogOpen(false);
+                            }}
+                          >
+                            <X className="h-4 w-4 mr-2" />
+                            关闭
+                          </Button>
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
+              )}
+              </div>
+            </div>
+          )}
         </TabsContent>
 
         <TabsContent value="quotas" className="mt-6 space-y-6">
