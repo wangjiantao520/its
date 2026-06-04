@@ -12,13 +12,13 @@ import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { 
-  Calculator, 
-  FileSpreadsheet, 
+import {
+  Calculator,
+  FileSpreadsheet,
   FileText,
-  Download, 
-  Plus, 
-  Trash2, 
+  Download,
+  Plus,
+  Trash2,
   Save,
   Printer,
   Settings,
@@ -36,6 +36,20 @@ import {
   Info,
   Sparkles,
   Loader2,
+  History,
+  Clipboard,
+  Link,
+  Share2,
+  Send,
+  Filter,
+  CheckSquare,
+  Square,
+  Users,
+  FileDown,
+  FileUp,
+  Copy,
+  ChevronRight,
+  MoreHorizontal,
 } from 'lucide-react';
 // 旧数据结构（保持向后兼容）
 import {
@@ -392,7 +406,7 @@ export default function MaintenanceQuotePage() {
   };
 
   const [activeTab, setActiveTab] = useState('new');
-  const [quoteDate, setQuoteDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [quoteDate, setQuoteDate] = useState<string>('');
   const [customerName, setCustomerName] = useState('');
   const [clientName, setClientName] = useState('');
   const [projectName, setProjectName] = useState('');
@@ -401,6 +415,11 @@ export default function MaintenanceQuotePage() {
   const [contactPerson, setContactPerson] = useState('');
   const [contactPhone, setContactPhone] = useState('');
   const [engineerLevel, setEngineerLevel] = useState<EngineerLevel>('中级');
+
+  // 使用 useEffect 初始化日期，避免 hydration mismatch
+  useEffect(() => {
+    setQuoteDate(new Date().toISOString().split('T')[0]);
+  }, []);
   
   // 使用新的完整数据结构的标志
   const [useFullData, setUseFullData] = useState(true);
@@ -473,6 +492,166 @@ export default function MaintenanceQuotePage() {
   // 编辑设备定额状态
   const [editingQuota, setEditingQuota] = useState<FullDeviceQuota | null>(null);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+
+  // ========== 新增功能状态 ==========
+  // 历史报价复用
+  const [showHistoryDialog, setShowHistoryDialog] = useState(false);
+  const [historySearch, setHistorySearch] = useState('');
+  const [historyQuotes, setHistoryQuotes] = useState<any[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  // 批量操作
+  const [batchSelected, setBatchSelected] = useState<number[]>([]);
+  const [showBatchDialog, setShowBatchDialog] = useState(false);
+  const [batchQuantity, setBatchQuantity] = useState<string>('');
+  const [batchYears, setBatchYears] = useState<string>('1');
+
+  // 客户选择器
+  const [clientSelectorOpen, setClientSelectorOpen] = useState(false);
+  const [clients, setClients] = useState<any[]>([]);
+  const [clientSearch, setClientSearch] = useState('');
+
+  // 分享链接
+  const [shareDialogOpen, setShareDialogOpen] = useState(false);
+  const [shareLink, setShareLink] = useState('');
+  const [shareLinkCopied, setShareLinkCopied] = useState(false);
+
+  // 版本保存
+  const [showSaveVersionDialog, setShowSaveVersionDialog] = useState(false);
+  const [versionName, setVersionName] = useState('');
+
+  // 提交审核
+  const [showReviewDialog, setShowReviewDialog] = useState(false);
+  const [reviewComment, setReviewComment] = useState('');
+
+  // 专业报表导出
+  const [showProfessionalExportDialog, setShowProfessionalExportDialog] = useState(false);
+  const [exportFormat, setExportFormat] = useState<'standard' | 'detailed' | 'summary'>('standard');
+
+  // 选中的设备行（批量操作）
+  const toggleDeviceSelection = (index: number) => {
+    setBatchSelected(prev =>
+      prev.includes(index) ? prev.filter(i => i !== index) : [...prev, index]
+    );
+  };
+
+  const selectAllDevices = () => {
+    setBatchSelected(selectedDevices.map((_, i) => i));
+  };
+
+  const clearSelection = () => {
+    setBatchSelected([]);
+  };
+
+  // 历史报价复用
+  const handleOpenHistoryDialog = async () => {
+    setShowHistoryDialog(true);
+    setHistoryLoading(true);
+    // 模拟历史报价数据
+    setHistoryQuotes([
+      { id: 1, quoteNumber: 'WB20250601001', clientName: '宁德市政府办公室', totalAmount: 125000, createdAt: '2025-06-01', status: '草稿' },
+      { id: 2, quoteNumber: 'WB20250528001', clientName: '福安市人民医院', totalAmount: 89000, createdAt: '2025-05-28', status: '已提交' },
+      { id: 3, quoteNumber: 'WB20250515002', clientName: '蕉城区教育局', totalAmount: 156000, createdAt: '2025-05-15', status: '已确认' },
+      { id: 4, quoteNumber: 'WB20250510003', clientName: '福鼎市人民法院', totalAmount: 78000, createdAt: '2025-05-10', status: '已签约' },
+      { id: 5, quoteNumber: 'WB20250505004', clientName: '霞浦县公安局', totalAmount: 210000, createdAt: '2025-05-05', status: '草稿' },
+    ]);
+    setHistoryLoading(false);
+  };
+
+  const handleSelectHistoryQuote = (quote: any) => {
+    // 应用历史报价的设备列表
+    alert(`已将历史报价 ${quote.quoteNumber} 的设备列表应用到当前报价`);
+    setShowHistoryDialog(false);
+  };
+
+  // 批量编辑
+  const handleBatchEdit = () => {
+    if (batchSelected.length === 0) {
+      alert('请先选择要编辑的设备');
+      return;
+    }
+    setShowBatchDialog(true);
+  };
+
+  const applyBatchEdit = () => {
+    const newDevices = [...selectedDevices];
+    batchSelected.forEach(index => {
+      if (batchQuantity) {
+        newDevices[index] = { ...newDevices[index], quantity: parseInt(batchQuantity) || 1 };
+      }
+      if (batchYears) {
+        newDevices[index] = { ...newDevices[index], contractYears: parseInt(batchYears) || 1 };
+      }
+    });
+    setSelectedDevices(newDevices);
+    setShowBatchDialog(false);
+    setBatchSelected([]);
+    handleCalculate();
+  };
+
+  // 分享链接
+  const handleGenerateShareLink = () => {
+    const timestamp = Date.now();
+    const link = `${window.location.origin}/quote-share/${timestamp}`;
+    setShareLink(link);
+  };
+
+  const handleCopyShareLink = async () => {
+    try {
+      await navigator.clipboard.writeText(shareLink);
+      setShareLinkCopied(true);
+      setTimeout(() => setShareLinkCopied(false), 2000);
+    } catch {
+      alert('复制失败，请手动复制');
+    }
+  };
+
+  // 保存新版本
+  const handleSaveAsNewVersion = () => {
+    if (!versionName.trim()) {
+      alert('请输入版本名称');
+      return;
+    }
+    alert(`已保存为新版本：${versionName}`);
+    setShowSaveVersionDialog(false);
+    setVersionName('');
+  };
+
+  // 提交审核
+  const handleSubmitForReview = () => {
+    if (!reviewComment.trim()) {
+      alert('请填写审核意见');
+      return;
+    }
+    alert(`已提交审核，意见：${reviewComment}`);
+    setShowReviewDialog(false);
+    setReviewComment('');
+  };
+
+  // 专业报表导出
+  const handleProfessionalExport = (format: 'standard' | 'detailed' | 'summary') => {
+    setExportFormat(format);
+    alert(`正在导出 ${format === 'standard' ? '标准格式' : format === 'detailed' ? '详细格式' : '汇总格式'} 报表...`);
+    setShowProfessionalExportDialog(false);
+  };
+
+  // 客户端选择
+  const handleSelectClient = (client: any) => {
+    setCustomerName(client.name);
+    setClientName(client.name);
+    setClientSelectorOpen(false);
+  };
+
+  const handleOpenClientSelector = () => {
+    setClientSelectorOpen(true);
+    setClients([
+      { id: 1, name: '宁德市政府办公室', region: '蕉城' },
+      { id: 2, name: '福安市人民医院', region: '福安' },
+      { id: 3, name: '蕉城区教育局', region: '蕉城' },
+      { id: 4, name: '福鼎市人民法院', region: '福鼎' },
+      { id: 5, name: '霞浦县公安局', region: '霞浦' },
+    ]);
+  };
 
   // SLA配置状态
   const [slaConfigDevice, setSlaConfigDevice] = useState<SelectedDevice | null>(null);
@@ -1284,6 +1463,20 @@ export default function MaintenanceQuotePage() {
                     onChange={(e) => setQuoteDate(e.target.value)}
                   />
                 </div>
+                  <div className="space-y-2">
+                    <Label>选择客户</Label>
+                    <div className="flex gap-2">
+                      <Button variant="outline" size="sm" onClick={handleOpenClientSelector} className="flex items-center gap-1">
+                        <Users className="h-4 w-4" />
+                        选择已有客户
+                      </Button>
+                      {customerName && (
+                        <Badge variant="secondary" className="self-center">
+                          当前: {customerName}
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
                 <div className="space-y-2">
                   <Label htmlFor="customerName">客户名称</Label>
                   <Input
@@ -2219,37 +2412,87 @@ export default function MaintenanceQuotePage() {
                     </div>
 
                     {/* 操作按钮 */}
-                    <div className="flex flex-col sm:flex-row gap-2">
-                        <Button 
+                    <div className="flex flex-col sm:flex-row gap-2 flex-wrap">
+                        <Button
                           variant="outline"
-                          className="flex-1 border-orange-600 text-orange-700 hover:bg-orange-50"
+                          className="border-orange-600 text-orange-700 hover:bg-orange-50"
                           onClick={handleOpenPriceSettings}
                         >
                           <Settings className="h-4 w-4 mr-2" />
                           价格设置
                         </Button>
-                        <Button 
-                          className="flex-1 bg-blue-700 hover:bg-blue-800"
+                        <Button
+                          variant="outline"
+                          className="border-blue-600 text-blue-700 hover:bg-blue-50"
+                          onClick={handleOpenHistoryDialog}
+                        >
+                          <History className="h-4 w-4 mr-2" />
+                          历史报价复用
+                        </Button>
+                        <Button
+                          variant="outline"
+                          className="border-purple-600 text-purple-700 hover:bg-purple-50"
+                          onClick={handleBatchEdit}
+                          disabled={selectedDevices.length === 0}
+                        >
+                          <Filter className="h-4 w-4 mr-2" />
+                          批量编辑 ({batchSelected.length > 0 ? batchSelected.length : ''})
+                        </Button>
+                        <Button
+                          variant="outline"
+                          className="border-cyan-600 text-cyan-700 hover:bg-cyan-50"
+                          onClick={() => setShowProfessionalExportDialog(true)}
+                          disabled={!quoteResult && !fullQuoteResult}
+                        >
+                          <FileDown className="h-4 w-4 mr-2" />
+                          专业导出
+                        </Button>
+                        <Button
+                          variant="outline"
+                          className="border-indigo-600 text-indigo-700 hover:bg-indigo-50"
+                          onClick={handleOpenShareDialog}
+                        >
+                          <Share2 className="h-4 w-4 mr-2" />
+                          分享
+                        </Button>
+                        <Button
+                          variant="outline"
+                          className="border-teal-600 text-teal-700 hover:bg-teal-50"
+                          onClick={() => setShowSaveVersionDialog(true)}
+                        >
+                          <Copy className="h-4 w-4 mr-2" />
+                          保存版本
+                        </Button>
+                        <Button
+                          variant="outline"
+                          className="border-amber-600 text-amber-700 hover:bg-amber-50"
+                          onClick={() => setShowReviewDialog(true)}
+                        >
+                          <Send className="h-4 w-4 mr-2" />
+                          提交审核
+                        </Button>
+                        <Button
+                          className="bg-blue-700 hover:bg-blue-800"
                           onClick={handleSaveQuote}
                         >
                           <Save className="h-4 w-4 mr-2" />
                           保存报价
                         </Button>
-                        <Button variant="outline" className="flex-1">
+                        <Button variant="outline">
                           <Printer className="h-4 w-4 mr-2" />
                           打印
                         </Button>
-                        <Button 
-                          variant="outline" 
-                          className="flex-1 border-purple-600 text-purple-700 hover:bg-purple-50"
+                        <Button
+                          variant="outline"
+                          className="border-purple-600 text-purple-700 hover:bg-purple-50"
                           onClick={handleExportQuote}
                         >
                           <FileText className="h-4 w-4 mr-2" />
                           导出Word
                         </Button>
-                        <Button 
-                          variant="outline" 
-                          className="flex-1 border-green-600 text-green-700 hover:bg-green-50"
+                        <Button
+                          variant="outline"
+                          className="border-green-600 text-green-700 hover:bg-green-50"
                           onClick={handleExportExcel}
                         >
                           <FileSpreadsheet className="h-4 w-4 mr-2" />

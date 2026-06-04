@@ -478,6 +478,11 @@ export function downloadAsWord(html: string, filename: string): void {
  * 数字金额转中文大写
  */
 export function convertToChineseCurrency(num: number): string {
+  // 处理负数
+  if (num < 0) {
+    return '负' + convertToChineseCurrency(-num);
+  }
+
   const digits = ['零', '壹', '贰', '叁', '肆', '伍', '陆', '柒', '捌', '玖'];
   const units = ['', '拾', '佰', '仟'];
   const bigUnits = ['', '万', '亿'];

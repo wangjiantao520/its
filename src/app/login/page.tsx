@@ -11,12 +11,6 @@ import { AlertCircle, Lock, User } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { UserRole } from '@/lib/roles';
 
-// 默认密码配置
-const PASSWORDS: Record<UserRole, string> = {
-  'admin': 'admin123',
-  'its_member': 'its123'
-};
-
 export default function LoginPage() {
   const router = useRouter();
   const { login } = useUser();
@@ -33,25 +27,26 @@ export default function LoginPage() {
     try {
       if (!selectedRole) {
         setError('请选择角色');
+        setIsLoading(false);
         return;
       }
 
       if (!password) {
         setError('请输入密码');
+        setIsLoading(false);
         return;
       }
 
-      // 验证密码
-      const expectedPassword = PASSWORDS[selectedRole];
-      if (password !== expectedPassword) {
-        setError('密码错误');
+      // 调用服务端认证
+      const result = await login(selectedRole, password);
+
+      if (!result.success) {
+        setError(result.error || '登录失败');
+        setIsLoading(false);
         return;
       }
 
-      // 登录成功
-      login(selectedRole);
-      
-      // 跳转到对应页面
+      // 登录成功，跳转到对应页面
       if (selectedRole === 'admin') {
         router.push('/device-review');
       } else {
@@ -59,7 +54,6 @@ export default function LoginPage() {
       }
     } catch (err) {
       setError('登录失败，请重试');
-    } finally {
       setIsLoading(false);
     }
   };
@@ -118,11 +112,6 @@ export default function LoginPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 autoComplete="off"
               />
-            </div>
-
-            <div className="text-sm text-slate-500 space-y-1">
-              <p><strong>ITS成员默认密码：</strong>its123</p>
-              <p><strong>管理员默认密码：</strong>admin123</p>
             </div>
 
             <Button

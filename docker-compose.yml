@@ -7,8 +7,6 @@ services:
     environment:
       MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-root123456}
       MYSQL_DATABASE: ${DB_NAME:-quotation_system}
-      MYSQL_USER: ${DB_USER:-quotation_user}
-      MYSQL_PASSWORD: ${DB_PASSWORD:-quotation123}
     ports:
       - "${DB_PORT:-3306}:3306"
     volumes:
@@ -29,8 +27,6 @@ services:
     environment:
       PMA_HOST: mysql
       PMA_PORT: 3306
-      PMA_USER: ${DB_USER:-quotation_user}
-      PMA_PASSWORD: ${DB_PASSWORD:-quotation123}
     ports:
       - "8080:80"
     depends_on:

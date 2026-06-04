@@ -301,15 +301,20 @@ export function getRecommendedDepreciationGrade(useYears: number): string {
 }
 
 // 根据设备使用年限和成新率获取故障率
-export function getFailureRate(useYears: number, depreciationGrade: string): number {
-  if (depreciationGrade === '1') {
-    return 0.01;
-  } else if (depreciationGrade === '2') {
-    return 0.05;
-  } else if (depreciationGrade === '3') {
-    return 0.07;
-  } else {
-    return 0.12;
+export function getFailureRate(useYears: number, depreciationGrade: string | number): number {
+  // 转换为字符串进行比较，确保数字 1 也能正确匹配
+  const grade = String(depreciationGrade);
+
+  switch (grade) {
+    case '1':
+      return 0.01;
+    case '2':
+      return 0.05;
+    case '3':
+      return 0.07;
+    default:
+      // 4, 5, 或其他值都返回默认的 12%
+      return 0.12;
   }
 }
 
