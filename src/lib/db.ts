@@ -159,6 +159,35 @@ export async function initDatabase() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
 
+    // 创建人工单价配置表
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS labor_price_config (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        level VARCHAR(50) NOT NULL COMMENT '人员等级',
+        unit_price DECIMAL(15,2) NOT NULL COMMENT '人天单价',
+        unit VARCHAR(20) DEFAULT '人天' COMMENT '单位',
+        description VARCHAR(200) DEFAULT '' COMMENT '说明',
+        sort_order INT DEFAULT 0 COMMENT '排序',
+        is_active TINYINT(1) DEFAULT 1 COMMENT '是否启用',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_level (level),
+        INDEX idx_is_active (is_active)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    // 初始化默认人工单价档位
+    const [existingLabor] = await connection.execute('SELECT COUNT(*) as cnt FROM labor_price_config');
+    if ((existingLabor as any[])[0].cnt === 0) {
+      await connection.execute(`
+        INSERT INTO labor_price_config (level, unit_price, unit, description, sort_order) VALUES
+        ('初级', 200.00, '人天', '初级工程师', 1),
+        ('中级', 300.00, '人天', '中级工程师', 2),
+        ('高级', 400.00, '人天', '高级工程师', 3),
+        ('专家', 500.00, '人天', '专家级工程师', 4)
+      `);
+    }
+
     // 创建报价分享记录表
     await connection.execute(`
       CREATE TABLE IF NOT EXISTS quote_shares (

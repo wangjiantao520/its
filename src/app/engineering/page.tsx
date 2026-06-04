@@ -33,9 +33,19 @@ import { Pagination, PaginationContent, PaginationItem, PaginationLink, Paginati
 import { Empty, EmptyHeader, EmptyMedia, EmptyTitle, EmptyDescription } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
 
+interface LaborPriceLevel {
+  id: number;
+  level: string;
+  unitPrice: number;
+  unit: string;
+  description: string;
+  sortOrder: number;
+  isActive: boolean;
+}
+
 interface QuoteItem {
   id: number;
-  itemType: 'selfConstruction' | 'intelligent' | 'custom';
+  itemType: 'selfConstruction' | 'intelligent' | 'custom' | 'labor';
   itemId: string;
   quantity: number;
   // 自定义明细字段
@@ -43,6 +53,12 @@ interface QuoteItem {
   customUnit?: string;
   customPrice?: number;
   customRemark?: string;
+  // 人工天计价字段
+  laborLevelId?: number;       // 人工单价档位ID
+  laborLevelName?: string;     // 人工等级名称（如：中级）
+  laborUnitPrice?: number;     // 档位单价（人天）
+  laborDays?: number;          // 预估用工天数
+  laborDescription?: string;   // 工作内容描述
 }
 
 interface EngineeringQuote {
@@ -72,6 +88,11 @@ interface EngineeringQuote {
     unit: string;
     price: number;
     customRemark?: string;
+    laborLevelId?: number;
+    laborLevelName?: string;
+    laborUnitPrice?: number;
+    laborDays?: number;
+    laborDescription?: string;
   }> | null;
   created_at: string;
   updated_at: string;
@@ -191,6 +212,10 @@ export default function EngineeringPage() {
   const [quotaSearchKeyword, setQuotaSearchKeyword] = useState('');
   const [quotaCategoryFilter, setQuotaCategoryFilter] = useState<string>('all');
 
+  // 人工单价档位状态
+  const [laborPriceLevels, setLaborPriceLevels] = useState<LaborPriceLevel[]>([]);
+  const [isLoadingLaborPrices, setIsLoadingLaborPrices] = useState(false);
+
   // 定额库数据状态（从数据库加载）
   const [dbSelfConstruction, setDbSelfConstruction] = useState<SelfConstructionItem[]>([]);
   const [dbIntelligentProject, setDbIntelligentProject] = useState<IntelligentItem[]>([]);
@@ -239,6 +264,25 @@ export default function EngineeringPage() {
   const [shareListDialogOpen, setShareListDialogOpen] = useState(false);
   const [shareList, setShareList] = useState<any[]>([]);
   const [isLoadingShareList, setIsLoadingShareList] = useState(false);
+
+  // 加载人工单价档位
+  const fetchLaborPrices = useCallback(async () => {
+    setIsLoadingLaborPrices(true);
+    try {
+      const response = await fetch('/api/labor-price-config?active_only=true');
+      const result = await response.json();
+      if (result.success) {
+        setLaborPriceLevels(result.data);
+      } else {
+        toast.error('加载人工单价失败', { description: result.error || '无法获取人工单价配置' });
+      }
+    } catch (error) {
+      console.error('加载人工单价配置失败:', error);
+      toast.error('加载失败', { description: '网络错误，请稍后重试' });
+    } finally {
+      setIsLoadingLaborPrices(false);
+    }
+  }, []);
 
   // 加载统计数据
   const fetchStats = useCallback(async () => {
@@ -776,6 +820,11 @@ export default function EngineeringPage() {
     }
   }, [activeTab]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // 页面初始化时加载人工单价档位
+  useEffect(() => {
+    fetchLaborPrices();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // 加载报价单到编辑表单（从后端获取最新数据）
   const handleLoadQuote = async (quote: EngineeringQuote) => {
     try {
@@ -802,13 +851,18 @@ export default function EngineeringPage() {
       if (data.items && Array.isArray(data.items)) {
         const loadedItems: QuoteItem[] = data.items.map((item: any, index: number) => ({
           id: index + 1,
-          itemType: (item.itemType || 'selfConstruction') as 'selfConstruction' | 'intelligent' | 'custom',
-          itemId: item.itemId || `custom_${index + 1}`,
+          itemType: (item.itemType || 'selfConstruction') as 'selfConstruction' | 'intelligent' | 'custom' | 'labor',
+          itemId: item.itemId || (item.itemType === 'labor' ? `labor_${index + 1}` : `custom_${index + 1}`),
           quantity: item.quantity,
           customName: item.itemType === 'custom' ? item.name : undefined,
           customUnit: item.itemType === 'custom' ? item.unit : undefined,
           customPrice: item.itemType === 'custom' ? item.price : undefined,
           customRemark: item.customRemark || undefined,
+          laborLevelId: item.itemType === 'labor' ? (item.laborLevelId || 0) : undefined,
+          laborLevelName: item.itemType === 'labor' ? (item.laborLevelName || '') : undefined,
+          laborUnitPrice: item.itemType === 'labor' ? (item.laborUnitPrice || item.price || 0) : undefined,
+          laborDays: item.itemType === 'labor' ? (item.laborDays || item.quantity || 0) : undefined,
+          laborDescription: item.itemType === 'labor' ? (item.laborDescription || '') : undefined,
         }));
         setQuoteItems(loadedItems);
         setNextItemId(loadedItems.length + 1);
@@ -987,6 +1041,10 @@ export default function EngineeringPage() {
     quoteItems.forEach(item => {
       if (item.itemType === 'custom') {
         totalBase += (item.customPrice || 0) * item.quantity;
+      } else if (item.itemType === 'labor') {
+        const days = item.laborDays || 0;
+        const unitPrice = item.laborUnitPrice || 0;
+        totalBase += days * unitPrice;
       } else {
         const quotaItem = item.itemType === 'selfConstruction'
             ? SELF_CONSTRUCTION_QUOTA.find(q => q.id === item.itemId)
@@ -1024,6 +1082,20 @@ export default function EngineeringPage() {
             quantity: item.quantity,
             unitPrice: unitPrice,
             amount: unitPrice * item.quantity,
+          };
+        }
+        if (item.itemType === 'labor') {
+          const basePrice = item.laborUnitPrice || 0;
+          const days = item.laborDays || 0;
+          const unitPrice = basePrice * (1 + managementFeeRate / 100 + profitRate / 100 + regulatoryFeeRate / 100);
+          const levelName = item.laborLevelName || '人工';
+          const desc = item.laborDescription ? '(' + item.laborDescription + ')' : '';
+          return {
+            name: levelName + '人工' + desc,
+            unit: '人天',
+            quantity: days,
+            unitPrice: unitPrice,
+            amount: unitPrice * days,
           };
         }
         const quotaItem = item.itemType === 'selfConstruction'
@@ -1077,6 +1149,30 @@ export default function EngineeringPage() {
     setPreviewDialogOpen(true);
   }, [quoteItems.length, projectName, buildExportData]);
 
+  // 辅助函数：将数据库中的items映射为导出格式（兼容labor类型）
+  const mapItemsForExport = useCallback((items: any[], managementRate: number, profitRate: number, regulatoryRate: number) => {
+    const num = (v: any) => Number(v) || 0;
+    return (items || []).map(item => {
+      const basePrice = num(item.price);
+      const isLabor = (item as any).itemType === 'labor';
+      const qty = isLabor ? num((item as any).laborDays || item.quantity) : num(item.quantity);
+      const unitPrice = basePrice * (1 + num(managementRate) / 100 + num(profitRate) / 100 + num(regulatoryRate) / 100);
+      let displayName = item.name;
+      if (isLabor) {
+        const levelName = (item as any).laborLevelName || '人工';
+        const desc = (item as any).laborDescription ? '(' + (item as any).laborDescription + ')' : '';
+        displayName = levelName + '人工' + desc;
+      }
+      return {
+        name: displayName,
+        unit: isLabor ? '人天' : item.unit,
+        quantity: qty,
+        unitPrice: unitPrice,
+        amount: unitPrice * qty,
+      };
+    });
+  }, []);
+
   // 从列表预览报价单（从后端获取最新数据）
   const handlePreviewFromList = useCallback(async (quote: EngineeringQuote) => {
     try {
@@ -1099,13 +1195,7 @@ export default function EngineeringPage() {
         contactPhone: data.contact_phone || '',
         quoteNumber: data.quote_number,
         quoteDate: new Date(data.created_at).toISOString().split('T')[0],
-        items: (data.items || []).map(item => ({
-          name: item.name,
-          unit: item.unit,
-          quantity: num(item.quantity),
-          unitPrice: num(item.price) * (1 + num(data.management_rate) / 100 + num(data.profit_rate) / 100 + num(data.regulatory_rate) / 100),
-          amount: num(item.price) * (1 + num(data.management_rate) / 100 + num(data.profit_rate) / 100 + num(data.regulatory_rate) / 100) * num(item.quantity),
-        })),
+        items: mapItemsForExport(data.items, data.management_rate, data.profit_rate, data.regulatory_rate),
         rates: {
           managementRate: num(data.management_rate),
           profitRate: num(data.profit_rate),
@@ -1195,13 +1285,7 @@ export default function EngineeringPage() {
           contactPhone: data.contact_phone || '',
           quoteNumber: data.quote_number,
           quoteDate: new Date(data.created_at).toISOString().split('T')[0],
-          items: (data.items || []).map(item => ({
-            name: item.name,
-            unit: item.unit,
-            quantity: num(item.quantity),
-            unitPrice: num(item.price) * (1 + num(data.management_rate) / 100 + num(data.profit_rate) / 100 + num(data.regulatory_rate) / 100),
-            amount: num(item.price) * (1 + num(data.management_rate) / 100 + num(data.profit_rate) / 100 + num(data.regulatory_rate) / 100) * num(item.quantity),
-          })),
+          items: mapItemsForExport(data.items, data.management_rate, data.profit_rate, data.regulatory_rate),
           rates: {
             managementRate: num(data.management_rate),
             profitRate: num(data.profit_rate),
@@ -1292,13 +1376,14 @@ export default function EngineeringPage() {
       // 每个报价单一个明细sheet
       for (const data of quoteList) {
         const sheetName = data.quote_number.substring(0, 31); // Excel sheet名最长31字符
-        const detailData: Record<string, string | number>[] = (data.items || []).map((item, idx) => ({
+        const detailItems = mapItemsForExport(data.items, data.management_rate, data.profit_rate, data.regulatory_rate);
+        const detailData: Record<string, string | number>[] = detailItems.map((item, idx) => ({
           '序号': idx + 1,
           '项目名称': item.name,
           '单位': item.unit,
-          '数量': num(item.quantity),
-          '单价（元）': num(item.price) * (1 + num(data.management_rate) / 100 + num(data.profit_rate) / 100 + num(data.regulatory_rate) / 100),
-          '金额（元）': num(item.price) * (1 + num(data.management_rate) / 100 + num(data.profit_rate) / 100 + num(data.regulatory_rate) / 100) * num(item.quantity),
+          '数量': item.quantity,
+          '单价（元）': item.unitPrice,
+          '金额（元）': item.amount,
         }));
 
         // 追加汇总行
@@ -1359,13 +1444,7 @@ export default function EngineeringPage() {
           contactPhone: data.contact_phone || '',
           quoteNumber: data.quote_number,
           quoteDate: new Date(data.created_at).toISOString().split('T')[0],
-          items: (data.items || []).map(item => ({
-            name: item.name,
-            unit: item.unit,
-            quantity: num(item.quantity),
-            unitPrice: num(item.price) * (1 + num(data.management_rate) / 100 + num(data.profit_rate) / 100 + num(data.regulatory_rate) / 100),
-            amount: num(item.price) * (1 + num(data.management_rate) / 100 + num(data.profit_rate) / 100 + num(data.regulatory_rate) / 100) * num(item.quantity),
-          })),
+          items: mapItemsForExport(data.items, data.management_rate, data.profit_rate, data.regulatory_rate),
           rates: {
             managementRate: num(data.management_rate),
             profitRate: num(data.profit_rate),
@@ -1457,11 +1536,26 @@ export default function EngineeringPage() {
     const itemsB = compareDataB.items || [];
     const num = (v: any) => Number(v) || 0;
 
+    // 辅助：获取对比用名称和单位
+    const getCompareKey = (item: any) => {
+      const isLabor = (item as any).itemType === 'labor';
+      if (isLabor) {
+        const levelName = (item as any).laborLevelName || '人工';
+        const desc = (item as any).laborDescription ? '(' + (item as any).laborDescription + ')' : '';
+        return levelName + '人工' + desc + '__人天';
+      }
+      return `${item.name}__${item.unit}`;
+    };
+    const getQty = (item: any) => {
+      const isLabor = (item as any).itemType === 'labor';
+      return isLabor ? num((item as any).laborDays || item.quantity) : num(item.quantity);
+    };
+
     // 用 Map 按 name+unit 做合并
     const mapA = new Map<string, typeof itemsA[0]>();
-    itemsA.forEach(item => mapA.set(`${item.name}__${item.unit}`, item));
+    itemsA.forEach(item => mapA.set(getCompareKey(item), item));
     const mapB = new Map<string, typeof itemsB[0]>();
-    itemsB.forEach(item => mapB.set(`${item.name}__${item.unit}`, item));
+    itemsB.forEach(item => mapB.set(getCompareKey(item), item));
 
     const allKeys = new Set([...mapA.keys(), ...mapB.keys()]);
     const merged = Array.from(allKeys).map(key => {
@@ -1469,15 +1563,19 @@ export default function EngineeringPage() {
       const b = mapB.get(key);
       const unitPriceA = a ? num(a.price) * (1 + num(compareDataA.management_rate) / 100 + num(compareDataA.profit_rate) / 100 + num(compareDataA.regulatory_rate) / 100) : 0;
       const unitPriceB = b ? num(b.price) * (1 + num(compareDataB.management_rate) / 100 + num(compareDataB.profit_rate) / 100 + num(compareDataB.regulatory_rate) / 100) : 0;
-      const amountA = a ? unitPriceA * num(a.quantity) : 0;
-      const amountB = b ? unitPriceB * num(b.quantity) : 0;
+      const amountA = a ? unitPriceA * getQty(a) : 0;
+      const amountB = b ? unitPriceB * getQty(b) : 0;
+      const refItem = (a || b)!;
+      const isLabor = (refItem as any).itemType === 'labor';
+      const displayName = isLabor ? key.split('__')[0] : refItem.name;
+      const displayUnit = isLabor ? '人天' : refItem.unit;
       return {
-        name: (a || b)!.name,
-        unit: (a || b)!.unit,
+        name: displayName,
+        unit: displayUnit,
         onlyInA: !!a && !b,
         onlyInB: !a && !!b,
-        quantityA: a ? num(a.quantity) : null,
-        quantityB: b ? num(b.quantity) : null,
+        quantityA: a ? getQty(a) : null,
+        quantityB: b ? getQty(b) : null,
         priceA: a ? num(a.price) : null,
         priceB: b ? num(b.price) : null,
         unitPriceA,
@@ -1669,6 +1767,44 @@ export default function EngineeringPage() {
     setNextItemId(nextItemId + 1);
   };
 
+  // 添加人工天计价明细
+  const addLaborQuoteItem = () => {
+    const defaultLevel = laborPriceLevels.length > 0 ? laborPriceLevels[0] : null;
+    setQuoteItems([...quoteItems, {
+      id: nextItemId,
+      itemType: 'labor',
+      itemId: `labor_${nextItemId}`,
+      quantity: 1,
+      laborLevelId: defaultLevel?.id || 0,
+      laborLevelName: defaultLevel?.level || '',
+      laborUnitPrice: defaultLevel?.unitPrice || 0,
+      laborDays: 1,
+      laborDescription: '',
+    }]);
+    setNextItemId(nextItemId + 1);
+  };
+
+  // 更新人工天计价字段
+  const updateLaborField = (itemId: number, field: 'laborLevelId' | 'laborLevelName' | 'laborUnitPrice' | 'laborDays' | 'laborDescription', value: any) => {
+    setQuoteItems(quoteItems.map(item => {
+      if (item.id !== itemId) return item;
+      const updated = { ...item, [field]: value };
+      // 如果切换了人工等级，同步更新单价和名称
+      if (field === 'laborLevelId') {
+        const selectedLevel = laborPriceLevels.find(l => l.id === Number(value));
+        if (selectedLevel) {
+          updated.laborLevelName = selectedLevel.level;
+          updated.laborUnitPrice = selectedLevel.unitPrice;
+        }
+      }
+      // 人工天计价：quantity = laborDays，用于统一计算
+      if (field === 'laborDays') {
+        updated.quantity = Number(value) || 0;
+      }
+      return updated;
+    }));
+  };
+
   // 更新自定义明细字段
   const updateCustomField = (itemId: number, field: 'customName' | 'customUnit' | 'customPrice' | 'customRemark', value: string | number) => {
     setQuoteItems(quoteItems.map(item =>
@@ -1780,6 +1916,11 @@ export default function EngineeringPage() {
     quoteItems.forEach(item => {
       if (item.itemType === 'custom') {
         totalBase += (item.customPrice || 0) * item.quantity;
+      } else if (item.itemType === 'labor') {
+        // 人工天计价：人工天数 × 档位单价
+        const days = item.laborDays || 0;
+        const unitPrice = item.laborUnitPrice || 0;
+        totalBase += days * unitPrice;
       } else {
         const quotaItem = getItemById(item.itemType, item.itemId);
         if (quotaItem) {
@@ -1853,6 +1994,20 @@ export default function EngineeringPage() {
               unit: item.customUnit || '',
               price: item.customPrice || 0,
               customRemark: item.customRemark || '',
+            };
+          }
+          if (item.itemType === 'labor') {
+            return {
+              itemType: 'labor',
+              itemId: item.itemId,
+              quantity: item.laborDays || 0,
+              name: (item.laborLevelName || '人工') + '人工',
+              unit: '人天',
+              price: item.laborUnitPrice || 0,
+              laborLevelId: item.laborLevelId || 0,
+              laborLevelName: item.laborLevelName || '',
+              laborDays: item.laborDays || 0,
+              laborDescription: item.laborDescription || '',
             };
           }
           const quotaItem = getItemById(item.itemType, item.itemId);
@@ -2069,6 +2224,10 @@ export default function EngineeringPage() {
                       ))}
                     </SelectContent>
                   </Select>
+                  <Button variant="outline" onClick={addLaborQuoteItem} className="text-amber-700 border-amber-300 hover:bg-amber-50">
+                    <Plus className="h-4 w-4 mr-1" />
+                    人工天计价
+                  </Button>
                   <Button variant="outline" onClick={addCustomQuoteItem}>
                     <Plus className="h-4 w-4 mr-1" />
                     自定义明细
@@ -2145,6 +2304,76 @@ export default function EngineeringPage() {
                             />
                           </TableCell>
                           <TableCell>¥{subtotal.toFixed(2)}</TableCell>
+                        </TableRow>
+                      );
+                    } else if (item.itemType === 'labor') {
+                      // 人工天计价明细行
+                      const laborBaseFee = (item.laborUnitPrice || 0) * (item.laborDays || 0);
+                      const laborSubtotal = laborBaseFee * (1 + managementFeeRate / 100 + profitRate / 100 + regulatoryFeeRate / 100);
+                      return (
+                        <TableRow key={item.id} className="bg-amber-50/50">
+                          <TableCell>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => removeQuoteItem(item.id)}
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </TableCell>
+                          <TableCell>
+                            <span className="px-2 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
+                              人工天
+                            </span>
+                          </TableCell>
+                          <TableCell>
+                            <div className="space-y-1">
+                              <Select
+                                value={item.laborLevelId ? String(item.laborLevelId) : ''}
+                                onValueChange={(val) => updateLaborField(item.id, 'laborLevelId', Number(val))}
+                              >
+                                <SelectTrigger className="w-[140px]">
+                                  <SelectValue placeholder="选择等级" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {laborPriceLevels.map((level) => (
+                                    <SelectItem key={level.id} value={String(level.id)}>
+                                      {level.level}（¥{level.unitPrice}/人天）
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <Input
+                                placeholder="工作内容描述，如：机房理线、老旧线路整改"
+                                value={item.laborDescription || ''}
+                                onChange={(e) => updateLaborField(item.id, 'laborDescription', e.target.value)}
+                                className="min-w-[200px] text-sm"
+                              />
+                            </div>
+                          </TableCell>
+                          <TableCell>人天</TableCell>
+                          <TableCell>
+                            <Input
+                              type="number"
+                              min={0}
+                              step={0.5}
+                              value={item.laborDays || 0}
+                              onChange={(e) => updateLaborField(item.id, 'laborDays', parseFloat(e.target.value) || 0)}
+                              className="w-full"
+                              placeholder="天数"
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <span className="text-sm">¥{(item.laborUnitPrice || 0).toFixed(2)}</span>
+                          </TableCell>
+                          <TableCell>
+                            <div className="text-sm">
+                              <span className="font-medium">¥{laborSubtotal.toFixed(2)}</span>
+                              <div className="text-xs text-muted-foreground mt-0.5">
+                                {item.laborDays || 0}天 × ¥{(item.laborUnitPrice || 0).toFixed(2)} + 费率
+                              </div>
+                            </div>
+                          </TableCell>
                         </TableRow>
                       );
                     } else {
