@@ -83,115 +83,6 @@ const TABS = [
   { value: 'archived', label: '已归档' },
 ];
 
-// 排序配置
-type SortField = 'created_at' | 'updated_at' | 'total_amount' | 'quote_number';
-type SortOrder = 'asc' | 'desc';
-
-interface SortConfig {
-  field: SortField;
-  order: SortOrder;
-}
-
-// 模拟数据
-const mockQuotes: Quote[] = [
-  {
-    id: '1',
-    quote_number: 'QT-2026-060001',
-    client_name: '宁德时代新能源科技有限公司',
-    project_name: '产线网络改造项目',
-    total_amount: 268500,
-    status: 'draft',
-    created_at: '2026-06-01',
-    updated_at: '2026-06-01',
-    created_by: '张三',
-    valid_until: '2026-06-30',
-  },
-  {
-    id: '2',
-    quote_number: 'QT-2026-060002',
-    client_name: '宁德新能源有限公司',
-    project_name: '数据中心机房建设',
-    total_amount: 1850000,
-    status: 'pending_review',
-    created_at: '2026-05-28',
-    updated_at: '2026-06-02',
-    created_by: '李四',
-    valid_until: '2026-06-28',
-  },
-  {
-    id: '3',
-    quote_number: 'QT-2026-060003',
-    client_name: '福建青拓集团',
-    project_name: '办公楼网络升级',
-    total_amount: 456000,
-    status: 'approved',
-    created_at: '2026-05-25',
-    updated_at: '2026-06-03',
-    created_by: '王五',
-    valid_until: '2026-06-25',
-  },
-  {
-    id: '4',
-    quote_number: 'QT-2026-060004',
-    client_name: '宁德市第一医院',
-    project_name: '智慧医院网络系统',
-    total_amount: 3200000,
-    status: 'sent',
-    created_at: '2026-05-20',
-    updated_at: '2026-06-01',
-    created_by: '赵六',
-    valid_until: '2026-06-20',
-  },
-  {
-    id: '5',
-    quote_number: 'QT-2026-060005',
-    client_name: '宁德师范学院',
-    project_name: '校园网光纤改造',
-    total_amount: 890000,
-    status: 'archived',
-    created_at: '2026-04-15',
-    updated_at: '2026-05-10',
-    created_by: '张三',
-    valid_until: '2026-05-15',
-  },
-  {
-    id: '6',
-    quote_number: 'QT-2026-060006',
-    client_name: '宁德万达广场',
-    project_name: '商场WiFi覆盖工程',
-    total_amount: 568000,
-    status: 'draft',
-    created_at: '2026-06-03',
-    updated_at: '2026-06-03',
-    created_by: '李四',
-    valid_until: '2026-07-03',
-  },
-  {
-    id: '7',
-    quote_number: 'QT-2026-060007',
-    client_name: '宁德核电有限公司',
-    project_name: '办公网络维保服务',
-    total_amount: 1200000,
-    status: 'pending_review',
-    created_at: '2026-06-02',
-    updated_at: '2026-06-04',
-    created_by: '王五',
-    valid_until: '2026-07-02',
-  },
-  {
-    id: '8',
-    quote_number: 'QT-2026-060008',
-    client_name: '宁德市政务服务中心',
-    project_name: '政务外网扩容项目',
-    total_amount: 780000,
-    status: 'approved',
-    created_at: '2026-05-30',
-    updated_at: '2026-06-03',
-    created_by: '赵六',
-    valid_until: '2026-06-30',
-  },
-];
-
 // 格式化金额
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat('zh-CN', {
@@ -211,13 +102,22 @@ function formatDate(dateStr: string): string {
   });
 }
 
+// 排序配置
+type SortField = 'created_at' | 'updated_at' | 'total_amount' | 'quote_number';
+type SortOrder = 'asc' | 'desc';
+
+interface SortConfig {
+  field: SortField;
+  order: SortOrder;
+}
+
 export default function QuotesPage() {
   const router = useRouter();
   const { token } = useUser();
 
   // 状态
   const [activeTab, setActiveTab] = useState('all');
-  const [quotes] = useState<Quote[]>(mockQuotes);
+  const [quotes, setQuotes] = useState<Quote[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
   const [sortConfig, setSortConfig] = useState<SortConfig>({ field: 'updated_at', order: 'desc' });

@@ -15,8 +15,8 @@ const PUBLIC_PATHS = ['/login'];
 
 // 角色权限映射
 const ROLE_PATHS: Record<UserRole, string[]> = {
-  'its_member': ['/device-import', '/maintenance', '/survey-upload', '/'],
-  'admin': ['/device-review', '/engineering', '/quotes', '/maintenance', '/survey-upload', '/data', '/history', '/database', '/']
+  'its_member': ['/device-import', '/maintenance', '/engineering', '/survey-upload', '/quotes', '/clients', '/dashboard', '/reports', '/'],
+  'admin': ['/device-review', '/engineering', '/quotes', '/maintenance', '/survey-upload', '/data', '/history', '/database', '/clients', '/dashboard', '/reports', '/admin', '/admin/users', '/']
 };
 
 export function AuthProtected({ children, allowedRoles }: AuthProtectedProps) {

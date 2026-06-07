@@ -1,30 +1,15 @@
 'use client';
 
+import { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Plus, Edit, Trash2, Upload } from 'lucide-react';
-
-// 模拟设备价格数据
-const mockDevicePrices = [
-  { id: 1, code: 'SW-001', name: '交换机', brand: '华为', model: 'S5735-L48T4S-A', category: '交换机', unit: '台', costPrice: 7500, marketPrice: 8500, supplier: '华为代理商' },
-  { id: 2, code: 'SW-002', name: '交换机', brand: 'H3C', model: 'S5120V3-28P-SI', category: '交换机', unit: '台', costPrice: 3200, marketPrice: 3800, supplier: 'H3C代理商' },
-  { id: 3, code: 'CAM-001', name: '监控摄像头', brand: '海康威视', model: 'DS-2CD3T46WD-I3', category: '摄像头', unit: '台', costPrice: 520, marketPrice: 650, supplier: '海康威视代理商' },
-  { id: 4, code: 'CAM-002', name: '监控摄像头', brand: '大华', model: 'DH-IPC-HFW4433M-I1', category: '摄像头', unit: '台', costPrice: 480, marketPrice: 580, supplier: '大华代理商' },
-  { id: 5, code: 'NVR-001', name: 'NVR', brand: '海康威视', model: 'DS-7916N-R4', category: 'NVR', unit: '台', costPrice: 2600, marketPrice: 3200, supplier: '海康威视代理商' },
-  { id: 6, code: 'RT-001', name: '路由器', brand: '华为', model: 'AR611-S', category: '路由器', unit: '台', costPrice: 4200, marketPrice: 5000, supplier: '华为代理商' },
-];
-
-// 模拟人工单价配置
-const mockLaborPrices = [
-  { id: 1, level: '初级', unitPrice: 200, unit: '人天', description: '初级工程师' },
-  { id: 2, level: '中级', unitPrice: 300, unit: '人天', description: '中级工程师' },
-  { id: 3, level: '高级', unitPrice: 400, unit: '人天', description: '高级工程师' },
-  { id: 4, level: '专家', unitPrice: 500, unit: '人天', description: '专家级工程师' },
-];
+import { Plus, Edit, Trash2, Upload, Database } from 'lucide-react';
 
 export default function DataPage() {
+  const [hasDevices, setHasDevices] = useState(false);
+
   return (
     <div className="space-y-6">
       <div>
@@ -60,43 +45,37 @@ export default function DataPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>设备编码</TableHead>
-                    <TableHead>设备名称</TableHead>
-                    <TableHead>品牌</TableHead>
-                    <TableHead>型号</TableHead>
-                    <TableHead>分类</TableHead>
-                    <TableHead>成本价</TableHead>
-                    <TableHead>市场价格</TableHead>
-                    <TableHead className="w-[120px]">操作</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {mockDevicePrices.map((device) => (
-                    <TableRow key={device.id}>
-                      <TableCell>{device.code}</TableCell>
-                      <TableCell>{device.name}</TableCell>
-                      <TableCell>{device.brand}</TableCell>
-                      <TableCell>{device.model}</TableCell>
-                      <TableCell>{device.category}</TableCell>
-                      <TableCell>¥{device.costPrice.toFixed(2)}</TableCell>
-                      <TableCell>¥{device.marketPrice.toFixed(2)}</TableCell>
-                      <TableCell>
-                        <div className="flex gap-2">
-                          <Button variant="ghost" size="icon">
-                            <Edit className="h-4 w-4" />
-                          </Button>
-                          <Button variant="ghost" size="icon">
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
-                        </div>
-                      </TableCell>
+              {hasDevices ? (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>设备编码</TableHead>
+                      <TableHead>设备名称</TableHead>
+                      <TableHead>品牌</TableHead>
+                      <TableHead>型号</TableHead>
+                      <TableHead>分类</TableHead>
+                      <TableHead>成本价</TableHead>
+                      <TableHead>市场价格</TableHead>
+                      <TableHead className="w-[120px]">操作</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {/* 真实数据将从数据库加载 */}
+                  </TableBody>
+                </Table>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-16 text-center">
+                  <Database className="h-12 w-12 text-muted-foreground mb-4" />
+                  <h3 className="text-lg font-medium mb-2">暂无设备数据</h3>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    设备库暂无数据，请通过设备清单导入功能添加
+                  </p>
+                  <Button>
+                    <Plus className="h-4 w-4 mr-2" />
+                    导入设备
+                  </Button>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -127,24 +106,7 @@ export default function DataPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {mockLaborPrices.map((labor) => (
-                    <TableRow key={labor.id}>
-                      <TableCell>{labor.level}</TableCell>
-                      <TableCell>¥{labor.unitPrice}</TableCell>
-                      <TableCell>{labor.unit}</TableCell>
-                      <TableCell>{labor.description}</TableCell>
-                      <TableCell>
-                        <div className="flex gap-2">
-                          <Button variant="ghost" size="icon">
-                            <Edit className="h-4 w-4" />
-                          </Button>
-                          <Button variant="ghost" size="icon">
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {/* 真实数据将从数据库加载 */}
                 </TableBody>
               </Table>
             </CardContent>

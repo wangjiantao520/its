@@ -15,6 +15,7 @@ export interface User {
   id: string;
   name: string;
   role: UserRole;
+  username?: string;  // 登录用户名
 }
 
 // 模拟当前用户（实际应用中应该从后端或认证系统获取）

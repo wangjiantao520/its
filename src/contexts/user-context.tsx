@@ -6,6 +6,9 @@ import { User, UserRole } from '@/lib/roles';
 interface AuthResponse {
   token: string;
   role: UserRole;
+  userId?: number;
+  username?: string;
+  name?: string;
   expiresAt: number;
 }
 
@@ -22,16 +25,17 @@ interface UserContextType {
 const UserContext = createContext<UserContextType | undefined>(undefined);
 
 // 创建用户对象
-function createUser(role: UserRole, token?: string): User {
+function createUser(role: UserRole, token?: string, name?: string, username?: string): User {
   return {
     id: token || `user-${Date.now()}`,
-    name: role === 'admin' ? '系统管理员' : 'ITS成员',
-    role: role
+    name: name || (role === 'admin' ? '系统管理员' : 'ITS成员'),
+    role: role,
+    username: username
   };
 }
 
 // 存储会话到服务端
-async function verifyTokenOnServer(token: string): Promise<UserRole | null> {
+async function verifyTokenOnServer(token: string): Promise<{ role: UserRole; name?: string; username?: string } | null> {
   try {
     const response = await fetch('/api/auth', {
       method: 'GET',
@@ -42,7 +46,11 @@ async function verifyTokenOnServer(token: string): Promise<UserRole | null> {
 
     if (response.ok) {
       const data = await response.json();
-      return data.data.role as UserRole;
+      return {
+        role: data.data.role as UserRole,
+        name: data.data.name,
+        username: data.data.username
+      };
     }
     return null;
   } catch {
@@ -61,18 +69,27 @@ export function UserProvider({ children }: { children: ReactNode }) {
     const initAuth = async () => {
       const savedToken = localStorage.getItem('authToken');
       const savedRole = localStorage.getItem('userRole') as UserRole | null;
+      const savedName = localStorage.getItem('itsName');
+      const savedUsername = localStorage.getItem('itsUsername');
 
       if (savedToken && savedRole) {
         // 验证服务器端的会话是否仍然有效
-        const validRole = await verifyTokenOnServer(savedToken);
-        if (validRole) {
+        const serverData = await verifyTokenOnServer(savedToken);
+        if (serverData) {
           setToken(savedToken);
-          setUser(createUser(validRole, savedToken));
+          setUser(createUser(
+            serverData.role as UserRole,
+            savedToken,
+            savedName || undefined,
+            savedUsername || undefined
+          ));
           setIsLoggedIn(true);
         } else {
           // 会话已过期，清除本地存储
           localStorage.removeItem('authToken');
           localStorage.removeItem('userRole');
+          localStorage.removeItem('itsName');
+          localStorage.removeItem('itsUsername');
         }
       }
       setIsLoading(false);
@@ -133,6 +150,9 @@ export function UserProvider({ children }: { children: ReactNode }) {
     // 清除本地存储
     localStorage.removeItem('authToken');
     localStorage.removeItem('userRole');
+    localStorage.removeItem('itsName');
+    localStorage.removeItem('itsUsername');
+    localStorage.removeItem('rememberLogin');
 
     setToken(null);
     setUser(null);

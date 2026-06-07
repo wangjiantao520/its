@@ -1,0 +1,20 @@
+      {/* 历史报价复用对话框 }
+      <Dialog open={showHistoryDialog} onOpenChange={setShowHistoryDialog}>
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <History className="h-5 w-5 text-blue-600" />
+              历史报价复用
+            </DialogTitle>
+            <DialogDescription>选择一个历史报价，快速复用其设备清单</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <Input
+                placeholder="搜索报价单号或客户名称..."
+                value={historySearch}
+                onChange={(e) => setHistorySearch(e.target.value)}
+                className="flex-1"
+              />
+            </div>
+            <div className="max-h-[400px] overflow-y-auto space-y-2">

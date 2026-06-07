@@ -2,59 +2,108 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useUser } from '@/contexts/user-context';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
-import { AlertCircle, Lock, User } from 'lucide-react';
+import { AlertCircle, Lock, Users } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { UserRole } from '@/lib/roles';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Checkbox } from '@/components/ui/checkbox';
 
 export default function LoginPage() {
   const router = useRouter();
-  const { login } = useUser();
-  const [selectedRole, setSelectedRole] = useState<UserRole | ''>('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  // 管理员登录状态
+  const [adminPassword, setAdminPassword] = useState('');
+  const [adminError, setAdminError] = useState('');
+  const [adminLoading, setAdminLoading] = useState(false);
+  const [adminRemember, setAdminRemember] = useState(false);
+
+  // ITS成员登录状态
+  const [itsUsername, setItsUsername] = useState('');
+  const [itsPassword, setItsPassword] = useState('');
+  const [itsError, setItsError] = useState('');
+  const [itsLoading, setItsLoading] = useState(false);
+  const [itsRemember, setItsRemember] = useState(false);
+
+  // 管理员登录
+  const handleAdminLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
-    setIsLoading(true);
+    setAdminError('');
+    setAdminLoading(true);
 
     try {
-      if (!selectedRole) {
-        setError('请选择角色');
-        setIsLoading(false);
+      const response = await fetch('/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: 'admin', password: adminPassword, remember: adminRemember })
+      });
+
+      const data = await response.json();
+
+      if (!data.success) {
+        setAdminError(data.error || '登录失败');
+        setAdminLoading(false);
         return;
       }
 
-      if (!password) {
-        setError('请输入密码');
-        setIsLoading(false);
-        return;
+      // 存储登录信息
+      localStorage.setItem('authToken', data.data.token);
+      localStorage.setItem('userRole', 'admin');
+      if (adminRemember) {
+        localStorage.setItem('rememberLogin', 'true');
       }
 
-      // 调用服务端认证
-      const result = await login(selectedRole, password);
-
-      if (!result.success) {
-        setError(result.error || '登录失败');
-        setIsLoading(false);
-        return;
-      }
-
-      // 登录成功，跳转到对应页面
-      if (selectedRole === 'admin') {
-        router.push('/device-review');
-      } else {
-        router.push('/device-import');
-      }
+      router.push('/device-review');
     } catch (err) {
-      setError('登录失败，请重试');
-      setIsLoading(false);
+      setAdminError('登录失败，请重试');
+      setAdminLoading(false);
+    }
+  };
+
+  // ITS成员登录
+  const handleItsLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setItsError('');
+    setItsLoading(true);
+
+    try {
+      if (!itsUsername) {
+        setItsError('请输入用户名');
+        setItsLoading(false);
+        return;
+      }
+
+      const response = await fetch('/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: itsUsername, password: itsPassword, remember: itsRemember })
+      });
+
+      const data = await response.json();
+
+      if (!data.success) {
+        setItsError(data.error || '登录失败');
+        setItsLoading(false);
+        return;
+      }
+
+      // 存储登录信息（包括姓名）
+      localStorage.setItem('authToken', data.data.token);
+      localStorage.setItem('userRole', 'its_member');
+      localStorage.setItem('itsUsername', itsUsername);
+      if (data.data.name) {
+        localStorage.setItem('itsName', data.data.name);
+      }
+      if (itsRemember) {
+        localStorage.setItem('rememberLogin', 'true');
+      }
+
+      router.push('/device-import');
+    } catch (err) {
+      setItsError('登录失败，请重试');
+      setItsLoading(false);
     }
   };
 
@@ -66,62 +115,126 @@ export default function LoginPage() {
             维保报价管理系统
           </CardTitle>
           <CardDescription>
-            请选择角色并输入密码登录
+            请选择登录方式
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {error && (
-              <Alert variant="destructive">
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
-            )}
+          <Tabs defaultValue="admin" className="w-full">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="admin" className="flex items-center gap-2">
+                <Lock className="h-4 w-4" />
+                管理员
+              </TabsTrigger>
+              <TabsTrigger value="its" className="flex items-center gap-2">
+                <Users className="h-4 w-4" />
+                ITS成员
+              </TabsTrigger>
+            </TabsList>
 
-            <div className="space-y-2">
-              <Label>选择角色</Label>
-              <div className="grid grid-cols-2 gap-2">
-                <Button
-                  type="button"
-                  variant={selectedRole === 'its_member' ? 'default' : 'secondary'}
-                  onClick={() => setSelectedRole('its_member')}
-                  className="flex items-center justify-center gap-2"
-                >
-                  <User className="h-4 w-4" />
-                  ITS成员
+            {/* 管理员登录 */}
+            <TabsContent value="admin" className="mt-4">
+              <form onSubmit={handleAdminLogin} className="space-y-4">
+                {adminError && (
+                  <Alert variant="destructive">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>{adminError}</AlertDescription>
+                  </Alert>
+                )}
+
+                <div className="space-y-2">
+                  <Label htmlFor="adminPassword">管理员密码</Label>
+                  <Input
+                    id="adminPassword"
+                    type="password"
+                    placeholder="请输入管理员密码"
+                    value={adminPassword}
+                    onChange={(e) => setAdminPassword(e.target.value)}
+                    autoComplete="off"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    环境变量 ADMIN_PASSWORD
+                  </p>
+                </div>
+
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="adminRemember"
+                    checked={adminRemember}
+                    onCheckedChange={(checked) => setAdminRemember(checked as boolean)}
+                  />
+                  <label
+                    htmlFor="adminRemember"
+                    className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                  >
+                    记住登录（7天内免登录）
+                  </label>
+                </div>
+
+                <Button type="submit" className="w-full" disabled={adminLoading}>
+                  {adminLoading ? '登录中...' : '登录'}
                 </Button>
-                <Button
-                  type="button"
-                  variant={selectedRole === 'admin' ? 'default' : 'secondary'}
-                  onClick={() => setSelectedRole('admin')}
-                  className="flex items-center justify-center gap-2"
-                >
-                  <Lock className="h-4 w-4" />
-                  管理员
+              </form>
+            </TabsContent>
+
+            {/* ITS成员登录 */}
+            <TabsContent value="its" className="mt-4">
+              <form onSubmit={handleItsLogin} className="space-y-4">
+                {itsError && (
+                  <Alert variant="destructive">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>{itsError}</AlertDescription>
+                  </Alert>
+                )}
+
+                <div className="space-y-2">
+                  <Label htmlFor="itsUsername">用户名</Label>
+                  <Input
+                    id="itsUsername"
+                    type="text"
+                    placeholder="请输入用户名"
+                    value={itsUsername}
+                    onChange={(e) => setItsUsername(e.target.value)}
+                    autoComplete="username"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="itsPassword">密码</Label>
+                  <Input
+                    id="itsPassword"
+                    type="password"
+                    placeholder="请输入密码"
+                    value={itsPassword}
+                    onChange={(e) => setItsPassword(e.target.value)}
+                    autoComplete="current-password"
+                  />
+                </div>
+
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="itsRemember"
+                    checked={itsRemember}
+                    onCheckedChange={(checked) => setItsRemember(checked as boolean)}
+                  />
+                  <label
+                    htmlFor="itsRemember"
+                    className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                  >
+                    记住登录（7天内免登录）
+                  </label>
+                </div>
+
+                <Button type="submit" className="w-full" disabled={itsLoading}>
+                  {itsLoading ? '登录中...' : '登录'}
                 </Button>
-              </div>
-            </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="password">密码</Label>
-              <Input
-                id="password"
-                type="password"
-                placeholder="请输入密码"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoComplete="off"
-              />
-            </div>
-
-            <Button
-              type="submit"
-              className="w-full"
-              disabled={isLoading}
-            >
-              {isLoading ? '登录中...' : '登录'}
-            </Button>
-          </form>
+                <div className="text-xs text-center space-y-1">
+                  <p className="text-muted-foreground">测试账号：demo / demo123</p>
+                  <p className="text-muted-foreground">如需开通正式账号，请联系管理员</p>
+                </div>
+              </form>
+            </TabsContent>
+          </Tabs>
         </CardContent>
       </Card>
     </div>

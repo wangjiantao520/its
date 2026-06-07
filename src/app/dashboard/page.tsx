@@ -35,54 +35,54 @@ const stats = {
 
 // Mock data for monthly trends (last 6 months)
 const monthlyTrends = [
-  { month: 'Jan', quotes: 18 },
-  { month: 'Feb', quotes: 24 },
-  { month: 'Mar', quotes: 21 },
-  { month: 'Apr', quotes: 32 },
-  { month: 'May', quotes: 28 },
-  { month: 'Jun', quotes: 23 },
+  { month: '1月', quotes: 18 },
+  { month: '2月', quotes: 24 },
+  { month: '3月', quotes: 21 },
+  { month: '4月', quotes: 32 },
+  { month: '5月', quotes: 28 },
+  { month: '6月', quotes: 23 },
 ];
 
 // Mock data for recent activity
 const recentActivity = [
   {
     id: 1,
-    action: 'Quote approved',
+    action: '报价已通过',
     quote: 'Q-2024-0156',
-    client: 'TechCorp Inc.',
-    time: '2 hours ago',
+    client: '科技有限公司',
+    time: '2小时前',
     type: 'approved',
   },
   {
     id: 2,
-    action: 'New quote created',
+    action: '新建报价',
     quote: 'Q-2024-0155',
-    client: 'Global Solutions',
-    time: '4 hours ago',
+    client: '全球解决方案',
+    time: '4小时前',
     type: 'created',
   },
   {
     id: 3,
-    action: 'Quote rejected',
+    action: '报价已驳回',
     quote: 'Q-2024-0154',
-    client: 'StarTech Ltd.',
-    time: '6 hours ago',
+    client: '星辰科技',
+    time: '6小时前',
     type: 'rejected',
   },
   {
     id: 4,
-    action: 'Quote pending review',
+    action: '待审核',
     quote: 'Q-2024-0153',
-    client: 'Alpha Industries',
-    time: '8 hours ago',
+    client: '阿尔法工业',
+    time: '8小时前',
     type: 'pending',
   },
   {
     id: 5,
-    action: 'Quote sent to client',
+    action: '已发送客户',
     quote: 'Q-2024-0152',
-    client: 'Beta Corporation',
-    time: '1 day ago',
+    client: '贝塔集团',
+    time: '1天前',
     type: 'sent',
   },
 ];
@@ -92,24 +92,24 @@ const expiringItems = [
   {
     id: 1,
     type: 'contract',
-    name: 'Office Network Upgrade',
-    client: 'TechCorp Inc.',
+    name: '办公室网络升级',
+    client: '科技有限公司',
     expiryDate: '2024-07-15',
     daysLeft: 12,
   },
   {
     id: 2,
     type: 'device',
-    name: 'Server Maintenance Contract',
-    client: 'DataSystems Co.',
+    name: '服务器维保合同',
+    client: '数据系统公司',
     expiryDate: '2024-07-20',
     daysLeft: 17,
   },
   {
     id: 3,
     type: 'contract',
-    name: 'Security System Installation',
-    client: 'SecureNet LLC',
+    name: '安防系统安装',
+    client: '安联网',
     expiryDate: '2024-07-25',
     daysLeft: 22,
   },
@@ -134,17 +134,17 @@ const getActivityIcon = (type: string) => {
 const getActivityBadge = (type: string) => {
   switch (type) {
     case 'approved':
-      return <Badge variant="default" className="bg-green-500">Approved</Badge>;
+      return <Badge variant="default" className="bg-green-500">已通过</Badge>;
     case 'rejected':
-      return <Badge variant="destructive">Rejected</Badge>;
+      return <Badge variant="destructive">已驳回</Badge>;
     case 'created':
-      return <Badge variant="secondary">Created</Badge>;
+      return <Badge variant="secondary">新建</Badge>;
     case 'sent':
-      return <Badge variant="outline">Sent</Badge>;
+      return <Badge variant="outline">已发送</Badge>;
     case 'pending':
-      return <Badge variant="secondary" className="bg-yellow-100 text-yellow-800">Pending</Badge>;
+      return <Badge variant="secondary" className="bg-yellow-100 text-yellow-800">待审核</Badge>;
     default:
-      return <Badge variant="outline">Unknown</Badge>;
+      return <Badge variant="outline">未知</Badge>;
   }
 };
 
@@ -154,19 +154,19 @@ export default function DashboardPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
+          <h1 className="text-3xl font-bold tracking-tight">数据看板</h1>
           <p className="text-muted-foreground">
-            Overview of your quotation system
+            维保报价系统概览
           </p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm">
             <RefreshCw className="mr-2 h-4 w-4" />
-            Refresh
+            刷新
           </Button>
           <Button size="sm">
             <Plus className="mr-2 h-4 w-4" />
-            New Quote
+            新建报价
           </Button>
         </div>
       </div>
@@ -176,14 +176,14 @@ export default function DashboardPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">
-              Total Quotes
+              报价总数
             </CardTitle>
             <FileText className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.totalQuotes}</div>
             <p className="text-xs text-muted-foreground">
-              +12% from last month
+              较上月增长 12%
             </p>
           </CardContent>
         </Card>
@@ -191,14 +191,14 @@ export default function DashboardPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">
-              This Month
+              本月新增
             </CardTitle>
             <TrendingUp className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.thisMonth}</div>
             <p className="text-xs text-muted-foreground">
-              +5 from last month
+              较上月增加 5 个
             </p>
           </CardContent>
         </Card>
@@ -206,14 +206,14 @@ export default function DashboardPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">
-              Pending Review
+              待审核
             </CardTitle>
             <Clock className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.pendingReview}</div>
             <p className="text-xs text-muted-foreground">
-              3 awaiting approval
+              其中 3 个待批准
             </p>
           </CardContent>
         </Card>
@@ -221,14 +221,14 @@ export default function DashboardPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">
-              Expiring Soon
+              即将到期
             </CardTitle>
             <AlertTriangle className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.expiringSoon}</div>
             <p className="text-xs text-muted-foreground">
-              Next 30 days
+              未来 30 天内
             </p>
           </CardContent>
         </Card>
@@ -239,9 +239,9 @@ export default function DashboardPage() {
         {/* Monthly Trends Chart */}
         <Card className="col-span-4">
           <CardHeader>
-            <CardTitle>Monthly Quote Trends</CardTitle>
+            <CardTitle>月度报价趋势</CardTitle>
             <CardDescription>
-              Number of quotes created per month (last 6 months)
+              近6个月报价数量统计
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -274,7 +274,7 @@ export default function DashboardPage() {
                     dataKey="quotes"
                     fill="hsl(var(--primary))"
                     radius={[4, 4, 0, 0]}
-                    name="Quotes"
+                    name="报价数"
                   />
                 </BarChart>
               </ResponsiveContainer>
@@ -287,10 +287,10 @@ export default function DashboardPage() {
           <CardHeader>
             <CardTitle className="flex items-center">
               <AlertTriangle className="mr-2 h-4 w-4 text-orange-500" />
-              Expiring Soon
+              即将到期
             </CardTitle>
             <CardDescription>
-              Contracts and devices expiring within 30 days
+              未来30天内到期的合同和设备
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -316,12 +316,12 @@ export default function DashboardPage() {
                             : 'border-yellow-500 text-yellow-600'
                         }
                       >
-                        {item.daysLeft} days left
+                        剩余 {item.daysLeft} 天
                       </Badge>
                     </div>
                   </div>
                   <Button variant="ghost" size="sm">
-                    View
+                    查看
                   </Button>
                 </div>
               ))}
@@ -335,9 +335,9 @@ export default function DashboardPage() {
         {/* Recent Activity */}
         <Card className="col-span-2">
           <CardHeader>
-            <CardTitle>Recent Activity</CardTitle>
+            <CardTitle>最近操作</CardTitle>
             <CardDescription>
-              Latest actions on your quotes
+              报价最新动态
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -380,27 +380,27 @@ export default function DashboardPage() {
         {/* Quick Actions */}
         <Card>
           <CardHeader>
-            <CardTitle>Quick Actions</CardTitle>
+            <CardTitle>快捷操作</CardTitle>
             <CardDescription>
-              Common tasks and shortcuts
+              常用功能入口
             </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-3">
             <Button variant="default" className="w-full justify-start">
               <Plus className="mr-2 h-4 w-4" />
-              Create New Quote
+              新建报价
             </Button>
             <Button variant="outline" className="w-full justify-start">
               <Eye className="mr-2 h-4 w-4" />
-              View Pending Quotes
+              待审核报价
             </Button>
             <Button variant="outline" className="w-full justify-start">
               <Download className="mr-2 h-4 w-4" />
-              Export Reports
+              导出报表
             </Button>
             <Button variant="outline" className="w-full justify-start">
               <FileText className="mr-2 h-4 w-4" />
-              Manage Templates
+              报价管理
             </Button>
           </CardContent>
         </Card>

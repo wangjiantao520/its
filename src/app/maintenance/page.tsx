@@ -38,7 +38,7 @@ import {
   Loader2,
   History,
   Clipboard,
-  Link,
+  Link2,
   Share2,
   Send,
   Filter,
@@ -48,6 +48,7 @@ import {
   FileDown,
   FileUp,
   Copy,
+  Check,
   ChevronRight,
   MoreHorizontal,
 } from 'lucide-react';
@@ -120,7 +121,8 @@ import { ValueAddedServicesSelector } from '@/components/value-added-services-se
 import { SurveyQuestionnaire } from '@/components/survey-questionnaire';
 import type { SurveyAnswer } from '@/lib/survey-questions';
 import { VALUE_ADDED_SERVICES, calculateValueAddedServicesTotal, type ValueAddedService } from '@/lib/value-added-services';
-import { parseQuoteRequirement, AI_QUOTE_EXAMPLES, type AiQuoteDraft, type RecognitionStatus } from '@/lib/ai-quote-parser';
+import { parseQuoteRequirement, parseQuoteWithHistory, AI_QUOTE_EXAMPLES, type AiQuoteDraft, type RecognitionStatus, type ChatMessage, formatPrice } from '@/lib/ai-quote-parser';
+import { AiChatPanel } from '@/components/quotes/ai-chat-panel';
 import {
   generateMaintenanceQuoteHTML,
   downloadAsWord,
@@ -137,7 +139,9 @@ export default function MaintenanceQuotePage() {
   const [showAiPreview, setShowAiPreview] = useState(false);
   const [showAiCompletionDialog, setShowAiCompletionDialog] = useState(false);
   const [completionDraft, setCompletionDraft] = useState<AiQuoteDraft | null>(null);
-  
+  const [showAiChat, setShowAiChat] = useState(false);  // 新增：AI对话面板
+  const [aiChatHistory, setAiChatHistory] = useState<ChatMessage[]>([]);  // 新增：对话历史
+
   // 价格设置功能
   const [showPriceSettings, setShowPriceSettings] = useState(false);
   const [priceSettings, setPriceSettings] = useState<Record<string, number>>({});
@@ -597,12 +601,23 @@ export default function MaintenanceQuotePage() {
   };
 
   const handleCopyShareLink = async () => {
+    if (!shareLink) {
+      handleGenerateShareLink();
+    }
     try {
       await navigator.clipboard.writeText(shareLink);
       setShareLinkCopied(true);
       setTimeout(() => setShareLinkCopied(false), 2000);
     } catch {
       alert('复制失败，请手动复制');
+    }
+  };
+
+  // 打开分享对话框
+  const handleOpenShareDialog = () => {
+    setShareDialogOpen(true);
+    if (!shareLink) {
+      handleGenerateShareLink();
     }
   };
 
@@ -1338,12 +1353,60 @@ export default function MaintenanceQuotePage() {
 
         {/* 新建报价 */}
         <TabsContent value="new" className="space-y-6">
-          {/* AI辅助报价 */}
+          {/* AI对话模式切换 */}
+          <div className="flex justify-end gap-2">
+            <Button
+              variant={showAiChat ? "outline" : "default"}
+              size="sm"
+              onClick={() => setShowAiChat(false)}
+            >
+              <FileSpreadsheet className="h-4 w-4 mr-2" />
+              快速识别
+            </Button>
+            <Button
+              variant={showAiChat ? "default" : "outline"}
+              size="sm"
+              onClick={() => setShowAiChat(true)}
+              className={showAiChat ? "bg-blue-600" : ""}
+            >
+              <Sparkles className="h-4 w-4 mr-2" />
+              AI对话
+            </Button>
+          </div>
+
+          {/* AI对话模式 */}
+          {showAiChat ? (
+            <AiChatPanel
+              onApply={(draft) => {
+                setAiDraft(draft);
+                setCompletionDraft(draft);
+                setShowAiChat(false);
+                // 应用到表单
+                if (draft.region) {
+                  const regionMap: Record<string, typeof region> = {
+                    '城区': '城区',
+                    '市区县城郊区': '市区县城郊区',
+                    '乡镇': '乡镇',
+                    '农村': '农村',
+                  };
+                  if (regionMap[draft.region]) {
+                    setRegion(regionMap[draft.region]);
+                  }
+                }
+                if (draft.contractYears) {
+                  setContractYears(draft.contractYears);
+                }
+                // TODO: 应用更多字段
+              }}
+              onClose={() => setShowAiChat(false)}
+            />
+          ) : (
+          /* AI快速识别模式 */
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Sparkles className="h-5 w-5 text-blue-600" />
-                AI 辅助报价
+                AI 快速识别
               </CardTitle>
               <CardDescription>用自然语言描述您的需求，AI 将自动识别参数</CardDescription>
             </CardHeader>
@@ -1442,6 +1505,7 @@ export default function MaintenanceQuotePage() {
               )}
             </CardContent>
           </Card>
+          )}
 
           <div className="grid gap-6 grid-cols-1 lg:grid-cols-3">
             {/* 基本信息 */}
@@ -4116,6 +4180,145 @@ export default function MaintenanceQuotePage() {
             >
               <Save className="h-4 w-4 mr-2" />
               {saveType === 'permanent' ? '永久保存' : '暂时保存'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 历史报价复用对话框 */}
+      <Dialog open={showHistoryDialog} onOpenChange={setShowHistoryDialog}>
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle>历史报价复用</DialogTitle>
+            <DialogDescription>选择历史报价，快速复制设备列表到当前报价</DialogDescription>
+          </DialogHeader>
+          <div className="flex-1 overflow-y-auto">
+            {historyLoading ? (
+              <div className="text-center py-8">
+                <Loader2 className="h-8 w-8 animate-spin mx-auto text-muted-foreground" />
+                <p className="mt-2 text-muted-foreground">加载中...</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {historyQuotes.map((quote) => (
+                  <div
+                    key={quote.id}
+                    className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 cursor-pointer"
+                    onClick={() => handleSelectHistoryQuote(quote)}
+                  >
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium">{quote.quoteNumber}</span>
+                        <Badge variant="outline">{quote.status}</Badge>
+                      </div>
+                      <div className="text-sm text-muted-foreground mt-1">
+                        客户：{quote.clientName}
+                      </div>
+                      <div className="text-sm text-muted-foreground">
+                        创建时间：{quote.createdAt}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-lg font-semibold">¥{quote.totalAmount.toLocaleString()}</div>
+                      <Button size="sm" variant="outline" className="mt-2">
+                        <Copy className="h-4 w-4 mr-1" />
+                        复制
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowHistoryDialog(false)}>
+              关闭
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 批量编辑对话框 */}
+      <Dialog open={showBatchDialog} onOpenChange={setShowBatchDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>批量编辑设备</DialogTitle>
+            <DialogDescription>已选择 {batchSelected.length} 个设备</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>数量</Label>
+              <Input
+                type="number"
+                placeholder="统一修改数量"
+                value={batchQuantity}
+                onChange={(e) => setBatchQuantity(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>服务年限</Label>
+              <Input
+                type="number"
+                placeholder="统一修改服务年限"
+                value={batchYears}
+                onChange={(e) => setBatchYears(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowBatchDialog(false)}>
+              取消
+            </Button>
+            <Button onClick={applyBatchEdit}>
+              确认修改
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 分享对话框 */}
+      <Dialog open={shareDialogOpen} onOpenChange={setShareDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>分享报价</DialogTitle>
+            <DialogDescription>生成分享链接，客户可通过链接查看报价</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>分享链接</Label>
+              <div className="flex gap-2">
+                <Input
+                  value={shareLink || '点击下方按钮生成分享链接'}
+                  readOnly
+                  className="flex-1"
+                />
+                <Button onClick={handleGenerateShareLink} variant="outline">
+                  <Link2 className="h-4 w-4 mr-1" />
+                  生成
+                </Button>
+              </div>
+            </div>
+            {shareLink && (
+              <div className="space-y-2">
+                <Button onClick={handleCopyShareLink} className="w-full">
+                  {shareLinkCopied ? (
+                    <>
+                      <Check className="h-4 w-4 mr-1" />
+                      已复制
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="h-4 w-4 mr-1" />
+                      复制链接
+                    </>
+                  )}
+                </Button>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShareDialogOpen(false)}>
+              关闭
             </Button>
           </DialogFooter>
         </DialogContent>

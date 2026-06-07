@@ -20,6 +20,7 @@ import {
   BarChart3,
   FileSpreadsheet,
   Copy,
+  UserCheck,
 } from 'lucide-react';
 import { usePathname, useRouter } from 'next/navigation';
 import {
@@ -95,6 +96,11 @@ const adminNavItems = [
     title: '报表统计',
     url: '/reports',
     icon: BarChart3,
+  },
+  {
+    title: 'ITS成员管理',
+    url: '/admin/users',
+    icon: UserCheck,
   },
   {
     title: '设备清单审核',
