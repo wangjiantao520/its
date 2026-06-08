@@ -1394,7 +1394,7 @@ export default function MaintenanceQuotePage() {
                   }
                 }
                 if (draft.contractYears) {
-                  setContractYears(draft.contractYears);
+                  setContractYears(String(draft.contractYears));
                 }
                 // TODO: 应用更多字段
               }}
