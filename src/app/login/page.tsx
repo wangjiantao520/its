@@ -10,9 +10,11 @@ import { AlertCircle, Lock, Users } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Checkbox } from '@/components/ui/checkbox';
+import { useUser } from '@/contexts/user-context';
 
 export default function LoginPage() {
   const router = useRouter();
+  const { login } = useUser();
 
   // 管理员登录状态
   const [adminPassword, setAdminPassword] = useState('');
@@ -34,23 +36,15 @@ export default function LoginPage() {
     setAdminLoading(true);
 
     try {
-      const response = await fetch('/api/auth', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ role: 'admin', password: adminPassword, remember: adminRemember })
-      });
-
-      const data = await response.json();
-
-      if (!data.success) {
-        setAdminError(data.error || '登录失败');
+      const result = await login('admin', adminPassword);
+      
+      if (!result.success) {
+        setAdminError(result.error || '登录失败');
         setAdminLoading(false);
         return;
       }
 
-      // 存储登录信息
-      localStorage.setItem('authToken', data.data.token);
-      localStorage.setItem('userRole', 'admin');
+      // 记住登录
       if (adminRemember) {
         localStorage.setItem('rememberLogin', 'true');
       }
