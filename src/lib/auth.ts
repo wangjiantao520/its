@@ -3,15 +3,16 @@ import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import pool from './db';
 
-// 密码配置（从环境变量读取）
+// 密码配置（从环境变量读取，如果没有则使用默认值）
 const PASSWORDS: Record<string, string | undefined> = {
-  'admin': process.env.ADMIN_PASSWORD,
+  'admin': process.env.ADMIN_PASSWORD || 'admin123',
 };
 
 // 默认ITS账号（无需数据库，用于演示和测试）
 const DEFAULT_ITS_USERS: Record<string, { password: string; name: string }> = {
   'demo': { password: 'demo123', name: '演示用户' },
   'test': { password: 'test123', name: '测试账号' },
+  'its': { password: process.env.ITS_PASSWORD || 'its123', name: 'ITS成员' },
 };
 
 // 验证管理员密码
@@ -20,6 +21,10 @@ function validateAdminPassword(password: string): boolean {
   if (!expected) {
     console.error('[Auth] 管理员密码未配置: 请设置环境变量 ADMIN_PASSWORD');
     return false;
+  }
+  // 如果使用的是默认密码，记录一个警告（提醒用户在生产环境中修改）
+  if (expected === 'admin123' && process.env.NODE_ENV === 'production') {
+    console.warn('[Auth] 警告：生产环境中正在使用默认密码！请设置环境变量 ADMIN_PASSWORD');
   }
   return password === expected;
 }
