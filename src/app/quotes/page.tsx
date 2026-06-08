@@ -300,14 +300,13 @@ export default function QuotesPage() {
     }
 
     items.push(
-      { label: 'divider', icon: null, onClick: () => {} },
+      { label: 'divider', onClick: () => {} } as any,
       {
         label: '删除',
         icon: Trash2,
         onClick: () => console.log('删除:', quote.id),
-        variant: 'destructive' as const,
         disabled: quote.status === 'sent',
-      }
+      } as any
     );
 
     return items;
@@ -569,7 +568,6 @@ export default function QuotesPage() {
                                       key={index}
                                       onClick={item.onClick}
                                       disabled={item.disabled}
-                                      variant={item.variant}
                                     >
                                       {item.icon && <item.icon className="h-4 w-4 mr-2" />}
                                       {item.label}

@@ -3376,7 +3376,7 @@ export default function MaintenanceQuotePage() {
                         value={completionDraft.arrivalTime || ''} 
                         onValueChange={(val) => {
                           const newDraft = { ...completionDraft };
-                          newDraft.arrivalTime = val;
+                          newDraft.arrivalTime = val as any;
                           setCompletionDraft(newDraft);
                         }}
                       >
@@ -3396,7 +3396,7 @@ export default function MaintenanceQuotePage() {
                         value={completionDraft.responseTime || ''} 
                         onValueChange={(val) => {
                           const newDraft = { ...completionDraft };
-                          newDraft.responseTime = val;
+                          newDraft.responseTime = val as any;
                           setCompletionDraft(newDraft);
                         }}
                       >
@@ -3416,7 +3416,7 @@ export default function MaintenanceQuotePage() {
                         value={completionDraft.serviceTime || ''} 
                         onValueChange={(val) => {
                           const newDraft = { ...completionDraft };
-                          newDraft.serviceTime = val;
+                          newDraft.serviceTime = val as any;
                           setCompletionDraft(newDraft);
                         }}
                       >

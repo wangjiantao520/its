@@ -209,7 +209,7 @@ export function BatchOperations<T extends BatchSelectableItem = BatchSelectableI
 
   const handleEditConfirm = (value: number | string) => {
     const field = Object.keys(editDialog.field)[0] as keyof BatchPayload;
-    onBatchAction(`edit-${field === 'quantity' ? 'quantity' : field === 'serviceYears' ? 'service-years' : field}`, {
+    onBatchAction(`edit-${field === 'quantity' ? 'quantity' : field === 'serviceYears' ? 'service-years' : field}` as any, {
       [field]: value,
     });
     setEditDialog((d) => ({ ...d, open: false }));
