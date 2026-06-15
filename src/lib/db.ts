@@ -218,6 +218,61 @@ export async function initDatabase() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
 
+    // AI学习记忆表 - 客户设备配置历史记忆
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS ai_learning_memory (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        client_id INT,
+        client_name VARCHAR(200) NOT NULL,
+        device_signature VARCHAR(500) NOT NULL,
+        device_config JSON NOT NULL,
+        usage_count INT DEFAULT 1,
+        last_used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_client_id (client_id),
+        INDEX idx_client_name (client_name),
+        INDEX idx_device_signature (device_signature(255)),
+        INDEX idx_last_used (last_used_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    // AI反馈表 - 用户对AI识别的错误反馈
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS ai_feedback (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        original_text TEXT NOT NULL,
+        ai_result JSON NOT NULL,
+        corrected_result JSON,
+        feedback_type ENUM('wrong_match', 'missing_info', 'extra_info', 'wrong_quantity', 'other') NOT NULL,
+        feedback_comment TEXT,
+        client_name VARCHAR(200),
+        operator VARCHAR(100),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_client_name (client_name),
+        INDEX idx_feedback_type (feedback_type),
+        INDEX idx_created_at (created_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    // 报价设备历史表 - 用于智能推荐
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS quote_device_history (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        quote_id INT NOT NULL,
+        quote_type ENUM('maintenance', 'engineering') NOT NULL,
+        client_id INT,
+        client_name VARCHAR(200),
+        device_signature VARCHAR(500) NOT NULL,
+        device_data JSON NOT NULL,
+        quote_total DECIMAL(15,2),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_client_id (client_id),
+        INDEX idx_client_name (client_name),
+        INDEX idx_device_signature (device_signature(255)),
+        INDEX idx_quote (quote_id, quote_type)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
     console.log('✅ 数据库表初始化成功');
     connection.release();
     return true;

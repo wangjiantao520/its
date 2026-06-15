@@ -122,7 +122,7 @@ import { SurveyQuestionnaire } from '@/components/survey-questionnaire';
 import type { SurveyAnswer } from '@/lib/survey-questions';
 import { VALUE_ADDED_SERVICES, calculateValueAddedServicesTotal, type ValueAddedService } from '@/lib/value-added-services';
 import { parseQuoteRequirement, parseQuoteWithHistory, AI_QUOTE_EXAMPLES, type AiQuoteDraft, type RecognitionStatus, type ChatMessage, formatPrice } from '@/lib/ai-quote-parser';
-import { AiChatPanel } from '@/components/quotes/ai-chat-panel';
+import { AiChatPanelEnhanced } from '@/components/quotes/ai-chat-panel-enhanced';
 import {
   generateMaintenanceQuoteHTML,
   downloadAsWord,
@@ -1374,29 +1374,27 @@ export default function MaintenanceQuotePage() {
             </Button>
           </div>
 
-          {/* AI对话模式 */}
+          {/* AI对话模式 - 增强版（集成语音+反馈+推荐+批量编辑+学习） */}
           {showAiChat ? (
-            <AiChatPanel
-              onApply={(draft) => {
-                setAiDraft(draft);
-                setCompletionDraft(draft);
-                setShowAiChat(false);
-                // 应用到表单
-                if (draft.region) {
+            <AiChatPanelEnhanced
+              clientName={clientName}
+              onApply={(result) => {
+                // 将增强版AI结果转换为原格式应用
+                if (result.region) {
                   const regionMap: Record<string, typeof region> = {
                     '城区': '城区',
                     '市区县城郊区': '市区县城郊区',
                     '乡镇': '乡镇',
                     '农村': '农村',
                   };
-                  if (regionMap[draft.region]) {
-                    setRegion(regionMap[draft.region]);
+                  if (regionMap[result.region]) {
+                    setRegion(regionMap[result.region]);
                   }
                 }
-                if (draft.contractYears) {
-                  setContractYears(String(draft.contractYears));
+                if (result.contractYears) {
+                  setContractYears(String(result.contractYears));
                 }
-                // TODO: 应用更多字段
+                setShowAiChat(false);
               }}
               onClose={() => setShowAiChat(false)}
             />
