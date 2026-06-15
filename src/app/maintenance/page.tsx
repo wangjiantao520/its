@@ -122,7 +122,11 @@ import { SurveyQuestionnaire } from '@/components/survey-questionnaire';
 import type { SurveyAnswer } from '@/lib/survey-questions';
 import { VALUE_ADDED_SERVICES, calculateValueAddedServicesTotal, type ValueAddedService } from '@/lib/value-added-services';
 import { parseQuoteRequirement, parseQuoteWithHistory, AI_QUOTE_EXAMPLES, type AiQuoteDraft, type RecognitionStatus, type ChatMessage, formatPrice } from '@/lib/ai-quote-parser';
+<<<<<<< HEAD
 import { AiChatPanelEnhanced } from '@/components/quotes/ai-chat-panel-enhanced';
+=======
+import { AiChatPanel } from '@/components/quotes/ai-chat-panel';
+>>>>>>> bb2e44d287b7491b8164b7f9337b5880134e303a
 import {
   generateMaintenanceQuoteHTML,
   downloadAsWord,
@@ -1374,6 +1378,7 @@ export default function MaintenanceQuotePage() {
             </Button>
           </div>
 
+<<<<<<< HEAD
           {/* AI对话模式 - 增强版（集成语音+反馈+推荐+批量编辑+学习） */}
           {showAiChat ? (
             <AiChatPanelEnhanced
@@ -1381,12 +1386,24 @@ export default function MaintenanceQuotePage() {
               onApply={(result) => {
                 // 将增强版AI结果转换为原格式应用
                 if (result.region) {
+=======
+          {/* AI对话模式 */}
+          {showAiChat ? (
+            <AiChatPanel
+              onApply={(draft) => {
+                setAiDraft(draft);
+                setCompletionDraft(draft);
+                setShowAiChat(false);
+                // 应用到表单
+                if (draft.region) {
+>>>>>>> bb2e44d287b7491b8164b7f9337b5880134e303a
                   const regionMap: Record<string, typeof region> = {
                     '城区': '城区',
                     '市区县城郊区': '市区县城郊区',
                     '乡镇': '乡镇',
                     '农村': '农村',
                   };
+<<<<<<< HEAD
                   if (regionMap[result.region]) {
                     setRegion(regionMap[result.region]);
                   }
@@ -1395,6 +1412,16 @@ export default function MaintenanceQuotePage() {
                   setContractYears(String(result.contractYears));
                 }
                 setShowAiChat(false);
+=======
+                  if (regionMap[draft.region]) {
+                    setRegion(regionMap[draft.region]);
+                  }
+                }
+                if (draft.contractYears) {
+                  setContractYears(draft.contractYears);
+                }
+                // TODO: 应用更多字段
+>>>>>>> bb2e44d287b7491b8164b7f9337b5880134e303a
               }}
               onClose={() => setShowAiChat(false)}
             />
@@ -3374,7 +3401,11 @@ export default function MaintenanceQuotePage() {
                         value={completionDraft.arrivalTime || ''} 
                         onValueChange={(val) => {
                           const newDraft = { ...completionDraft };
+<<<<<<< HEAD
                           newDraft.arrivalTime = val as any;
+=======
+                          newDraft.arrivalTime = val;
+>>>>>>> bb2e44d287b7491b8164b7f9337b5880134e303a
                           setCompletionDraft(newDraft);
                         }}
                       >
@@ -3394,7 +3425,11 @@ export default function MaintenanceQuotePage() {
                         value={completionDraft.responseTime || ''} 
                         onValueChange={(val) => {
                           const newDraft = { ...completionDraft };
+<<<<<<< HEAD
                           newDraft.responseTime = val as any;
+=======
+                          newDraft.responseTime = val;
+>>>>>>> bb2e44d287b7491b8164b7f9337b5880134e303a
                           setCompletionDraft(newDraft);
                         }}
                       >
@@ -3414,7 +3449,11 @@ export default function MaintenanceQuotePage() {
                         value={completionDraft.serviceTime || ''} 
                         onValueChange={(val) => {
                           const newDraft = { ...completionDraft };
+<<<<<<< HEAD
                           newDraft.serviceTime = val as any;
+=======
+                          newDraft.serviceTime = val;
+>>>>>>> bb2e44d287b7491b8164b7f9337b5880134e303a
                           setCompletionDraft(newDraft);
                         }}
                       >

@@ -218,6 +218,7 @@ export async function initDatabase() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
 
+<<<<<<< HEAD
     // AI学习记忆表 - 客户设备配置历史记忆
     await connection.execute(`
       CREATE TABLE IF NOT EXISTS ai_learning_memory (
@@ -319,6 +320,8 @@ export async function initDatabase() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
 
+=======
+>>>>>>> bb2e44d287b7491b8164b7f9337b5880134e303a
     console.log('✅ 数据库表初始化成功');
     connection.release();
     return true;

@@ -21,7 +21,10 @@ import {
   FileSpreadsheet,
   Copy,
   UserCheck,
+<<<<<<< HEAD
   Brain,
+=======
+>>>>>>> bb2e44d287b7491b8164b7f9337b5880134e303a
 } from 'lucide-react';
 import { usePathname, useRouter } from 'next/navigation';
 import {
