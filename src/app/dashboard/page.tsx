@@ -25,95 +25,22 @@ import {
   RefreshCw,
 } from 'lucide-react';
 
-// Mock data for statistics
+// Empty data for statistics
 const stats = {
-  totalQuotes: 156,
-  thisMonth: 23,
-  pendingReview: 8,
-  expiringSoon: 5,
+  totalQuotes: 0,
+  thisMonth: 0,
+  pendingReview: 0,
+  expiringSoon: 0,
 };
 
-// Mock data for monthly trends (last 6 months)
-const monthlyTrends = [
-  { month: '1月', quotes: 18 },
-  { month: '2月', quotes: 24 },
-  { month: '3月', quotes: 21 },
-  { month: '4月', quotes: 32 },
-  { month: '5月', quotes: 28 },
-  { month: '6月', quotes: 23 },
-];
+// Empty data for monthly trends
+const monthlyTrends: Array<{ month: string; quotes: number }> = [];
 
-// Mock data for recent activity
-const recentActivity = [
-  {
-    id: 1,
-    action: '报价已通过',
-    quote: 'Q-2024-0156',
-    client: '科技有限公司',
-    time: '2小时前',
-    type: 'approved',
-  },
-  {
-    id: 2,
-    action: '新建报价',
-    quote: 'Q-2024-0155',
-    client: '全球解决方案',
-    time: '4小时前',
-    type: 'created',
-  },
-  {
-    id: 3,
-    action: '报价已驳回',
-    quote: 'Q-2024-0154',
-    client: '星辰科技',
-    time: '6小时前',
-    type: 'rejected',
-  },
-  {
-    id: 4,
-    action: '待审核',
-    quote: 'Q-2024-0153',
-    client: '阿尔法工业',
-    time: '8小时前',
-    type: 'pending',
-  },
-  {
-    id: 5,
-    action: '已发送客户',
-    quote: 'Q-2024-0152',
-    client: '贝塔集团',
-    time: '1天前',
-    type: 'sent',
-  },
-];
+// Empty data for recent activity
+const recentActivity: Array<{ id: number; action: string; quote: string; client: string; time: string; type: string }> = [];
 
-// Mock data for expiring items
-const expiringItems = [
-  {
-    id: 1,
-    type: 'contract',
-    name: '办公室网络升级',
-    client: '科技有限公司',
-    expiryDate: '2024-07-15',
-    daysLeft: 12,
-  },
-  {
-    id: 2,
-    type: 'device',
-    name: '服务器维保合同',
-    client: '数据系统公司',
-    expiryDate: '2024-07-20',
-    daysLeft: 17,
-  },
-  {
-    id: 3,
-    type: 'contract',
-    name: '安防系统安装',
-    client: '安联网',
-    expiryDate: '2024-07-25',
-    daysLeft: 22,
-  },
-];
+// Empty data for expiring items
+const expiringItems: Array<{ id: number; type: string; name: string; client: string; expiryDate: string; daysLeft: number }> = [];
 
 const getActivityIcon = (type: string) => {
   switch (type) {
@@ -245,40 +172,46 @@ export default function DashboardPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="h-[300px] w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={monthlyTrends}>
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                  <XAxis
-                    dataKey="month"
-                    stroke="#888888"
-                    fontSize={12}
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                  <YAxis
-                    stroke="#888888"
-                    fontSize={12}
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: 'hsl(var(--card))',
-                      border: '1px solid hsl(var(--border))',
-                      borderRadius: '8px',
-                    }}
-                    labelStyle={{ color: 'hsl(var(--foreground))' }}
-                  />
-                  <Bar
-                    dataKey="quotes"
-                    fill="hsl(var(--primary))"
-                    radius={[4, 4, 0, 0]}
-                    name="报价数"
-                  />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
+            {monthlyTrends.length > 0 ? (
+              <div className="h-[300px] w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={monthlyTrends}>
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                    <XAxis
+                      dataKey="month"
+                      stroke="#888888"
+                      fontSize={12}
+                      tickLine={false}
+                      axisLine={false}
+                    />
+                    <YAxis
+                      stroke="#888888"
+                      fontSize={12}
+                      tickLine={false}
+                      axisLine={false}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: 'hsl(var(--card))',
+                        border: '1px solid hsl(var(--border))',
+                        borderRadius: '8px',
+                      }}
+                      labelStyle={{ color: 'hsl(var(--foreground))' }}
+                    />
+                    <Bar
+                      dataKey="quotes"
+                      fill="hsl(var(--primary))"
+                      radius={[4, 4, 0, 0]}
+                      name="报价数"
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              <div className="flex h-[300px] w-full items-center justify-center text-muted-foreground">
+                暂无数据
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -294,38 +227,44 @@ export default function DashboardPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
-              {expiringItems.map((item) => (
-                <div
-                  key={item.id}
-                  className="flex items-center justify-between border-b pb-3 last:border-0 last:pb-0"
-                >
-                  <div className="space-y-1">
-                    <p className="text-sm font-medium leading-none">
-                      {item.name}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {item.client}
-                    </p>
-                    <div className="flex items-center gap-2 pt-1">
-                      <Badge
-                        variant="outline"
-                        className={
-                          item.daysLeft <= 14
-                            ? 'border-orange-500 text-orange-600'
-                            : 'border-yellow-500 text-yellow-600'
-                        }
-                      >
-                        剩余 {item.daysLeft} 天
-                      </Badge>
+            {expiringItems.length > 0 ? (
+              <div className="space-y-4">
+                {expiringItems.map((item) => (
+                  <div
+                    key={item.id}
+                    className="flex items-center justify-between border-b pb-3 last:border-0 last:pb-0"
+                  >
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium leading-none">
+                        {item.name}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {item.client}
+                      </p>
+                      <div className="flex items-center gap-2 pt-1">
+                        <Badge
+                          variant="outline"
+                          className={
+                            item.daysLeft <= 14
+                              ? 'border-orange-500 text-orange-600'
+                              : 'border-yellow-500 text-yellow-600'
+                          }
+                        >
+                          剩余 {item.daysLeft} 天
+                        </Badge>
+                      </div>
                     </div>
+                    <Button variant="ghost" size="sm">
+                      查看
+                    </Button>
                   </div>
-                  <Button variant="ghost" size="sm">
-                    查看
-                  </Button>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            ) : (
+              <div className="flex h-[200px] items-center justify-center text-muted-foreground">
+                暂无数据
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -341,39 +280,45 @@ export default function DashboardPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
-              {recentActivity.map((activity) => (
-                <div
-                  key={activity.id}
-                  className="flex items-center justify-between border-b pb-3 last:border-0 last:pb-0"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted">
-                      {getActivityIcon(activity.type)}
-                    </div>
-                    <div className="space-y-1">
-                      <p className="text-sm font-medium leading-none">
-                        {activity.action}
-                      </p>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-muted-foreground">
-                          {activity.quote}
-                        </span>
-                        <span className="text-xs text-muted-foreground">
-                          {activity.client}
-                        </span>
+            {recentActivity.length > 0 ? (
+              <div className="space-y-4">
+                {recentActivity.map((activity) => (
+                  <div
+                    key={activity.id}
+                    className="flex items-center justify-between border-b pb-3 last:border-0 last:pb-0"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted">
+                        {getActivityIcon(activity.type)}
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium leading-none">
+                          {activity.action}
+                        </p>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-muted-foreground">
+                            {activity.quote}
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            {activity.client}
+                          </span>
+                        </div>
                       </div>
                     </div>
+                    <div className="flex items-center gap-2">
+                      {getActivityBadge(activity.type)}
+                      <span className="text-xs text-muted-foreground">
+                        {activity.time}
+                      </span>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    {getActivityBadge(activity.type)}
-                    <span className="text-xs text-muted-foreground">
-                      {activity.time}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            ) : (
+              <div className="flex h-[300px] items-center justify-center text-muted-foreground">
+                暂无数据
+              </div>
+            )}
           </CardContent>
         </Card>
 
