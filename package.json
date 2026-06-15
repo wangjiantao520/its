@@ -43,11 +43,7 @@
     "@radix-ui/react-toggle-group": "^1.1.11",
     "@radix-ui/react-tooltip": "^1.2.8",
     "@supabase/supabase-js": "2.95.3",
-<<<<<<< HEAD
     "bcryptjs": "^2.4.3",
-=======
-    "bcryptjs": "^3.0.3",
->>>>>>> bb2e44d287b7491b8164b7f9337b5880134e303a
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
@@ -83,11 +79,7 @@
     "@react-dev-inspector/babel-plugin": "^2.0.1",
     "@react-dev-inspector/middleware": "^2.0.1",
     "@tailwindcss/postcss": "^4",
-<<<<<<< HEAD
     "@types/bcryptjs": "^2.4.6",
-=======
-    "@types/bcryptjs": "^3.0.0",
->>>>>>> bb2e44d287b7491b8164b7f9337b5880134e303a
     "@types/node": "^20",
     "@types/pg": "^8.16.0",
     "@types/react": "^19",

@@ -10,17 +10,9 @@ import { AlertCircle, Lock, Users } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Checkbox } from '@/components/ui/checkbox';
-<<<<<<< HEAD
-import { useUser } from '@/contexts/user-context';
 
 export default function LoginPage() {
   const router = useRouter();
-  const { login } = useUser();
-=======
-
-export default function LoginPage() {
-  const router = useRouter();
->>>>>>> bb2e44d287b7491b8164b7f9337b5880134e303a
 
   // 管理员登录状态
   const [adminPassword, setAdminPassword] = useState('');
@@ -42,12 +34,6 @@ export default function LoginPage() {
     setAdminLoading(true);
 
     try {
-<<<<<<< HEAD
-      const result = await login('admin', adminPassword);
-      
-      if (!result.success) {
-        setAdminError(result.error || '登录失败');
-=======
       const response = await fetch('/api/auth', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -58,18 +44,13 @@ export default function LoginPage() {
 
       if (!data.success) {
         setAdminError(data.error || '登录失败');
->>>>>>> bb2e44d287b7491b8164b7f9337b5880134e303a
         setAdminLoading(false);
         return;
       }
 
-<<<<<<< HEAD
-      // 记住登录
-=======
       // 存储登录信息
       localStorage.setItem('authToken', data.data.token);
       localStorage.setItem('userRole', 'admin');
->>>>>>> bb2e44d287b7491b8164b7f9337b5880134e303a
       if (adminRemember) {
         localStorage.setItem('rememberLogin', 'true');
       }

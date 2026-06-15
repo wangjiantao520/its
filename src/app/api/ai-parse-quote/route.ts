@@ -1,21 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-<<<<<<< HEAD
-import pool from '@/lib/db';
-import { callAIModel, getActiveAIModelConfig } from '@/lib/ai-config';
-
-// DeepSeek API 配置（保留作为环境变量回退）
-const DEEPSEEK_API_URL = process.env.DEEPSEEK_API_URL || 'https://api.deepseek.com/v1/chat/completions';
-const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || 'deepseek-v4-pro';
-
-// 系统提示词（增强版 - 集成学习能力）
-=======
 
 // DeepSeek API 配置
 const DEEPSEEK_API_URL = process.env.DEEPSEEK_API_URL || 'https://api.deepseek.com/v1/chat/completions';
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || 'deepseek-chat';
 
 // 系统提示词（完整版）
->>>>>>> bb2e44d287b7491b8164b7f9337b5880134e303a
 const SYSTEM_PROMPT = `你是专业的IT设备维保报价助手，帮助用户快速生成维保报价方案。
 
 ## 你的能力
@@ -23,19 +12,6 @@ const SYSTEM_PROMPT = `你是专业的IT设备维保报价助手，帮助用户�
 2. 识别设备类型、数量、使用年限
 3. 识别服务级别要求（SLA）
 4. 提供多种配置方案供选择
-<<<<<<< HEAD
-5. 根据客户历史偏好智能匹配
-6. 参考历史错误反馈避免重复错误
-
-## 反馈学习样本（从历史错误反馈中学习）
-以下是用户反馈的"AI识别错误"案例，必须避免这些错误：
-{{FEEDBACK_SAMPLES}}
-
-## 客户历史偏好（如果提供）
-该客户之前使用的设备配置偏好：
-{{CLIENT_HISTORY}}
-=======
->>>>>>> bb2e44d287b7491b8164b7f9337b5880134e303a
 
 ## 输出格式（必须返回合法JSON）
 {
@@ -142,10 +118,6 @@ const SYSTEM_PROMPT = `你是专业的IT设备维保报价助手，帮助用户�
 4. missingFields数组列出无法确定的关键字段
 5. suggestions给出补充信息的建议
 6. estimatedPriceRange必须计算并填充
-<<<<<<< HEAD
-7. 参考历史偏好和反馈样本，提供更准确的识别
-=======
->>>>>>> bb2e44d287b7491b8164b7f9337b5880134e303a
 
 现在分析用户需求：`;
 
@@ -198,10 +170,7 @@ function calculateEstimatedPrice(devices: any[], region: string, serviceMode: st
     '其他': { min: 500, max: 2000 },
   };
 
-<<<<<<< HEAD
-=======
   // 地区系数
->>>>>>> bb2e44d287b7491b8164b7f9337b5880134e303a
   const regionFactor: Record<string, number> = {
     '城区': 1.0,
     '市区县城郊区': 0.95,
@@ -209,20 +178,14 @@ function calculateEstimatedPrice(devices: any[], region: string, serviceMode: st
     '农村': 0.85,
   };
 
-<<<<<<< HEAD
-=======
   // 服务模式系数
->>>>>>> bb2e44d287b7491b8164b7f9337b5880134e303a
   const serviceModeFactor: Record<string, number> = {
     '远程': 1.0,
     '混合': 1.25,
     '驻场': 1.5,
   };
 
-<<<<<<< HEAD
-=======
   // 服务时间系数
->>>>>>> bb2e44d287b7491b8164b7f9337b5880134e303a
   const serviceTimeFactor: Record<string, number> = {
     '5x8': 1.0,
     '7x8': 1.15,
@@ -236,11 +199,8 @@ function calculateEstimatedPrice(devices: any[], region: string, serviceMode: st
     const price = priceMap[device.deviceName] || priceMap['其他'];
     const quantity = device.quantity || 1;
     const useYears = device.useYears || 2;
-<<<<<<< HEAD
-=======
 
     // 使用年限系数（年限越长，价格相对越低但不低于基价）
->>>>>>> bb2e44d287b7491b8164b7f9337b5880134e303a
     const ageFactor = useYears <= 1 ? 1.0 : useYears <= 3 ? 0.9 : 0.8;
 
     totalMin += price.min * quantity * ageFactor;
@@ -258,85 +218,6 @@ function calculateEstimatedPrice(devices: any[], region: string, serviceMode: st
   };
 }
 
-<<<<<<< HEAD
-// 调用 AI API（统一使用动态配置，优先读取用户在系统设置中激活的模型）
-async function callDeepSeekAPI(messages: Array<{ role: string; content: string }>): Promise<string> {
-  const result = await callAIModel(messages);
-  if (!result.success) {
-    throw new Error(result.error || 'AI服务调用失败');
-  }
-  return result.content || '';
-}
-
-// 查询客户历史学习记录
-async function getClientHistory(clientName?: string, clientId?: number): Promise<string> {
-  if (!clientName && !clientId) return '（无客户历史信息）';
-
-  try {
-    const conn = await pool.getConnection();
-    try {
-      let query = 'SELECT device_signature, device_config, usage_count FROM ai_learning_memory WHERE 1=1';
-      const params: any[] = [];
-      if (clientId) {
-        query += ' AND client_id = ?';
-        params.push(clientId);
-      } else if (clientName) {
-        query += ' AND client_name = ?';
-        params.push(clientName);
-      }
-      query += ' ORDER BY usage_count DESC, last_used_at DESC LIMIT 10';
-
-      const [rows] = await conn.execute(query, params);
-      const memories = rows as any[];
-
-      if (memories.length === 0) return '（该客户暂无历史记录）';
-
-      return memories.map((m, i) => {
-        const cfg = typeof m.device_config === 'string' ? JSON.parse(m.device_config) : m.device_config;
-        return `${i + 1}. ${m.device_signature} - 配置: ${JSON.stringify(cfg)} (使用${m.usage_count}次)`;
-      }).join('\n');
-    } finally {
-      conn.release();
-    }
-  } catch (e) {
-    console.error('[AI] 查询客户历史失败:', e);
-    return '（查询历史失败）';
-  }
-}
-
-// 查询反馈样本（让AI学习避免错误）
-async function getFeedbackSamples(): Promise<string> {
-  try {
-    const conn = await pool.getConnection();
-    try {
-      const [rows] = await conn.execute(
-        'SELECT original_text, ai_result, corrected_result, feedback_type, feedback_comment FROM ai_feedback ORDER BY created_at DESC LIMIT 20'
-      );
-      const feedbacks = rows as any[];
-
-      if (feedbacks.length === 0) return '（暂无反馈数据）';
-
-      return feedbacks.map((f, i) => {
-        const ai = typeof f.ai_result === 'string' ? JSON.parse(f.ai_result) : f.ai_result;
-        const corrected = f.corrected_result ? (typeof f.corrected_result === 'string' ? JSON.parse(f.corrected_result) : f.corrected_result) : null;
-        return `案例${i + 1} [${f.feedback_type}]:\n  原文本: ${f.original_text.substring(0, 200)}\n  AI结果: ${JSON.stringify(ai).substring(0, 300)}\n  ${corrected ? `纠正: ${JSON.stringify(corrected).substring(0, 300)}` : ''}\n  ${f.feedback_comment || ''}`;
-      }).join('\n\n');
-    } finally {
-      conn.release();
-    }
-  } catch (e) {
-    console.error('[AI] 查询反馈失败:', e);
-    return '（查询反馈失败）';
-  }
-}
-
-// 构建消息历史
-function buildMessages(userMessage: string, systemPrompt: string, history?: Array<{ role: string; content: string }>): Array<{ role: string; content: string }> {
-  const messages: Array<{ role: string; content: string }> = [
-    { role: 'system', content: systemPrompt }
-  ];
-
-=======
 // 调用 DeepSeek API
 async function callDeepSeekAPI(messages: Array<{ role: string; content: string }>): Promise<string> {
   const apiKey = process.env.DEEPSEEK_API_KEY;
@@ -376,15 +257,11 @@ function buildMessages(userMessage: string, history?: Array<{ role: string; cont
   ];
 
   // 添加历史对话
->>>>>>> bb2e44d287b7491b8164b7f9337b5880134e303a
   if (history && history.length > 0) {
     messages.push(...history);
   }
 
-<<<<<<< HEAD
-=======
   // 添加当前用户消息
->>>>>>> bb2e44d287b7491b8164b7f9337b5880134e303a
   messages.push({ role: 'user', content: userMessage });
 
   return messages;
@@ -395,16 +272,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-<<<<<<< HEAD
-    const { text, history, clientName, clientId } = body as {
-      text?: string;
-      history?: Array<{ role: string; content: string }>;
-      clientName?: string;
-      clientId?: number;
-    };
-=======
     const { text, history } = body as { text?: string; history?: Array<{ role: string; content: string }> };
->>>>>>> bb2e44d287b7491b8164b7f9337b5880134e303a
 
     if (!text || !text.trim()) {
       return NextResponse.json(
@@ -413,28 +281,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-<<<<<<< HEAD
-    console.log('[AI] 输入文本:', text, '客户:', clientName);
-
-    // 并行查询：客户历史 + 反馈样本
-    const [clientHistory, feedbackSamples] = await Promise.all([
-      getClientHistory(clientName, clientId),
-      getFeedbackSamples(),
-    ]);
-
-    // 动态构建系统提示词
-    const dynamicSystemPrompt = SYSTEM_PROMPT
-      .replace('{{FEEDBACK_SAMPLES}}', feedbackSamples)
-      .replace('{{CLIENT_HISTORY}}', clientHistory);
-
-    const messages = buildMessages(text, dynamicSystemPrompt, history);
-
-    const aiResponse = await callDeepSeekAPI(messages);
-    console.log('[AI] DeepSeek 返回:', aiResponse);
-
-    const result = parseAIResponse(aiResponse);
-
-=======
     console.log('[AI] 输入文本:', text);
 
     // 构建消息（包含历史对话）
@@ -448,7 +294,6 @@ export async function POST(request: NextRequest) {
     const result = parseAIResponse(aiResponse);
 
     // 如果没有计算预估价格，自动计算
->>>>>>> bb2e44d287b7491b8164b7f9337b5880134e303a
     if (!result.estimatedPriceRange && result.devices && result.devices.length > 0) {
       result.estimatedPriceRange = calculateEstimatedPrice(
         result.devices,
@@ -458,45 +303,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-<<<<<<< HEAD
-    // 自动同步学习记忆（仅当客户名明确时）
-    if (clientName && result.devices && result.devices.length > 0) {
-      try {
-        const conn = await pool.getConnection();
-        for (const device of result.devices) {
-          const useYears = device.useYears;
-          const signature = `${(device.deviceName || '').toLowerCase()}::${!useYears ? 'unknown' : useYears <= 1 ? 'new' : useYears <= 3 ? 'mid' : 'old'}`;
-          const [existing] = await conn.execute(
-            'SELECT id, usage_count FROM ai_learning_memory WHERE client_id = ? AND device_signature = ?',
-            [clientId || null, signature]
-          );
-          if ((existing as any[]).length > 0) {
-            await conn.execute(
-              'UPDATE ai_learning_memory SET usage_count = usage_count + 1, last_used_at = CURRENT_TIMESTAMP, device_config = ? WHERE id = ?',
-              [JSON.stringify(device), (existing as any[])[0].id]
-            );
-          } else {
-            await conn.execute(
-              'INSERT INTO ai_learning_memory (client_id, client_name, device_signature, device_config) VALUES (?, ?, ?, ?)',
-              [clientId || null, clientName, signature, JSON.stringify(device)]
-            );
-          }
-        }
-        conn.release();
-      } catch (e) {
-        console.error('[AI] 自动保存学习记忆失败:', e);
-      }
-    }
-
     result.quotaList = [];
-    result._meta = {
-      hasHistory: clientHistory !== '（该客户暂无历史记录）' && clientHistory !== '（无客户历史信息）',
-      hasFeedback: feedbackSamples !== '（暂无反馈数据）',
-      timestamp: new Date().toISOString(),
-    };
-=======
-    result.quotaList = [];
->>>>>>> bb2e44d287b7491b8164b7f9337b5880134e303a
 
     console.log('[AI] 解析结果:', JSON.stringify(result, null, 2));
     return NextResponse.json(result);

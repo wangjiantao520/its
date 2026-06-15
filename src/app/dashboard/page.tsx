@@ -25,24 +25,6 @@ import {
   RefreshCw,
 } from 'lucide-react';
 
-<<<<<<< HEAD
-// Empty data for statistics
-const stats = {
-  totalQuotes: 0,
-  thisMonth: 0,
-  pendingReview: 0,
-  expiringSoon: 0,
-};
-
-// Empty data for monthly trends
-const monthlyTrends: Array<{ month: string; quotes: number }> = [];
-
-// Empty data for recent activity
-const recentActivity: Array<{ id: number; action: string; quote: string; client: string; time: string; type: string }> = [];
-
-// Empty data for expiring items
-const expiringItems: Array<{ id: number; type: string; name: string; client: string; expiryDate: string; daysLeft: number }> = [];
-=======
 // Mock data for statistics
 const stats = {
   totalQuotes: 156,
@@ -132,7 +114,6 @@ const expiringItems = [
     daysLeft: 22,
   },
 ];
->>>>>>> bb2e44d287b7491b8164b7f9337b5880134e303a
 
 const getActivityIcon = (type: string) => {
   switch (type) {
@@ -264,48 +245,6 @@ export default function DashboardPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-<<<<<<< HEAD
-            {monthlyTrends.length > 0 ? (
-              <div className="h-[300px] w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={monthlyTrends}>
-                    <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                    <XAxis
-                      dataKey="month"
-                      stroke="#888888"
-                      fontSize={12}
-                      tickLine={false}
-                      axisLine={false}
-                    />
-                    <YAxis
-                      stroke="#888888"
-                      fontSize={12}
-                      tickLine={false}
-                      axisLine={false}
-                    />
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: 'hsl(var(--card))',
-                        border: '1px solid hsl(var(--border))',
-                        borderRadius: '8px',
-                      }}
-                      labelStyle={{ color: 'hsl(var(--foreground))' }}
-                    />
-                    <Bar
-                      dataKey="quotes"
-                      fill="hsl(var(--primary))"
-                      radius={[4, 4, 0, 0]}
-                      name="报价数"
-                    />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            ) : (
-              <div className="flex h-[300px] w-full items-center justify-center text-muted-foreground">
-                暂无数据
-              </div>
-            )}
-=======
             <div className="h-[300px] w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={monthlyTrends}>
@@ -340,7 +279,6 @@ export default function DashboardPage() {
                 </BarChart>
               </ResponsiveContainer>
             </div>
->>>>>>> bb2e44d287b7491b8164b7f9337b5880134e303a
           </CardContent>
         </Card>
 
@@ -356,46 +294,6 @@ export default function DashboardPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-<<<<<<< HEAD
-            {expiringItems.length > 0 ? (
-              <div className="space-y-4">
-                {expiringItems.map((item) => (
-                  <div
-                    key={item.id}
-                    className="flex items-center justify-between border-b pb-3 last:border-0 last:pb-0"
-                  >
-                    <div className="space-y-1">
-                      <p className="text-sm font-medium leading-none">
-                        {item.name}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {item.client}
-                      </p>
-                      <div className="flex items-center gap-2 pt-1">
-                        <Badge
-                          variant="outline"
-                          className={
-                            item.daysLeft <= 14
-                              ? 'border-orange-500 text-orange-600'
-                              : 'border-yellow-500 text-yellow-600'
-                          }
-                        >
-                          剩余 {item.daysLeft} 天
-                        </Badge>
-                      </div>
-                    </div>
-                    <Button variant="ghost" size="sm">
-                      查看
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="flex h-[200px] items-center justify-center text-muted-foreground">
-                暂无数据
-              </div>
-            )}
-=======
             <div className="space-y-4">
               {expiringItems.map((item) => (
                 <div
@@ -428,7 +326,6 @@ export default function DashboardPage() {
                 </div>
               ))}
             </div>
->>>>>>> bb2e44d287b7491b8164b7f9337b5880134e303a
           </CardContent>
         </Card>
       </div>
@@ -444,47 +341,6 @@ export default function DashboardPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-<<<<<<< HEAD
-            {recentActivity.length > 0 ? (
-              <div className="space-y-4">
-                {recentActivity.map((activity) => (
-                  <div
-                    key={activity.id}
-                    className="flex items-center justify-between border-b pb-3 last:border-0 last:pb-0"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted">
-                        {getActivityIcon(activity.type)}
-                      </div>
-                      <div className="space-y-1">
-                        <p className="text-sm font-medium leading-none">
-                          {activity.action}
-                        </p>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs text-muted-foreground">
-                            {activity.quote}
-                          </span>
-                          <span className="text-xs text-muted-foreground">
-                            {activity.client}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {getActivityBadge(activity.type)}
-                      <span className="text-xs text-muted-foreground">
-                        {activity.time}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="flex h-[300px] items-center justify-center text-muted-foreground">
-                暂无数据
-              </div>
-            )}
-=======
             <div className="space-y-4">
               {recentActivity.map((activity) => (
                 <div
@@ -518,7 +374,6 @@ export default function DashboardPage() {
                 </div>
               ))}
             </div>
->>>>>>> bb2e44d287b7491b8164b7f9337b5880134e303a
           </CardContent>
         </Card>
 

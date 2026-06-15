@@ -21,10 +21,7 @@ import {
   FileSpreadsheet,
   Copy,
   UserCheck,
-<<<<<<< HEAD
-  Brain,
-=======
->>>>>>> bb2e44d287b7491b8164b7f9337b5880134e303a
+  Bot,
 } from 'lucide-react';
 import { usePathname, useRouter } from 'next/navigation';
 import {
@@ -129,7 +126,7 @@ const adminNavItems = [
   {
     title: 'AI模型配置',
     url: '/settings/ai-models',
-    icon: Brain,
+    icon: Bot,
   },
 ];
 

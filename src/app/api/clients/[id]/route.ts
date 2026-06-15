@@ -8,21 +8,14 @@ function requireAuth(request: NextRequest) {
   return session;
 }
 
-<<<<<<< HEAD
-// GET /api/clients/[id] — get client by id with quote history
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-=======
 type RouteContext = {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 };
 
 // GET /api/clients/[id] — get client by id with quote history
 export async function GET(
   request: NextRequest,
   context: RouteContext
->>>>>>> bb2e44d287b7491b8164b7f9337b5880134e303a
 ) {
   const session = requireAuth(request);
   if (!session) {
@@ -30,12 +23,7 @@ export async function GET(
   }
 
   try {
-<<<<<<< HEAD
-    const { id: idStr } = await params;
-    const id = parseInt(idStr, 10);
-=======
-    const id = parseInt(context.params.id, 10);
->>>>>>> bb2e44d287b7491b8164b7f9337b5880134e303a
+    const id = parseInt((await context.params).id, 10);
     if (isNaN(id)) {
       return NextResponse.json({ success: false, error: '无效的客户ID' }, { status: 400 });
     }
@@ -95,11 +83,7 @@ export async function GET(
 // PUT /api/clients/[id] — update client
 export async function PUT(
   request: NextRequest,
-<<<<<<< HEAD
-  { params }: { params: Promise<{ id: string }> }
-=======
   context: RouteContext
->>>>>>> bb2e44d287b7491b8164b7f9337b5880134e303a
 ) {
   const session = requireAuth(request);
   if (!session) {
@@ -107,12 +91,7 @@ export async function PUT(
   }
 
   try {
-<<<<<<< HEAD
-    const { id: idStr } = await params;
-    const id = parseInt(idStr, 10);
-=======
-    const id = parseInt(context.params.id, 10);
->>>>>>> bb2e44d287b7491b8164b7f9337b5880134e303a
+    const id = parseInt((await context.params).id, 10);
     if (isNaN(id)) {
       return NextResponse.json({ success: false, error: '无效的客户ID' }, { status: 400 });
     }
@@ -145,18 +124,6 @@ export async function PUT(
 
     // Build dynamic update
     const updates: string[] = [];
-<<<<<<< HEAD
-    const queryParams: (string | number | null)[] = [];
-
-    if (name !== undefined) { updates.push('name = ?'); queryParams.push(name.trim()); }
-    if (contact_person !== undefined) { updates.push('contact_person = ?'); queryParams.push(contact_person?.trim() || null); }
-    if (contact_phone !== undefined) { updates.push('contact_phone = ?'); queryParams.push(contact_phone?.trim() || null); }
-    if (contact_email !== undefined) { updates.push('contact_email = ?'); queryParams.push(contact_email?.trim() || null); }
-    if (address !== undefined) { updates.push('address = ?'); queryParams.push(address?.trim() || null); }
-    if (region !== undefined) { updates.push('region = ?'); queryParams.push(region || '城区'); }
-    if (level !== undefined) { updates.push('level = ?'); queryParams.push(level); }
-    if (remark !== undefined) { updates.push('remark = ?'); queryParams.push(remark?.trim() || null); }
-=======
     const params: (string | number | null)[] = [];
 
     if (name !== undefined) { updates.push('name = ?'); params.push(name.trim()); }
@@ -167,23 +134,15 @@ export async function PUT(
     if (region !== undefined) { updates.push('region = ?'); params.push(region || '城区'); }
     if (level !== undefined) { updates.push('level = ?'); params.push(level); }
     if (remark !== undefined) { updates.push('remark = ?'); params.push(remark?.trim() || null); }
->>>>>>> bb2e44d287b7491b8164b7f9337b5880134e303a
 
     if (updates.length === 0) {
       return NextResponse.json({ success: false, error: '没有需要更新的字段' }, { status: 400 });
     }
 
-<<<<<<< HEAD
-    queryParams.push(id);
-    await pool.query(
-      `UPDATE clients SET ${updates.join(', ')} WHERE id = ?`,
-      queryParams
-=======
     params.push(id);
     await pool.query(
       `UPDATE clients SET ${updates.join(', ')} WHERE id = ?`,
       params
->>>>>>> bb2e44d287b7491b8164b7f9337b5880134e303a
     );
 
     const [updated] = await pool.query<any[]>(
@@ -203,11 +162,7 @@ export async function PUT(
 // DELETE /api/clients/[id] — delete client
 export async function DELETE(
   request: NextRequest,
-<<<<<<< HEAD
-  { params }: { params: Promise<{ id: string }> }
-=======
   context: RouteContext
->>>>>>> bb2e44d287b7491b8164b7f9337b5880134e303a
 ) {
   const session = requireAuth(request);
   if (!session) {
@@ -215,12 +170,7 @@ export async function DELETE(
   }
 
   try {
-<<<<<<< HEAD
-    const { id: idStr } = await params;
-    const id = parseInt(idStr, 10);
-=======
-    const id = parseInt(context.params.id, 10);
->>>>>>> bb2e44d287b7491b8164b7f9337b5880134e303a
+    const id = parseInt((await context.params).id, 10);
     if (isNaN(id)) {
       return NextResponse.json({ success: false, error: '无效的客户ID' }, { status: 400 });
     }
