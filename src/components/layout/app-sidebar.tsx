@@ -21,6 +21,7 @@ import {
   FileSpreadsheet,
   Copy,
   UserCheck,
+  Brain,
 } from 'lucide-react';
 import { usePathname, useRouter } from 'next/navigation';
 import {
@@ -121,6 +122,11 @@ const adminNavItems = [
     title: '数据库管理',
     url: '/database',
     icon: Database,
+  },
+  {
+    title: 'AI模型配置',
+    url: '/settings/ai-models',
+    icon: Brain,
   },
 ];
 

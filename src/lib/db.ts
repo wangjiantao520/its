@@ -273,6 +273,52 @@ export async function initDatabase() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
 
+    // AI模型配置表 - 用户自定义AI模型
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS ai_model_configs (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(100) NOT NULL COMMENT '配置名称',
+        provider VARCHAR(50) NOT NULL COMMENT '提供商：deepseek/openai/doubao/qwen/moonshot/custom',
+        model_name VARCHAR(100) NOT NULL COMMENT '模型名称',
+        api_endpoint VARCHAR(500) NOT NULL COMMENT 'API端点',
+        api_key VARCHAR(500) NOT NULL COMMENT 'API密钥',
+        temperature DECIMAL(3,2) DEFAULT 0.30 COMMENT '温度参数 0-2',
+        max_tokens INT DEFAULT 3000 COMMENT '最大输出tokens',
+        system_prompt TEXT COMMENT '自定义系统提示词（可选）',
+        description VARCHAR(500) COMMENT '配置描述',
+        is_active TINYINT(1) DEFAULT 0 COMMENT '是否激活（全局只能有一个激活）',
+        is_default TINYINT(1) DEFAULT 0 COMMENT '是否默认配置',
+        sort_order INT DEFAULT 0 COMMENT '排序',
+        created_by VARCHAR(100) COMMENT '创建人',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_provider (provider),
+        INDEX idx_is_active (is_active),
+        INDEX idx_is_default (is_default)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    // AI模型使用日志表
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS ai_model_logs (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        config_id INT NOT NULL COMMENT '配置ID',
+        provider VARCHAR(50) NOT NULL,
+        model_name VARCHAR(100) NOT NULL,
+        request_type VARCHAR(50) COMMENT '请求类型：parse/test/chat',
+        prompt_length INT COMMENT '输入长度',
+        response_length INT COMMENT '输出长度',
+        duration_ms INT COMMENT '耗时（毫秒）',
+        status ENUM('success', 'failed', 'timeout') NOT NULL,
+        error_message TEXT,
+        operator VARCHAR(100),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_config_id (config_id),
+        INDEX idx_status (status),
+        INDEX idx_created_at (created_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
     console.log('✅ 数据库表初始化成功');
     connection.release();
     return true;

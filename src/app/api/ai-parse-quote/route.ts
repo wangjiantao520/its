@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/lib/db';
+import { callAIModel, getActiveAIModelConfig } from '@/lib/ai-config';
 
-// DeepSeek API 配置
+// DeepSeek API 配置（保留作为环境变量回退）
 const DEEPSEEK_API_URL = process.env.DEEPSEEK_API_URL || 'https://api.deepseek.com/v1/chat/completions';
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || 'deepseek-v4-pro';
 
@@ -225,36 +226,13 @@ function calculateEstimatedPrice(devices: any[], region: string, serviceMode: st
   };
 }
 
-// 调用 DeepSeek API
+// 调用 AI API（统一使用动态配置，优先读取用户在系统设置中激活的模型）
 async function callDeepSeekAPI(messages: Array<{ role: string; content: string }>): Promise<string> {
-  const apiKey = process.env.DEEPSEEK_API_KEY;
-
-  if (!apiKey || apiKey === 'your-deepseek-api-key-here') {
-    throw new Error('DeepSeek API Key 未配置');
+  const result = await callAIModel(messages);
+  if (!result.success) {
+    throw new Error(result.error || 'AI服务调用失败');
   }
-
-  const response = await fetch(DEEPSEEK_API_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: DEEPSEEK_MODEL,
-      messages: messages,
-      temperature: 0.3,
-      max_tokens: 3000,
-    }),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error('DeepSeek API 错误:', response.status, errorText);
-    throw new Error(`API 调用失败: ${response.status}`);
-  }
-
-  const data = await response.json();
-  return data.choices?.[0]?.message?.content || '';
+  return result.content || '';
 }
 
 // 查询客户历史学习记录
