@@ -1195,7 +1195,7 @@ export default function EngineeringPage() {
         contactPhone: data.contact_phone || '',
         quoteNumber: data.quote_number,
         quoteDate: new Date(data.created_at).toISOString().split('T')[0],
-        items: mapItemsForExport(data.items, data.management_rate, data.profit_rate, data.regulatory_rate),
+        items: mapItemsForExport(data.items as any, data.management_rate, data.profit_rate, data.regulatory_rate),
         rates: {
           managementRate: num(data.management_rate),
           profitRate: num(data.profit_rate),
@@ -1285,7 +1285,7 @@ export default function EngineeringPage() {
           contactPhone: data.contact_phone || '',
           quoteNumber: data.quote_number,
           quoteDate: new Date(data.created_at).toISOString().split('T')[0],
-          items: mapItemsForExport(data.items, data.management_rate, data.profit_rate, data.regulatory_rate),
+          items: mapItemsForExport(data.items as any, data.management_rate, data.profit_rate, data.regulatory_rate),
           rates: {
             managementRate: num(data.management_rate),
             profitRate: num(data.profit_rate),
@@ -1376,7 +1376,7 @@ export default function EngineeringPage() {
       // 每个报价单一个明细sheet
       for (const data of quoteList) {
         const sheetName = data.quote_number.substring(0, 31); // Excel sheet名最长31字符
-        const detailItems = mapItemsForExport(data.items, data.management_rate, data.profit_rate, data.regulatory_rate);
+        const detailItems = mapItemsForExport(data.items as any, data.management_rate, data.profit_rate, data.regulatory_rate);
         const detailData: Record<string, string | number>[] = detailItems.map((item, idx) => ({
           '序号': idx + 1,
           '项目名称': item.name,
@@ -1444,7 +1444,7 @@ export default function EngineeringPage() {
           contactPhone: data.contact_phone || '',
           quoteNumber: data.quote_number,
           quoteDate: new Date(data.created_at).toISOString().split('T')[0],
-          items: mapItemsForExport(data.items, data.management_rate, data.profit_rate, data.regulatory_rate),
+          items: mapItemsForExport(data.items as any, data.management_rate, data.profit_rate, data.regulatory_rate),
           rates: {
             managementRate: num(data.management_rate),
             profitRate: num(data.profit_rate),

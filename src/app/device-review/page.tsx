@@ -21,16 +21,17 @@ import { Label } from '@/components/ui/label';
 
 export default function DeviceReviewPage() {
   const { user, isLoggedIn } = useUser();
-
-  // 如果未登录，不渲染内容
-  if (!isLoggedIn || !user) {
-    return null;
-  }
+  
   const [imports, setImports] = useState<DeviceImportItem[]>(getDeviceImports());
   const [selectedItem, setSelectedItem] = useState<DeviceImportItem | null>(null);
   const [reviewComment, setReviewComment] = useState('');
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [dialogAction, setDialogAction] = useState<'approve' | 'reject' | null>(null);
+
+  // 如果未登录，不渲染内容
+  if (!isLoggedIn || !user) {
+    return null;
+  }
 
   const getStatusBadge = (status: ImportStatus) => {
     switch (status) {
