@@ -3,7 +3,7 @@ import pool from '@/lib/db';
 
 // DeepSeek API 配置
 const DEEPSEEK_API_URL = process.env.DEEPSEEK_API_URL || 'https://api.deepseek.com/v1/chat/completions';
-const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || 'deepseek-chat';
+const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || 'deepseek-v4-pro';
 
 // 系统提示词（增强版 - 集成学习能力）
 const SYSTEM_PROMPT = `你是专业的IT设备维保报价助手，帮助用户快速生成维保报价方案。
