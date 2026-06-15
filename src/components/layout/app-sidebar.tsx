@@ -14,6 +14,13 @@ import {
   LogOut,
   Sun,
   Moon,
+  ListFilter,
+  Users,
+  LayoutDashboard,
+  BarChart3,
+  FileSpreadsheet,
+  Copy,
+  UserCheck,
 } from 'lucide-react';
 import { usePathname, useRouter } from 'next/navigation';
 import {
@@ -61,6 +68,11 @@ const adminNavItems = [
     icon: Home,
   },
   {
+    title: '数据看板',
+    url: '/dashboard',
+    icon: LayoutDashboard,
+  },
+  {
     title: '工程报价',
     url: '/engineering',
     icon: Calculator,
@@ -69,6 +81,26 @@ const adminNavItems = [
     title: '维保报价',
     url: '/maintenance',
     icon: Wrench,
+  },
+  {
+    title: '报价管理',
+    url: '/quotes',
+    icon: ListFilter,
+  },
+  {
+    title: '客户管理',
+    url: '/clients',
+    icon: Users,
+  },
+  {
+    title: '报表统计',
+    url: '/reports',
+    icon: BarChart3,
+  },
+  {
+    title: 'ITS成员管理',
+    url: '/admin/users',
+    icon: UserCheck,
   },
   {
     title: '设备清单审核',

@@ -52,7 +52,11 @@ const DEPRECIATION_LEVELS: { value: DepreciationLevel; label: string }[] = [
 
 export default function DeviceImportPage() {
   const { user, isLoggedIn } = useUser();
-  
+
+  // 如果未登录，不渲染内容
+  if (!isLoggedIn || !user) {
+    return null;
+  }
   const [devices, setDevices] = useState<Partial<DeviceImportItem>[]>([]);
   const [currentDevice, setCurrentDevice] = useState<Partial<DeviceImportItem>>({
     category: '',
@@ -66,11 +70,6 @@ export default function DeviceImportPage() {
   });
   const [importRecords, setImportRecords] = useState<DeviceImportItem[]>(getDeviceImports());
   const [activeTab, setActiveTab] = useState('form');
-
-  // 如果未登录，不渲染内容
-  if (!isLoggedIn || !user) {
-    return null;
-  }
 
   const handleAddDevice = () => {
     // 验证必填字段

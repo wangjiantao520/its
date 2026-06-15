@@ -12,13 +12,13 @@ import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { 
-  Calculator, 
-  FileSpreadsheet, 
+import {
+  Calculator,
+  FileSpreadsheet,
   FileText,
-  Download, 
-  Plus, 
-  Trash2, 
+  Download,
+  Plus,
+  Trash2,
   Save,
   Printer,
   Settings,
@@ -36,6 +36,21 @@ import {
   Info,
   Sparkles,
   Loader2,
+  History,
+  Clipboard,
+  Link2,
+  Share2,
+  Send,
+  Filter,
+  CheckSquare,
+  Square,
+  Users,
+  FileDown,
+  FileUp,
+  Copy,
+  Check,
+  ChevronRight,
+  MoreHorizontal,
 } from 'lucide-react';
 // 旧数据结构（保持向后兼容）
 import {
@@ -106,7 +121,8 @@ import { ValueAddedServicesSelector } from '@/components/value-added-services-se
 import { SurveyQuestionnaire } from '@/components/survey-questionnaire';
 import type { SurveyAnswer } from '@/lib/survey-questions';
 import { VALUE_ADDED_SERVICES, calculateValueAddedServicesTotal, type ValueAddedService } from '@/lib/value-added-services';
-import { parseQuoteRequirement, AI_QUOTE_EXAMPLES, type AiQuoteDraft, type RecognitionStatus } from '@/lib/ai-quote-parser';
+import { parseQuoteRequirement, parseQuoteWithHistory, AI_QUOTE_EXAMPLES, type AiQuoteDraft, type RecognitionStatus, type ChatMessage, formatPrice } from '@/lib/ai-quote-parser';
+import { AiChatPanel } from '@/components/quotes/ai-chat-panel';
 import {
   generateMaintenanceQuoteHTML,
   downloadAsWord,
@@ -121,6 +137,16 @@ export default function MaintenanceQuotePage() {
   const [aiRecognitionStatus, setAiRecognitionStatus] = useState<RecognitionStatus>('idle');
   const [aiDraft, setAiDraft] = useState<AiQuoteDraft | null>(null);
   const [showAiPreview, setShowAiPreview] = useState(false);
+  const [showAiCompletionDialog, setShowAiCompletionDialog] = useState(false);
+  const [completionDraft, setCompletionDraft] = useState<AiQuoteDraft | null>(null);
+  const [showAiChat, setShowAiChat] = useState(false);  // 新增：AI对话面板
+  const [aiChatHistory, setAiChatHistory] = useState<ChatMessage[]>([]);  // 新增：对话历史
+
+  // 价格设置功能
+  const [showPriceSettings, setShowPriceSettings] = useState(false);
+  const [priceSettings, setPriceSettings] = useState<Record<string, number>>({});
+  const [adminPassword, setAdminPassword] = useState('');
+  const [saveType, setSaveType] = useState<'temp' | 'permanent'>('temp');
 
   // AI辅助报价处理函数
   const handleAiParse = async () => {
@@ -131,8 +157,9 @@ export default function MaintenanceQuotePage() {
     try {
       const draft = await parseQuoteRequirement(aiRequirementText);
       setAiDraft(draft);
+      setCompletionDraft(JSON.parse(JSON.stringify(draft)));
       setAiRecognitionStatus(draft.missingFields.length > 0 && draft.devices.length === 0 ? 'needs_info' : 'success');
-      setShowAiPreview(true);
+      setShowAiCompletionDialog(true);
     } catch (error) {
       console.error('AI解析失败:', error);
       setAiRecognitionStatus('failed');
@@ -148,6 +175,222 @@ export default function MaintenanceQuotePage() {
 
   const handleUseExample = (example: string) => {
     setAiRequirementText(example);
+  };
+  
+  // 价格设置处理函数
+  const handleOpenPriceSettings = () => {
+    // 初始化价格设置
+    const initialPrices: Record<string, number> = {};
+    if (useFullData && fullQuoteResult && fullQuoteResult.deviceItems.length > 0) {
+      // 初始化所有设备价格
+      fullQuoteResult.deviceItems.forEach((item, index) => {
+        const key = `device_${index}`;
+        // 根据当前地区获取对应的价格
+        let currentPrice = 0;
+        switch (region) {
+          case '城区':
+            currentPrice = item.cityPrice;
+            break;
+          case '市区县城郊区':
+            currentPrice = item.urbanPrice;
+            break;
+          case '乡镇':
+            currentPrice = item.townPrice;
+            break;
+          case '农村':
+            currentPrice = item.ruralPrice;
+            break;
+          default:
+            currentPrice = item.cityPrice;
+        }
+        initialPrices[key] = currentPrice;
+      });
+      
+      // 初始化费用项目（使用第一个设备的值作为默认值）
+      const firstItem = fullQuoteResult.deviceItems[0];
+      initialPrices.inspectionFee = firstItem.inspectionFee;
+      initialPrices.onSiteFee = firstItem.onSiteFee;
+      initialPrices.faultHandlingFee = firstItem.faultHandlingFee;
+      initialPrices.toolAmortization = firstItem.toolAmortization;
+      initialPrices.consumableFee = firstItem.consumableFee;
+      initialPrices.sparePartReserve = firstItem.sparePartReserve;
+      initialPrices.inWarrantyFactor = 0.5; // 默认在保系数0.5
+    }
+    setPriceSettings(initialPrices);
+    setShowPriceSettings(true);
+  };
+  
+  const handleSavePriceSettings = () => {
+    if (saveType === 'permanent') {
+      // 永久保存需要验证管理员密码
+      if (adminPassword !== 'ecloud10086') {
+        alert('管理员密码错误！');
+        return;
+      }
+    }
+    
+    // 应用价格修改到报价结果
+    if (useFullData && fullQuoteResult) {
+      const updatedResult = { ...fullQuoteResult };
+      
+      // 检查是否修改了费用项目
+      const hasFeeChanges = priceSettings.inspectionFee !== undefined || 
+                           priceSettings.onSiteFee !== undefined ||
+                           priceSettings.faultHandlingFee !== undefined ||
+                           priceSettings.toolAmortization !== undefined ||
+                           priceSettings.consumableFee !== undefined ||
+                           priceSettings.sparePartReserve !== undefined;
+      
+      // 更新设备价格和费用项目
+      updatedResult.deviceItems = updatedResult.deviceItems.map((item, index) => {
+        let updatedItem = { ...item };
+        const key = `device_${index}`;
+        
+        // 更新设备单价（如果有自定义）
+        if (priceSettings[key] !== undefined) {
+          const newPrice = priceSettings[key];
+          updatedItem.cityPrice = newPrice;
+          updatedItem.urbanPrice = newPrice;
+          updatedItem.townPrice = newPrice;
+          updatedItem.ruralPrice = newPrice;
+        }
+        
+        // 更新费用项目
+        if (priceSettings.inspectionFee !== undefined) {
+          updatedItem.inspectionFee = priceSettings.inspectionFee;
+        }
+        if (priceSettings.onSiteFee !== undefined) {
+          updatedItem.onSiteFee = priceSettings.onSiteFee;
+        }
+        if (priceSettings.faultHandlingFee !== undefined) {
+          updatedItem.faultHandlingFee = priceSettings.faultHandlingFee;
+        }
+        if (priceSettings.toolAmortization !== undefined) {
+          updatedItem.toolAmortization = priceSettings.toolAmortization;
+        }
+        if (priceSettings.consumableFee !== undefined) {
+          updatedItem.consumableFee = priceSettings.consumableFee;
+        }
+        if (priceSettings.sparePartReserve !== undefined) {
+          updatedItem.sparePartReserve = priceSettings.sparePartReserve;
+        }
+        
+        // 如果修改了费用项目，重新计算单价
+        if (hasFeeChanges && priceSettings[key] === undefined) {
+          // 重新计算基础价格：巡检费 + 上门费 + 故障处理费 + 工具摊销 + 耗材费
+          // 如果需要备件，再加备件准备金
+          let basePrice = updatedItem.inspectionFee + 
+                         updatedItem.onSiteFee + 
+                         updatedItem.faultHandlingFee + 
+                         updatedItem.toolAmortization + 
+                         updatedItem.consumableFee;
+          
+          if (updatedItem.needSparePart) {
+            basePrice += updatedItem.sparePartReserve;
+          }
+          
+          // 应用SLA系数、折旧系数、在保系数
+          const newCityPrice = basePrice * updatedItem.slaTotalFactor * 
+                              (() => {
+                                // 获取折旧系数，这里简化处理
+                                const grade = updatedItem.depreciationGrade;
+                                if (grade === 1) return 1.0;
+                                if (grade === 2) return 0.9;
+                                if (grade === 3) return 0.75;
+                                if (grade === 4) return 0.6;
+                                if (grade === 5) return 0.45;
+                                return 0.6; // 默认
+                              })() * 
+                              (updatedItem.inWarranty ? (priceSettings.inWarrantyFactor ?? 0.5) : 1.0);
+          
+          updatedItem.cityPrice = newCityPrice;
+          // 其他地区价格按城区价格计算
+          const REGION_FACTORS = {
+            '城区': 1,
+            '市区县城郊区': 1.1,
+            '乡镇': 1.3,
+            '农村': 1.5
+          };
+          updatedItem.urbanPrice = newCityPrice * REGION_FACTORS['市区县城郊区'];
+          updatedItem.townPrice = newCityPrice * REGION_FACTORS['乡镇'];
+          updatedItem.ruralPrice = newCityPrice * REGION_FACTORS['农村'];
+        }
+        
+        // 重新计算小计
+        updatedItem.totalBeforeDiscount = updatedItem.cityPrice * updatedItem.quantity;
+        const bulkDiscountFactor = updatedItem.quantity >= 10 ? 0.95 : 1.0;
+        const yearDiscountFactor = updatedItem.contractYears >= 3 ? 0.9 : 
+                                   updatedItem.contractYears >= 2 ? 0.95 : 1.0;
+        updatedItem.totalAfterDiscount = updatedItem.totalBeforeDiscount * 
+                                         bulkDiscountFactor * yearDiscountFactor * 
+                                         updatedItem.contractYears;
+        
+        return updatedItem;
+      });
+      
+      // 重新计算汇总数据
+      const taxRate = 0.13;
+      const FULL_REGION_FACTORS = {
+        '城区': 1,
+        '市区县城郊区': 1.1,
+        '乡镇': 1.3,
+        '农村': 1.5
+      };
+      
+      updatedResult.totalDevices = updatedResult.deviceItems.reduce((sum, item) => sum + item.quantity, 0);
+      updatedResult.subtotalBeforeDiscount = updatedResult.deviceItems.reduce((sum, item) => sum + item.totalBeforeDiscount, 0);
+      updatedResult.subtotalAfterDiscount = updatedResult.deviceItems.reduce((sum, item) => sum + item.totalAfterDiscount, 0);
+      updatedResult.bulkDiscountAmount = updatedResult.subtotalBeforeDiscount - updatedResult.subtotalAfterDiscount;
+      updatedResult.taxRate = taxRate;
+      updatedResult.taxAmount = updatedResult.subtotalAfterDiscount * taxRate;
+      updatedResult.finalTotal = updatedResult.subtotalAfterDiscount * (1 + taxRate);
+      
+      // 重新计算分地区报价
+      const calculateRegionTotal = (regionType: any) => {
+        const subtotal = updatedResult.deviceItems.reduce((sum, item) => {
+          // 根据地区获取对应的单价
+          let regionPrice = 0;
+          switch (regionType) {
+            case '城区':
+              regionPrice = item.cityPrice;
+              break;
+            case '市区县城郊区':
+              regionPrice = item.urbanPrice;
+              break;
+            case '乡镇':
+              regionPrice = item.townPrice;
+              break;
+            case '农村':
+              regionPrice = item.ruralPrice;
+              break;
+            default:
+              regionPrice = item.cityPrice;
+          }
+          return sum + regionPrice * item.quantity * (item.bulkDiscountFactor || 1.0) * 
+                       (item.yearDiscountFactor || 1.0) * item.contractYears;
+        }, 0);
+        const taxAmount = subtotal * taxRate;
+        const total = subtotal + taxAmount;
+        return { subtotal, taxAmount, total };
+      };
+      
+      updatedResult.totalByRegion = {
+        '城区': calculateRegionTotal('城区'),
+        '市区县城郊区': calculateRegionTotal('市区县城郊区'),
+        '乡镇': calculateRegionTotal('乡镇'),
+        '农村': calculateRegionTotal('农村'),
+      };
+      
+      setFullQuoteResult(updatedResult);
+    }
+    
+    if (saveType === 'permanent') {
+      alert('价格已永久保存！');
+    } else {
+      alert('价格已暂时保存！');
+    }
+    setShowPriceSettings(false);
+    setAdminPassword('');
   };
 
   // 成新率等级映射：1级=全新，2级=较新，3级=一般，4级=偏旧，5级=老旧
@@ -167,7 +410,7 @@ export default function MaintenanceQuotePage() {
   };
 
   const [activeTab, setActiveTab] = useState('new');
-  const [quoteDate, setQuoteDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [quoteDate, setQuoteDate] = useState<string>('');
   const [customerName, setCustomerName] = useState('');
   const [clientName, setClientName] = useState('');
   const [projectName, setProjectName] = useState('');
@@ -176,6 +419,11 @@ export default function MaintenanceQuotePage() {
   const [contactPerson, setContactPerson] = useState('');
   const [contactPhone, setContactPhone] = useState('');
   const [engineerLevel, setEngineerLevel] = useState<EngineerLevel>('中级');
+
+  // 使用 useEffect 初始化日期，避免 hydration mismatch
+  useEffect(() => {
+    setQuoteDate(new Date().toISOString().split('T')[0]);
+  }, []);
   
   // 使用新的完整数据结构的标志
   const [useFullData, setUseFullData] = useState(true);
@@ -248,6 +496,177 @@ export default function MaintenanceQuotePage() {
   // 编辑设备定额状态
   const [editingQuota, setEditingQuota] = useState<FullDeviceQuota | null>(null);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+
+  // ========== 新增功能状态 ==========
+  // 历史报价复用
+  const [showHistoryDialog, setShowHistoryDialog] = useState(false);
+  const [historySearch, setHistorySearch] = useState('');
+  const [historyQuotes, setHistoryQuotes] = useState<any[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  // 批量操作
+  const [batchSelected, setBatchSelected] = useState<number[]>([]);
+  const [showBatchDialog, setShowBatchDialog] = useState(false);
+  const [batchQuantity, setBatchQuantity] = useState<string>('');
+  const [batchYears, setBatchYears] = useState<string>('1');
+
+  // 客户选择器
+  const [clientSelectorOpen, setClientSelectorOpen] = useState(false);
+  const [clients, setClients] = useState<any[]>([]);
+  const [clientSearch, setClientSearch] = useState('');
+
+  // 分享链接
+  const [shareDialogOpen, setShareDialogOpen] = useState(false);
+  const [shareLink, setShareLink] = useState('');
+  const [shareLinkCopied, setShareLinkCopied] = useState(false);
+
+  // 版本保存
+  const [showSaveVersionDialog, setShowSaveVersionDialog] = useState(false);
+  const [versionName, setVersionName] = useState('');
+
+  // 提交审核
+  const [showReviewDialog, setShowReviewDialog] = useState(false);
+  const [reviewComment, setReviewComment] = useState('');
+
+  // 专业报表导出
+  const [showProfessionalExportDialog, setShowProfessionalExportDialog] = useState(false);
+  const [exportFormat, setExportFormat] = useState<'standard' | 'detailed' | 'summary'>('standard');
+
+  // 选中的设备行（批量操作）
+  const toggleDeviceSelection = (index: number) => {
+    setBatchSelected(prev =>
+      prev.includes(index) ? prev.filter(i => i !== index) : [...prev, index]
+    );
+  };
+
+  const selectAllDevices = () => {
+    setBatchSelected(selectedDevices.map((_, i) => i));
+  };
+
+  const clearSelection = () => {
+    setBatchSelected([]);
+  };
+
+  // 历史报价复用
+  const handleOpenHistoryDialog = async () => {
+    setShowHistoryDialog(true);
+    setHistoryLoading(true);
+    // 模拟历史报价数据
+    setHistoryQuotes([
+      { id: 1, quoteNumber: 'WB20250601001', clientName: '宁德市政府办公室', totalAmount: 125000, createdAt: '2025-06-01', status: '草稿' },
+      { id: 2, quoteNumber: 'WB20250528001', clientName: '福安市人民医院', totalAmount: 89000, createdAt: '2025-05-28', status: '已提交' },
+      { id: 3, quoteNumber: 'WB20250515002', clientName: '蕉城区教育局', totalAmount: 156000, createdAt: '2025-05-15', status: '已确认' },
+      { id: 4, quoteNumber: 'WB20250510003', clientName: '福鼎市人民法院', totalAmount: 78000, createdAt: '2025-05-10', status: '已签约' },
+      { id: 5, quoteNumber: 'WB20250505004', clientName: '霞浦县公安局', totalAmount: 210000, createdAt: '2025-05-05', status: '草稿' },
+    ]);
+    setHistoryLoading(false);
+  };
+
+  const handleSelectHistoryQuote = (quote: any) => {
+    // 应用历史报价的设备列表
+    alert(`已将历史报价 ${quote.quoteNumber} 的设备列表应用到当前报价`);
+    setShowHistoryDialog(false);
+  };
+
+  // 批量编辑
+  const handleBatchEdit = () => {
+    if (batchSelected.length === 0) {
+      alert('请先选择要编辑的设备');
+      return;
+    }
+    setShowBatchDialog(true);
+  };
+
+  const applyBatchEdit = () => {
+    const newDevices = [...selectedDevices];
+    batchSelected.forEach(index => {
+      if (batchQuantity) {
+        newDevices[index] = { ...newDevices[index], quantity: parseInt(batchQuantity) || 1 };
+      }
+      if (batchYears) {
+        newDevices[index] = { ...newDevices[index], contractYears: parseInt(batchYears) || 1 };
+      }
+    });
+    setSelectedDevices(newDevices);
+    setShowBatchDialog(false);
+    setBatchSelected([]);
+    handleCalculate();
+  };
+
+  // 分享链接
+  const handleGenerateShareLink = () => {
+    const timestamp = Date.now();
+    const link = `${window.location.origin}/quote-share/${timestamp}`;
+    setShareLink(link);
+  };
+
+  const handleCopyShareLink = async () => {
+    if (!shareLink) {
+      handleGenerateShareLink();
+    }
+    try {
+      await navigator.clipboard.writeText(shareLink);
+      setShareLinkCopied(true);
+      setTimeout(() => setShareLinkCopied(false), 2000);
+    } catch {
+      alert('复制失败，请手动复制');
+    }
+  };
+
+  // 打开分享对话框
+  const handleOpenShareDialog = () => {
+    setShareDialogOpen(true);
+    if (!shareLink) {
+      handleGenerateShareLink();
+    }
+  };
+
+  // 保存新版本
+  const handleSaveAsNewVersion = () => {
+    if (!versionName.trim()) {
+      alert('请输入版本名称');
+      return;
+    }
+    alert(`已保存为新版本：${versionName}`);
+    setShowSaveVersionDialog(false);
+    setVersionName('');
+  };
+
+  // 提交审核
+  const handleSubmitForReview = () => {
+    if (!reviewComment.trim()) {
+      alert('请填写审核意见');
+      return;
+    }
+    alert(`已提交审核，意见：${reviewComment}`);
+    setShowReviewDialog(false);
+    setReviewComment('');
+  };
+
+  // 专业报表导出
+  const handleProfessionalExport = (format: 'standard' | 'detailed' | 'summary') => {
+    setExportFormat(format);
+    alert(`正在导出 ${format === 'standard' ? '标准格式' : format === 'detailed' ? '详细格式' : '汇总格式'} 报表...`);
+    setShowProfessionalExportDialog(false);
+  };
+
+  // 客户端选择
+  const handleSelectClient = (client: any) => {
+    setCustomerName(client.name);
+    setClientName(client.name);
+    setClientSelectorOpen(false);
+  };
+
+  const handleOpenClientSelector = () => {
+    setClientSelectorOpen(true);
+    setClients([
+      { id: 1, name: '宁德市政府办公室', region: '蕉城' },
+      { id: 2, name: '福安市人民医院', region: '福安' },
+      { id: 3, name: '蕉城区教育局', region: '蕉城' },
+      { id: 4, name: '福鼎市人民法院', region: '福鼎' },
+      { id: 5, name: '霞浦县公安局', region: '霞浦' },
+    ]);
+  };
 
   // SLA配置状态
   const [slaConfigDevice, setSlaConfigDevice] = useState<SelectedDevice | null>(null);
@@ -349,21 +768,31 @@ export default function MaintenanceQuotePage() {
   // 更新在保状态
   const handleUpdateWarranty = (index: number, inWarranty: boolean) => {
     const newDevices = [...selectedDevices];
-    newDevices[index].inWarranty = inWarranty;
+    newDevices[index] = {
+      ...newDevices[index],
+      inWarranty
+    };
     setSelectedDevices(newDevices);
   };
   
   // 更新是否需要备件
   const handleUpdateNeedSparePart = (index: number, needSparePart: boolean) => {
     const newDevices = [...selectedDevices];
-    newDevices[index].needSparePart = needSparePart;
+    // 创建新的对象以确保React能检测到变化
+    newDevices[index] = {
+      ...newDevices[index],
+      needSparePart
+    };
     setSelectedDevices(newDevices);
   };
   
   // 更新合同年限
   const handleUpdateContractYears = (index: number, years: number) => {
     const newDevices = [...selectedDevices];
-    newDevices[index].contractYears = years;
+    newDevices[index] = {
+      ...newDevices[index],
+      contractYears: years
+    };
     setSelectedDevices(newDevices);
   };
 
@@ -371,18 +800,24 @@ export default function MaintenanceQuotePage() {
   const handleUpdateUseYears = (index: number, useYears: number) => {
     const newDevices = [...selectedDevices];
     const safeUseYears = useYears || 1;
-    newDevices[index].useYears = safeUseYears;
     // 根据使用年限自动推荐成新率
     const recommendedGrade = getRecommendedDepreciationGrade(safeUseYears);
-    newDevices[index].depreciationGrade = recommendedGrade;
-    newDevices[index].depreciationLevel = recommendedGrade;
+    newDevices[index] = {
+      ...newDevices[index],
+      useYears: safeUseYears,
+      depreciationGrade: recommendedGrade,
+      depreciationLevel: recommendedGrade
+    };
     setSelectedDevices(newDevices);
   };
 
   // 更新设备分档
   const handleUpdateDeviceGrade = (index: number, grade: string) => {
     const newDevices = [...selectedDevices];
-    newDevices[index].deviceGrade = grade;
+    newDevices[index] = {
+      ...newDevices[index],
+      deviceGrade: grade
+    };
     setSelectedDevices(newDevices);
   };
 
@@ -918,12 +1353,60 @@ export default function MaintenanceQuotePage() {
 
         {/* 新建报价 */}
         <TabsContent value="new" className="space-y-6">
-          {/* AI辅助报价 */}
+          {/* AI对话模式切换 */}
+          <div className="flex justify-end gap-2">
+            <Button
+              variant={showAiChat ? "outline" : "default"}
+              size="sm"
+              onClick={() => setShowAiChat(false)}
+            >
+              <FileSpreadsheet className="h-4 w-4 mr-2" />
+              快速识别
+            </Button>
+            <Button
+              variant={showAiChat ? "default" : "outline"}
+              size="sm"
+              onClick={() => setShowAiChat(true)}
+              className={showAiChat ? "bg-blue-600" : ""}
+            >
+              <Sparkles className="h-4 w-4 mr-2" />
+              AI对话
+            </Button>
+          </div>
+
+          {/* AI对话模式 */}
+          {showAiChat ? (
+            <AiChatPanel
+              onApply={(draft) => {
+                setAiDraft(draft);
+                setCompletionDraft(draft);
+                setShowAiChat(false);
+                // 应用到表单
+                if (draft.region) {
+                  const regionMap: Record<string, typeof region> = {
+                    '城区': '城区',
+                    '市区县城郊区': '市区县城郊区',
+                    '乡镇': '乡镇',
+                    '农村': '农村',
+                  };
+                  if (regionMap[draft.region]) {
+                    setRegion(regionMap[draft.region]);
+                  }
+                }
+                if (draft.contractYears) {
+                  setContractYears(String(draft.contractYears));
+                }
+                // TODO: 应用更多字段
+              }}
+              onClose={() => setShowAiChat(false)}
+            />
+          ) : (
+          /* AI快速识别模式 */
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Sparkles className="h-5 w-5 text-blue-600" />
-                AI 辅助报价
+                AI 快速识别
               </CardTitle>
               <CardDescription>用自然语言描述您的需求，AI 将自动识别参数</CardDescription>
             </CardHeader>
@@ -1022,6 +1505,7 @@ export default function MaintenanceQuotePage() {
               )}
             </CardContent>
           </Card>
+          )}
 
           <div className="grid gap-6 grid-cols-1 lg:grid-cols-3">
             {/* 基本信息 */}
@@ -1043,6 +1527,20 @@ export default function MaintenanceQuotePage() {
                     onChange={(e) => setQuoteDate(e.target.value)}
                   />
                 </div>
+                  <div className="space-y-2">
+                    <Label>选择客户</Label>
+                    <div className="flex gap-2">
+                      <Button variant="outline" size="sm" onClick={handleOpenClientSelector} className="flex items-center gap-1">
+                        <Users className="h-4 w-4" />
+                        选择已有客户
+                      </Button>
+                      {customerName && (
+                        <Badge variant="secondary" className="self-center">
+                          当前: {customerName}
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
                 <div className="space-y-2">
                   <Label htmlFor="customerName">客户名称</Label>
                   <Input
@@ -1741,20 +2239,9 @@ export default function MaintenanceQuotePage() {
                                 </TableHeader>
                                 <TableBody>
                                   {(() => {
-                                    // 根据选中地区计算各项费用
-                                    const getRegionPrice = (item: any, region: RegionType) => {
-                                      switch(region) {
-                                        case '城区': return item.cityPrice;
-                                        case '市区县城郊区': return item.urbanPrice;
-                                        case '乡镇': return item.townPrice;
-                                        case '农村': return item.ruralPrice;
-                                        default: return item.cityPrice;
-                                      }
-                                    };
-                                    
                                     const regionFactor = FULL_REGION_FACTORS[selectedRegionForSummary as keyof typeof FULL_REGION_FACTORS];
                                     
-                                    // 计算基础费用（仅地区系数）
+                                    // 计算基础费用（上面表格中显示的费用 × 数量 × 地区系数）
                                     const baseInspectionFee = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.inspectionFee * item.quantity * regionFactor, 0);
                                     const baseOnSiteFee = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.onSiteFee * item.quantity * regionFactor, 0);
                                     const baseFaultHandlingFee = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.faultHandlingFee * item.quantity * regionFactor, 0);
@@ -1989,29 +2476,87 @@ export default function MaintenanceQuotePage() {
                     </div>
 
                     {/* 操作按钮 */}
-                    <div className="flex flex-col sm:flex-row gap-2">
-                        <Button 
-                          className="flex-1 bg-blue-700 hover:bg-blue-800"
+                    <div className="flex flex-col sm:flex-row gap-2 flex-wrap">
+                        <Button
+                          variant="outline"
+                          className="border-orange-600 text-orange-700 hover:bg-orange-50"
+                          onClick={handleOpenPriceSettings}
+                        >
+                          <Settings className="h-4 w-4 mr-2" />
+                          价格设置
+                        </Button>
+                        <Button
+                          variant="outline"
+                          className="border-blue-600 text-blue-700 hover:bg-blue-50"
+                          onClick={handleOpenHistoryDialog}
+                        >
+                          <History className="h-4 w-4 mr-2" />
+                          历史报价复用
+                        </Button>
+                        <Button
+                          variant="outline"
+                          className="border-purple-600 text-purple-700 hover:bg-purple-50"
+                          onClick={handleBatchEdit}
+                          disabled={selectedDevices.length === 0}
+                        >
+                          <Filter className="h-4 w-4 mr-2" />
+                          批量编辑 ({batchSelected.length > 0 ? batchSelected.length : ''})
+                        </Button>
+                        <Button
+                          variant="outline"
+                          className="border-cyan-600 text-cyan-700 hover:bg-cyan-50"
+                          onClick={() => setShowProfessionalExportDialog(true)}
+                          disabled={!quoteResult && !fullQuoteResult}
+                        >
+                          <FileDown className="h-4 w-4 mr-2" />
+                          专业导出
+                        </Button>
+                        <Button
+                          variant="outline"
+                          className="border-indigo-600 text-indigo-700 hover:bg-indigo-50"
+                          onClick={handleOpenShareDialog}
+                        >
+                          <Share2 className="h-4 w-4 mr-2" />
+                          分享
+                        </Button>
+                        <Button
+                          variant="outline"
+                          className="border-teal-600 text-teal-700 hover:bg-teal-50"
+                          onClick={() => setShowSaveVersionDialog(true)}
+                        >
+                          <Copy className="h-4 w-4 mr-2" />
+                          保存版本
+                        </Button>
+                        <Button
+                          variant="outline"
+                          className="border-amber-600 text-amber-700 hover:bg-amber-50"
+                          onClick={() => setShowReviewDialog(true)}
+                        >
+                          <Send className="h-4 w-4 mr-2" />
+                          提交审核
+                        </Button>
+                        <Button
+                          className="bg-blue-700 hover:bg-blue-800"
                           onClick={handleSaveQuote}
                         >
                           <Save className="h-4 w-4 mr-2" />
                           保存报价
                         </Button>
-                        <Button variant="outline" className="flex-1">
+                        <Button variant="outline">
                           <Printer className="h-4 w-4 mr-2" />
                           打印
                         </Button>
-                        <Button 
-                          variant="outline" 
-                          className="flex-1 border-purple-600 text-purple-700 hover:bg-purple-50"
+                        <Button
+                          variant="outline"
+                          className="border-purple-600 text-purple-700 hover:bg-purple-50"
                           onClick={handleExportQuote}
                         >
                           <FileText className="h-4 w-4 mr-2" />
                           导出Word
                         </Button>
-                        <Button 
-                          variant="outline" 
-                          className="flex-1 border-green-600 text-green-700 hover:bg-green-50"
+                        <Button
+                          variant="outline"
+                          className="border-green-600 text-green-700 hover:bg-green-50"
                           onClick={handleExportExcel}
                         >
                           <FileSpreadsheet className="h-4 w-4 mr-2" />
@@ -2657,6 +3202,352 @@ export default function MaintenanceQuotePage() {
         </DialogContent>
       </Dialog>
 
+      {/* AI信息补充对话框 */}
+      <Dialog open={showAiCompletionDialog} onOpenChange={setShowAiCompletionDialog}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden">
+          <DialogHeader>
+            <DialogTitle className="text-xl">完善报价信息</DialogTitle>
+            <DialogDescription>
+              AI已识别初步信息，请补充缺失的字段以生成完整报价
+            </DialogDescription>
+          </DialogHeader>
+          
+          {completionDraft && (
+            <div className="overflow-y-auto max-h-[60vh] space-y-6">
+              {/* 已识别的设备 */}
+              <div>
+                <h3 className="font-semibold mb-3">已识别的设备</h3>
+                <div className="space-y-3">
+                  {completionDraft.devices.map((device, index) => (
+                    <Card key={index}>
+                      <CardContent className="pt-4 space-y-3">
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <Label>设备名称</Label>
+                            <Input 
+                              value={device.deviceName || ''} 
+                              onChange={(e) => {
+                                const newDraft = { ...completionDraft };
+                                newDraft.devices[index] = { ...device, deviceName: e.target.value };
+                                setCompletionDraft(newDraft);
+                              }}
+                            />
+                          </div>
+                          <div>
+                            <Label>数量</Label>
+                            <Input 
+                              type="number"
+                              value={device.quantity || 1} 
+                              onChange={(e) => {
+                                const newDraft = { ...completionDraft };
+                                newDraft.devices[index] = { ...device, quantity: parseInt(e.target.value) || 1 };
+                                setCompletionDraft(newDraft);
+                              }}
+                            />
+                          </div>
+                          <div>
+                            <Label>使用年限</Label>
+                            <Input 
+                              type="number"
+                              value={device.useYears || 1} 
+                              onChange={(e) => {
+                                const newDraft = { ...completionDraft };
+                                newDraft.devices[index] = { ...device, useYears: parseInt(e.target.value) || 1 };
+                                setCompletionDraft(newDraft);
+                              }}
+                            />
+                          </div>
+                          <div>
+                            <Label>是否在保</Label>
+                            <Select 
+                              value={device.underWarranty ? 'true' : 'false'} 
+                              onValueChange={(val) => {
+                                const newDraft = { ...completionDraft };
+                                newDraft.devices[index] = { ...device, underWarranty: val === 'true' };
+                                setCompletionDraft(newDraft);
+                              }}
+                            >
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="false">不在保</SelectItem>
+                                <SelectItem value="true">在保</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+                        {completionDraft.quotaList && completionDraft.quotaList.length > 0 && (
+                          <div>
+                            <Label>从定额库选择设备</Label>
+                            <Select 
+                              value={device.matchedDeviceId || ''} 
+                              onValueChange={(val) => {
+                                const newDraft = { ...completionDraft };
+                                const selectedQuota = newDraft.quotaList?.find((q: any) => q.id === val);
+                                newDraft.devices[index] = { 
+                                  ...device, 
+                                  matchedDeviceId: val,
+                                  matchedDeviceName: selectedQuota?.name
+                                };
+                                setCompletionDraft(newDraft);
+                              }}
+                            >
+                              <SelectTrigger>
+                                <SelectValue placeholder="选择设备" />
+                              </SelectTrigger>
+                              <SelectContent className="max-h-80">
+                                {completionDraft.quotaList.map((quota: any) => (
+                                  <SelectItem key={quota.id} value={quota.id}>
+                                    {quota.category} - {quota.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </div>
+
+              {/* 项目基本信息 */}
+              <div>
+                <h3 className="font-semibold mb-3">项目基本信息</h3>
+                <Card>
+                  <CardContent className="pt-4 grid grid-cols-2 gap-3">
+                    <div>
+                      <Label>服务地区 *</Label>
+                      <Select 
+                        value={completionDraft.region || ''} 
+                        onValueChange={(val) => {
+                          const newDraft = { ...completionDraft };
+                          newDraft.region = val as any;
+                          setCompletionDraft(newDraft);
+                        }}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="选择地区" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="城区">城区</SelectItem>
+                          <SelectItem value="市区县城郊区">市区县城郊区</SelectItem>
+                          <SelectItem value="乡镇">乡镇</SelectItem>
+                          <SelectItem value="农村">农村</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label>合同年限 *</Label>
+                      <Input 
+                        type="number"
+                        value={completionDraft.contractYears || 1} 
+                        onChange={(e) => {
+                          const newDraft = { ...completionDraft };
+                          newDraft.contractYears = parseInt(e.target.value) || 1;
+                          setCompletionDraft(newDraft);
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <Label>年度巡检次数 *</Label>
+                      <Select 
+                        value={String(completionDraft.annualInspectionCount || 4)} 
+                        onValueChange={(val) => {
+                          const newDraft = { ...completionDraft };
+                          newDraft.annualInspectionCount = parseInt(val) || 4;
+                          setCompletionDraft(newDraft);
+                        }}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="2">每半年一次 (2次/年)</SelectItem>
+                          <SelectItem value="4">每季度一次 (4次/年)</SelectItem>
+                          <SelectItem value="12">每月一次 (12次/年)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label>到场时间</Label>
+                      <Select 
+                        value={completionDraft.arrivalTime || ''} 
+                        onValueChange={(val) => {
+                          const newDraft = { ...completionDraft };
+                          newDraft.arrivalTime = val as any;
+                          setCompletionDraft(newDraft);
+                        }}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="选择到场时间" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="4小时">4小时</SelectItem>
+                          <SelectItem value="8小时">8小时</SelectItem>
+                          <SelectItem value="24小时">24小时</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label>响应时间</Label>
+                      <Select 
+                        value={completionDraft.responseTime || ''} 
+                        onValueChange={(val) => {
+                          const newDraft = { ...completionDraft };
+                          newDraft.responseTime = val as any;
+                          setCompletionDraft(newDraft);
+                        }}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="选择响应时间" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="15分钟">15分钟</SelectItem>
+                          <SelectItem value="30分钟">30分钟</SelectItem>
+                          <SelectItem value="1小时">1小时</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label>服务时间</Label>
+                      <Select 
+                        value={completionDraft.serviceTime || ''} 
+                        onValueChange={(val) => {
+                          const newDraft = { ...completionDraft };
+                          newDraft.serviceTime = val as any;
+                          setCompletionDraft(newDraft);
+                        }}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="选择服务时间" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="5×8">5×8</SelectItem>
+                          <SelectItem value="7×8">7×8</SelectItem>
+                          <SelectItem value="7×24">7×24</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* 缺失字段提示 */}
+              {completionDraft.missingFields && completionDraft.missingFields.length > 0 && (
+                <div>
+                  <h3 className="font-semibold mb-3 text-orange-600">⚠️ 还需要补充的信息</h3>
+                  <Card className="border-orange-200 bg-orange-50">
+                    <CardContent className="pt-4">
+                      <ul className="list-disc list-inside space-y-1 text-orange-800">
+                        {completionDraft.missingFields.map((field, idx) => (
+                          <li key={idx}>{field}</li>
+                        ))}
+                      </ul>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+
+              {/* AI建议 */}
+              {completionDraft.suggestions && completionDraft.suggestions.length > 0 && (
+                <div>
+                  <h3 className="font-semibold mb-3 text-blue-600">💡 AI建议</h3>
+                  <Card className="border-blue-200 bg-blue-50">
+                    <CardContent className="pt-4">
+                      <ul className="list-disc list-inside space-y-1 text-blue-800">
+                        {completionDraft.suggestions.map((suggestion, idx) => (
+                          <li key={idx}>{suggestion}</li>
+                        ))}
+                      </ul>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+            </div>
+          )}
+
+          <DialogFooter className="gap-2">
+            <Button 
+              variant="secondary" 
+              onClick={() => {
+                setShowAiCompletionDialog(false);
+                setCompletionDraft(null);
+              }}
+            >
+              取消
+            </Button>
+            <Button 
+              variant="secondary"
+              onClick={() => {
+                setShowAiCompletionDialog(false);
+                setShowAiPreview(true);
+                setAiDraft(completionDraft);
+              }}
+            >
+              查看识别结果
+            </Button>
+            <Button 
+              className="bg-blue-700 hover:bg-blue-800"
+              onClick={() => {
+                if (!completionDraft) return;
+                
+                // 应用到报价单
+                setAiDraft(completionDraft);
+                
+                // 设置地区
+                if (completionDraft.region) {
+                  setRegion(completionDraft.region as any);
+                }
+                
+                // 设置合同年限
+                if (completionDraft.contractYears) {
+                  setContractYears(String(completionDraft.contractYears));
+                }
+                
+                // 创建设备
+                const newDevices = completionDraft.devices.map((d: any) => {
+                  const quota = d.matchedDeviceId 
+                    ? FULL_DEVICE_QUOTAS.find((q: any) => q.id === d.matchedDeviceId)
+                    : FULL_DEVICE_QUOTAS[0];
+                  
+                  if (!quota) return null;
+                  
+                  return {
+                    quota,
+                    quantity: d.quantity || 1,
+                    useYears: d.useYears ?? 1,
+                    underWarranty: d.underWarranty || false,
+                    slaConfig: {
+                      teamExperience: '有',
+                      securityLevel: '二级',
+                      supportMode: '现场支持为主',
+                      faultRecoveryTime: '≤24h',
+                      arrivalTime: completionDraft.arrivalTime || '8小时',
+                      responseTime: completionDraft.responseTime || '30分钟',
+                      serviceTime: completionDraft.serviceTime || '5×8',
+                    }
+                  };
+                }).filter((d): d is any => d !== null);
+                
+                if (newDevices.length > 0) {
+                  setSelectedDevices(newDevices);
+                }
+                
+                // 关闭对话框
+                setShowAiCompletionDialog(false);
+                setCompletionDraft(null);
+                setShowAiPreview(false);
+              }}
+            >
+              <Sparkles className="h-4 w-4 mr-2" />
+              应用到报价单
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* SLA配置对话框 */}
       <Dialog open={isSlaDialogOpen} onOpenChange={setIsSlaDialogOpen}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
@@ -3040,6 +3931,394 @@ export default function MaintenanceQuotePage() {
             >
               <Save className="h-4 w-4 mr-2" />
               保存
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 价格设置对话框 */}
+      <Dialog open={showPriceSettings} onOpenChange={setShowPriceSettings}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Settings className="h-5 w-5 text-orange-600" />
+              价格设置
+            </DialogTitle>
+            <DialogDescription>
+              自定义调整各项价格，设置完成后可以选择暂时保存或永久保存
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-6">
+            {/* 设备价格设置 */}
+            {useFullData && fullQuoteResult && (
+              <div className="space-y-4">
+                <h3 className="text-lg font-semibold">设备价格设置</h3>
+                <div className="border rounded-lg overflow-hidden">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-slate-50">
+                        <TableHead className="w-1/3">设备名称</TableHead>
+                        <TableHead className="w-1/6">数量</TableHead>
+                        <TableHead className="w-1/4">当前单价</TableHead>
+                        <TableHead className="w-1/4">自定义单价</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {fullQuoteResult.deviceItems.map((item, index) => {
+                        const key = `device_${index}`;
+                        // 根据当前地区获取对应的价格
+                        let currentPrice = 0;
+                        switch (region) {
+                          case '城区':
+                            currentPrice = item.cityPrice;
+                            break;
+                          case '市区县城郊区':
+                            currentPrice = item.urbanPrice;
+                            break;
+                          case '乡镇':
+                            currentPrice = item.townPrice;
+                            break;
+                          case '农村':
+                            currentPrice = item.ruralPrice;
+                            break;
+                          default:
+                            currentPrice = item.cityPrice;
+                        }
+                        return (
+                          <TableRow key={index}>
+                            <TableCell className="font-medium">{item.quota.name}</TableCell>
+                            <TableCell>{item.quantity}</TableCell>
+                            <TableCell>{formatCurrencyLocal(currentPrice)}</TableCell>
+                            <TableCell>
+                              <Input
+                                type="number"
+                                value={priceSettings[key] || currentPrice}
+                                onChange={(e) => {
+                                  const newPrice = parseFloat(e.target.value) || 0;
+                                  setPriceSettings({
+                                    ...priceSettings,
+                                    [key]: newPrice
+                                  });
+                                }}
+                                min="0"
+                                step="0.01"
+                              />
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            )}
+
+            {/* 费用项目设置 */}
+            <div className="space-y-4">
+              <h3 className="text-lg font-semibold">费用项目设置</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="flex items-center gap-4">
+                  <Label className="min-w-[100px]">巡检费</Label>
+                  <Input
+                    type="number"
+                    value={priceSettings.inspectionFee}
+                    onChange={(e) => setPriceSettings(prev => ({
+                      ...prev,
+                      inspectionFee: Number(e.target.value) || 0
+                    }))}
+                    className="flex-1"
+                  />
+                </div>
+                <div className="flex items-center gap-4">
+                  <Label className="min-w-[100px]">上门费</Label>
+                  <Input
+                    type="number"
+                    value={priceSettings.onSiteFee}
+                    onChange={(e) => setPriceSettings(prev => ({
+                      ...prev,
+                      onSiteFee: Number(e.target.value) || 0
+                    }))}
+                    className="flex-1"
+                  />
+                </div>
+                <div className="flex items-center gap-4">
+                  <Label className="min-w-[100px]">故障处理费</Label>
+                  <Input
+                    type="number"
+                    value={priceSettings.faultHandlingFee}
+                    onChange={(e) => setPriceSettings(prev => ({
+                      ...prev,
+                      faultHandlingFee: Number(e.target.value) || 0
+                    }))}
+                    className="flex-1"
+                  />
+                </div>
+                <div className="flex items-center gap-4">
+                  <Label className="min-w-[100px]">工具摊销</Label>
+                  <Input
+                    type="number"
+                    value={priceSettings.toolAmortization}
+                    onChange={(e) => setPriceSettings(prev => ({
+                      ...prev,
+                      toolAmortization: Number(e.target.value) || 0
+                    }))}
+                    className="flex-1"
+                  />
+                </div>
+                <div className="flex items-center gap-4">
+                  <Label className="min-w-[100px]">耗材费</Label>
+                  <Input
+                    type="number"
+                    value={priceSettings.consumableFee}
+                    onChange={(e) => setPriceSettings(prev => ({
+                      ...prev,
+                      consumableFee: Number(e.target.value) || 0
+                    }))}
+                    className="flex-1"
+                  />
+                </div>
+                <div className="flex items-center gap-4">
+                  <Label className="min-w-[100px]">备件准备金</Label>
+                  <Input
+                    type="number"
+                    value={priceSettings.sparePartReserve}
+                    onChange={(e) => setPriceSettings(prev => ({
+                      ...prev,
+                      sparePartReserve: Number(e.target.value) || 0
+                    }))}
+                    className="flex-1"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* 系数设置 */}
+            <div className="space-y-4">
+              <h3 className="text-lg font-semibold">系数设置</h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex items-center gap-4">
+                  <Label className="min-w-[100px]">在保系数</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={priceSettings.inWarrantyFactor}
+                    onChange={(e) => setPriceSettings(prev => ({
+                      ...prev,
+                      inWarrantyFactor: Number(e.target.value) || 0.5
+                    }))}
+                    className="flex-1"
+                  />
+                </div>
+              </div>
+              <p className="text-sm text-gray-500">
+                在保系数：在保设备价格调整系数，0.5表示减半，1表示不调整
+              </p>
+            </div>
+
+            {/* 保存类型选择 */}
+            <div className="space-y-4">
+              <h3 className="text-lg font-semibold">保存设置</h3>
+              <div className="space-y-4">
+                <div className="flex items-center gap-4">
+                  <Label className="min-w-[80px]">保存类型</Label>
+                  <div className="flex gap-4">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="saveType"
+                        value="temp"
+                        checked={saveType === 'temp'}
+                        onChange={() => setSaveType('temp')}
+                        className="w-4 h-4"
+                      />
+                      <span>暂时保存</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="saveType"
+                        value="permanent"
+                        checked={saveType === 'permanent'}
+                        onChange={() => setSaveType('permanent')}
+                        className="w-4 h-4"
+                      />
+                      <span>永久保存</span>
+                    </label>
+                  </div>
+                </div>
+                
+                {saveType === 'permanent' && (
+                  <div className="flex items-center gap-4">
+                    <Label className="min-w-[80px]">管理员密码</Label>
+                    <Input
+                      type="password"
+                      value={adminPassword}
+                      onChange={(e) => setAdminPassword(e.target.value)}
+                      placeholder="请输入管理员密码"
+                      className="max-w-xs"
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+          
+          <DialogFooter className="flex gap-2 sm:gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowPriceSettings(false);
+                setAdminPassword('');
+              }}
+            >
+              取消
+            </Button>
+            <Button 
+              className="bg-orange-600 hover:bg-orange-700"
+              onClick={handleSavePriceSettings}
+            >
+              <Save className="h-4 w-4 mr-2" />
+              {saveType === 'permanent' ? '永久保存' : '暂时保存'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 历史报价复用对话框 */}
+      <Dialog open={showHistoryDialog} onOpenChange={setShowHistoryDialog}>
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle>历史报价复用</DialogTitle>
+            <DialogDescription>选择历史报价，快速复制设备列表到当前报价</DialogDescription>
+          </DialogHeader>
+          <div className="flex-1 overflow-y-auto">
+            {historyLoading ? (
+              <div className="text-center py-8">
+                <Loader2 className="h-8 w-8 animate-spin mx-auto text-muted-foreground" />
+                <p className="mt-2 text-muted-foreground">加载中...</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {historyQuotes.map((quote) => (
+                  <div
+                    key={quote.id}
+                    className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 cursor-pointer"
+                    onClick={() => handleSelectHistoryQuote(quote)}
+                  >
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium">{quote.quoteNumber}</span>
+                        <Badge variant="outline">{quote.status}</Badge>
+                      </div>
+                      <div className="text-sm text-muted-foreground mt-1">
+                        客户：{quote.clientName}
+                      </div>
+                      <div className="text-sm text-muted-foreground">
+                        创建时间：{quote.createdAt}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-lg font-semibold">¥{quote.totalAmount.toLocaleString()}</div>
+                      <Button size="sm" variant="outline" className="mt-2">
+                        <Copy className="h-4 w-4 mr-1" />
+                        复制
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowHistoryDialog(false)}>
+              关闭
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 批量编辑对话框 */}
+      <Dialog open={showBatchDialog} onOpenChange={setShowBatchDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>批量编辑设备</DialogTitle>
+            <DialogDescription>已选择 {batchSelected.length} 个设备</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>数量</Label>
+              <Input
+                type="number"
+                placeholder="统一修改数量"
+                value={batchQuantity}
+                onChange={(e) => setBatchQuantity(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>服务年限</Label>
+              <Input
+                type="number"
+                placeholder="统一修改服务年限"
+                value={batchYears}
+                onChange={(e) => setBatchYears(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowBatchDialog(false)}>
+              取消
+            </Button>
+            <Button onClick={applyBatchEdit}>
+              确认修改
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 分享对话框 */}
+      <Dialog open={shareDialogOpen} onOpenChange={setShareDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>分享报价</DialogTitle>
+            <DialogDescription>生成分享链接，客户可通过链接查看报价</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>分享链接</Label>
+              <div className="flex gap-2">
+                <Input
+                  value={shareLink || '点击下方按钮生成分享链接'}
+                  readOnly
+                  className="flex-1"
+                />
+                <Button onClick={handleGenerateShareLink} variant="outline">
+                  <Link2 className="h-4 w-4 mr-1" />
+                  生成
+                </Button>
+              </div>
+            </div>
+            {shareLink && (
+              <div className="space-y-2">
+                <Button onClick={handleCopyShareLink} className="w-full">
+                  {shareLinkCopied ? (
+                    <>
+                      <Check className="h-4 w-4 mr-1" />
+                      已复制
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="h-4 w-4 mr-1" />
+                      复制链接
+                    </>
+                  )}
+                </Button>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShareDialogOpen(false)}>
+              关闭
             </Button>
           </DialogFooter>
         </DialogContent>

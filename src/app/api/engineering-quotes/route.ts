@@ -1,62 +1,55 @@
 import { NextRequest, NextResponse } from 'next/server';
 import pool, { initDatabase } from '@/lib/db';
+import { verifySession } from '@/lib/auth';
 
-// 初始化数据库
+// 认证中间件
+function requireAuth(request: NextRequest): { authorized: boolean; response?: NextResponse } {
+  const session = verifySession(request);
+  if (!session) {
+    return {
+      authorized: false,
+      response: NextResponse.json(
+        { success: false, error: '请先登录' },
+        { status: 401 }
+      )
+    };
+  }
+  return { authorized: true };
+}
+
+// GET - 获取工程报价列表
 export async function GET(request: NextRequest) {
+  // 认证检查
+  const auth = requireAuth(request);
+  if (!auth.authorized) return auth.response!;
+
   try {
     // 初始化数据库表
     await initDatabase();
 
     const searchParams = request.nextUrl.searchParams;
     const page = parseInt(searchParams.get('page') || '1');
-    const limit = parseInt(searchParams.get('limit') || '10');
+    const limit = Math.min(parseInt(searchParams.get('limit') || '10'), 100); // 限制最大100条
     const offset = (page - 1) * limit;
-    const keyword = searchParams.get('keyword') || '';
-    const status = searchParams.get('status') || '';
 
-    // 构建查询条件
-    let whereClause = '';
-    const params: any[] = [];
-
-    if (keyword) {
-      whereClause += ' WHERE (project_name LIKE ? OR client_name LIKE ? OR quote_number LIKE ?)';
-      params.push(`%${keyword}%`, `%${keyword}%`, `%${keyword}%`);
-    }
-
-    if (status) {
-      if (whereClause) {
-        whereClause += ' AND status = ?';
-      } else {
-        whereClause += ' WHERE status = ?';
-      }
-      params.push(status);
-    }
-
-    const [rows] = await pool.execute(
-      `SELECT * FROM engineering_quotes${whereClause} ORDER BY created_at DESC LIMIT ${Number(limit)} OFFSET ${Number(offset)}`,
-      params
+    const [rows] = await pool.query(
+      'SELECT * FROM engineering_quotes ORDER BY created_at DESC LIMIT ? OFFSET ?',
+      [limit, offset]
     );
 
-    const [countResult] = await pool.execute(
-      `SELECT COUNT(*) as total FROM engineering_quotes${whereClause}`,
-      params
+    const [countResult] = await pool.query(
+      'SELECT COUNT(*) as total FROM engineering_quotes'
     );
-    const total = (countResult as any)[0].total;
-
-    // 解析 items JSON 字符串
-    const parsedRows = (rows as any[]).map(row => ({
-      ...row,
-      items: typeof row.items === 'string' ? JSON.parse(row.items) : row.items,
-    }));
+    const total = (countResult as any)[0]?.total || 0;
 
     return NextResponse.json({
       success: true,
-      data: parsedRows,
+      data: rows,
       pagination: {
         page,
         limit,
         total,
-        totalPages: Math.ceil(total / limit)
+        totalPages: Math.ceil(total / limit) || 1
       }
     });
   } catch (error) {
@@ -68,53 +61,63 @@ export async function GET(request: NextRequest) {
   }
 }
 
+// POST - 创建工程报价
 export async function POST(request: NextRequest) {
+  // 认证检查
+  const auth = requireAuth(request);
+  if (!auth.authorized) return auth.response!;
+
   try {
     const body = await request.json();
-    const {
-      quoteNumber,
-      projectName,
-      clientName,
-      contactPerson,
-      contactPhone,
-      constructionArea,
-      managementRate,
-      profitRate,
-      regulatoryRate,
-      taxRate,
-      subtotal,
-      managementFee,
-      profit,
-      regulatoryFee,
-      tax,
-      total,
-      items
-    } = body;
 
-    const [result] = await pool.execute(
-      `INSERT INTO engineering_quotes 
-       (quote_number, project_name, client_name, contact_person, contact_phone, 
+    // 输入验证
+    if (!body.quoteNumber || !body.projectName) {
+      return NextResponse.json(
+        { success: false, error: '报价编号和项目名称不能为空' },
+        { status: 400 }
+      );
+    }
+
+    // 验证数字字段
+    const numericFields = [
+      'constructionArea', 'managementRate', 'profitRate',
+      'regulatoryRate', 'taxRate', 'subtotal', 'managementFee',
+      'profit', 'regulatoryFee', 'tax', 'total'
+    ];
+
+    for (const field of numericFields) {
+      if (body[field] !== undefined && (isNaN(Number(body[field])) || Number(body[field]) < 0)) {
+        return NextResponse.json(
+          { success: false, error: `${field} 必须是有效的非负数字` },
+          { status: 400 }
+        );
+      }
+    }
+
+    // 修复: 确保占位符数量与值数量匹配（16个字段）
+    const [result] = await pool.query(
+      `INSERT INTO engineering_quotes
+       (quote_number, project_name, client_name, contact_person, contact_phone,
         construction_area, management_rate, profit_rate, regulatory_rate, tax_rate,
-        subtotal, management_fee, profit, regulatory_fee, tax, total, items)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        subtotal, management_fee, profit, regulatory_fee, tax, total)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        quoteNumber,
-        projectName,
-        clientName,
-        contactPerson,
-        contactPhone,
-        constructionArea,
-        managementRate,
-        profitRate,
-        regulatoryRate,
-        taxRate,
-        subtotal,
-        managementFee,
-        profit,
-        regulatoryFee,
-        tax,
-        total,
-        JSON.stringify(items)
+        body.quoteNumber,
+        body.projectName,
+        body.clientName || null,
+        body.contactPerson || null,
+        body.contactPhone || null,
+        body.constructionArea || 0,
+        body.managementRate || 8,
+        body.profitRate || 5,
+        body.regulatoryRate || 6,
+        body.taxRate || 9,
+        body.subtotal || 0,
+        body.managementFee || 0,
+        body.profit || 0,
+        body.regulatoryFee || 0,
+        body.tax || 0,
+        body.total || 0
       ]
     );
 
@@ -131,102 +134,44 @@ export async function POST(request: NextRequest) {
   }
 }
 
-export async function PUT(request: NextRequest) {
+// DELETE - 删除工程报价（需要管理员权限）
+export async function DELETE(request: NextRequest) {
+  // 认证检查
+  const auth = requireAuth(request);
+  if (!auth.authorized) return auth.response!;
+
   try {
     const body = await request.json();
-    const {
-      id,
-      quoteNumber,
-      projectName,
-      clientName,
-      contactPerson,
-      contactPhone,
-      constructionArea,
-      managementRate,
-      profitRate,
-      regulatoryRate,
-      taxRate,
-      subtotal,
-      managementFee,
-      profit,
-      regulatoryFee,
-      tax,
-      total,
-      items,
-      status
-    } = body;
+    const { id } = body;
 
     if (!id) {
       return NextResponse.json(
-        { success: false, error: '缺少报价ID' },
+        { success: false, error: '请提供要删除的报价ID' },
         { status: 400 }
       );
     }
 
-    // 将 undefined 转为 null，避免 MySQL2 报错
-    const safeValue = (v: any) => v === undefined ? null : v;
-
-    const [result] = await pool.execute(
-      `UPDATE engineering_quotes
-       SET quote_number = ?, project_name = ?, client_name = ?, contact_person = ?, contact_phone = ?,
-           construction_area = ?, management_rate = ?, profit_rate = ?, regulatory_rate = ?, tax_rate = ?,
-           subtotal = ?, management_fee = ?, profit = ?, regulatory_fee = ?, tax = ?, total = ?,
-           items = ?, status = ?
-       WHERE id = ?`,
-      [
-        safeValue(quoteNumber),
-        safeValue(projectName),
-        safeValue(clientName),
-        safeValue(contactPerson),
-        safeValue(contactPhone),
-        safeValue(constructionArea),
-        safeValue(managementRate),
-        safeValue(profitRate),
-        safeValue(regulatoryRate),
-        safeValue(taxRate),
-        safeValue(subtotal),
-        safeValue(managementFee),
-        safeValue(profit),
-        safeValue(regulatoryFee),
-        safeValue(tax),
-        safeValue(total),
-        JSON.stringify(items),
-        status || 'draft',
-        id
-      ]
-    );
-
-    return NextResponse.json({
-      success: true,
-      data: { id }
-    });
-  } catch (error) {
-    console.error('更新工程报价失败:', error);
-    return NextResponse.json(
-      { success: false, error: '更新工程报价失败' },
-      { status: 500 }
-    );
-  }
-}
-
-export async function DELETE(request: NextRequest) {
-  try {
-    const body = await request.json();
-    const { id, password } = body;
-
-    // 二级密码验证
-    const ADMIN_PASSWORD = 'ecloud10086';
-    if (password !== ADMIN_PASSWORD) {
+    // 验证ID是数字
+    const quoteId = parseInt(id);
+    if (isNaN(quoteId)) {
       return NextResponse.json(
-        { success: false, error: '密码错误' },
-        { status: 401 }
+        { success: false, error: '无效的报价ID' },
+        { status: 400 }
       );
     }
 
-    const [result] = await pool.execute(
+    const [result] = await pool.query(
       'DELETE FROM engineering_quotes WHERE id = ?',
-      [id]
+      [quoteId]
     );
+
+    const affectedRows = (result as any).affectedRows;
+    if (affectedRows === 0) {
+      return NextResponse.json(
+        { success: false, error: '报价不存在或已删除' },
+        { status: 404 }
+      );
+    }
 
     return NextResponse.json({
       success: true,
