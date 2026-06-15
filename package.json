@@ -55,6 +55,7 @@
     "drizzle-orm": "^0.45.1",
     "drizzle-zod": "^0.8.3",
     "embla-carousel-react": "^8.6.0",
+    "html2pdf.js": "^0.14.0",
     "input-otp": "^1.4.2",
     "lucide-react": "^0.468.0",
     "mysql2": "^3.22.3",
