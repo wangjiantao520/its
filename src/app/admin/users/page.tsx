@@ -134,7 +134,7 @@ export default function UserManagementPage() {
     setActionLoading(true);
     setError('');
 
-    const updateData: any = {
+    const updateData: { name: string; password?: string; is_active?: 1 | 0 } = {
       name: editName
     };
 

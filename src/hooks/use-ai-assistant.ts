@@ -33,7 +33,7 @@ export interface AIParseResult {
   missingFields?: string[];
   suggestions?: string[];
   estimatedPriceRange?: { min: number; max: number; unit: string };
-  quotaList?: any[];
+  quotaList?: unknown[];
   _meta?: {
     hasHistory?: boolean;
     hasFeedback?: boolean;
@@ -41,11 +41,13 @@ export interface AIParseResult {
   };
 }
 
+export type FeedbackType = 'wrong_match' | 'missing_info' | 'extra_info' | 'wrong_quantity' | 'other';
+
 export interface FeedbackData {
   originalText: string;
-  aiResult: any;
-  correctedResult?: any;
-  feedbackType: 'wrong_match' | 'missing_info' | 'extra_info' | 'wrong_quantity' | 'other';
+  aiResult: AIParseResult | null;
+  correctedResult?: AIParseResult | null;
+  feedbackType: FeedbackType;
   feedbackComment?: string;
   clientName?: string;
   operator?: string;
@@ -54,18 +56,48 @@ export interface FeedbackData {
 export interface SimilarQuote {
   client_name: string;
   device_signature: string;
-  device_data: any;
+  device_data: AIDevice[];
   quote_total: number;
   created_at: string;
   occurrence: number;
 }
 
 // ============ 语音识别 Hook ============
+interface SpeechRecognitionResultItem {
+  transcript: string;
+}
+interface SpeechRecognitionResultList {
+  resultIndex: number;
+  results: Array<{ isFinal: boolean; 0: SpeechRecognitionResultItem }>;
+}
+interface SpeechRecognitionEventError {
+  error: string;
+}
+interface SpeechRecognitionLike {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  maxAlternatives: number;
+  onstart: (() => void) | null;
+  onresult: ((event: SpeechRecognitionResultList) => void) | null;
+  onerror: ((event: SpeechRecognitionEventError) => void) | null;
+  onend: (() => void) | null;
+  start(): void;
+  stop(): void;
+}
+interface SpeechRecognitionConstructor {
+  new (): SpeechRecognitionLike;
+}
+interface WindowWithSpeech extends Window {
+  SpeechRecognition?: SpeechRecognitionConstructor;
+  webkitSpeechRecognition?: SpeechRecognitionConstructor;
+}
+
 export function useSpeechRecognition() {
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const recognitionRef = useRef<any>(null);
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
 
   const isSupported = typeof window !== 'undefined' &&
     ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window);
@@ -79,7 +111,9 @@ export function useSpeechRecognition() {
     setError(null);
     setTranscript('');
 
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const w = window as unknown as WindowWithSpeech;
+    const SpeechRecognition = w.SpeechRecognition ?? w.webkitSpeechRecognition;
+    if (!SpeechRecognition) return;
     const recognition = new SpeechRecognition();
     recognition.lang = lang;
     recognition.continuous = true;
@@ -90,7 +124,7 @@ export function useSpeechRecognition() {
       setIsListening(true);
     };
 
-    recognition.onresult = (event: any) => {
+    recognition.onresult = (event: SpeechRecognitionResultList) => {
       let finalTranscript = '';
       let interimTranscript = '';
       for (let i = event.resultIndex; i < event.results.length; i++) {
@@ -104,7 +138,7 @@ export function useSpeechRecognition() {
       setTranscript(finalTranscript + interimTranscript);
     };
 
-    recognition.onerror = (event: any) => {
+    recognition.onerror = (event: SpeechRecognitionEventError) => {
       console.error('语音识别错误:', event.error);
       setError(`语音识别错误: ${event.error}`);
       setIsListening(false);
@@ -181,9 +215,10 @@ export function useAIParseQuote() {
 
       const result = await response.json();
       return result;
-    } catch (e: any) {
-      console.error('[useAIParseQuote] 失败:', e);
-      setError(e.message);
+    } catch (e) {
+      const err = e instanceof Error ? e : new Error(String(e));
+      console.error('[useAIParseQuote] 失败:', err);
+      setError(err.message);
       return null;
     } finally {
       setLoading(false);

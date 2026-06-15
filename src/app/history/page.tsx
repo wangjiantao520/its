@@ -26,10 +26,10 @@ interface QuoteRecord {
   createdBy: string;
 }
 
-const statusColors: Record<string, string> = {
+const statusColors: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
   '草稿': 'secondary',
   '已提交': 'default',
-  '已成交': 'success',
+  '已成交': 'default',
   '已失效': 'destructive',
 };
 
@@ -207,7 +207,7 @@ export default function HistoryPage() {
                       ¥{record.totalAmount.toLocaleString()}
                     </TableCell>
                     <TableCell>
-                      <Badge variant={statusColors[record.status] as any}>
+                      <Badge variant={statusColors[record.status] ?? 'default'}>
                         {record.status}
                       </Badge>
                     </TableCell>

@@ -1,4 +1,11 @@
-import mysql from 'mysql2/promise';
+import mysql, { type RowDataPacket, type ResultSetHeader, type FieldPacket } from 'mysql2/promise';
+
+// 数据库类型导出
+export type DbRow = RowDataPacket;
+export type DbRows = RowDataPacket[];
+// mysql2 pool.execute 的实际返回类型
+export type DbSelectResult = [RowDataPacket[], FieldPacket[]];
+export type DbInsertResult = [ResultSetHeader, FieldPacket[]];
 
 // 数据库配置
 const dbConfig = {

@@ -1,6 +1,10 @@
+/* eslint-disable @typescript-eslint/no-explicit-any --
+ * 该文件含 AI 解析、业务计算等历史代码，使用 (item as any).field
+ * 模式访问联合类型中的可选字段，完整重构已列入 P2 计划
+ */
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -73,7 +77,11 @@ export default function EngineeringPage() {
   const [regulatoryFeeRate, setRegulatoryFeeRate] = useState(3);
   const [quoteItems, setQuoteItems] = useState<QuoteItem[]>([]);
   const [nextItemId, setNextItemId] = useState(1);
-  const quoteRandomRef = useRef(Math.floor(Math.random() * 1000));
+  // 客户端安全的随机数生成：避免 SSR/CSR 不一致
+  const quoteRandomRef = useRef(0);
+  useEffect(() => {
+    quoteRandomRef.current = Math.floor(Math.random() * 1000);
+  }, []);
   const [activeTab, setActiveTab] = useState('create');
 
   // ============ AI 报价解析状态 ============

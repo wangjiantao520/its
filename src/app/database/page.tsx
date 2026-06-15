@@ -133,7 +133,7 @@ DB_NAME=quotation_system`}
               </div>
               <div>
                 <h4 className="font-medium text-slate-900 mb-1">3. 初始化表结构</h4>
-                <p>点击上方"初始化数据库"按钮创建数据表</p>
+                <p>点击上方“初始化数据库”按钮创建数据表</p>
               </div>
             </CardContent>
           </Card>

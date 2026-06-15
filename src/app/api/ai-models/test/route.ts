@@ -93,7 +93,7 @@ export async function POST(request: NextRequest) {
               ]
             );
             connection.release();
-          } catch {}
+          } catch (dbErr) { console.warn("[AI Models Test] 记录失败: ", dbErr); }
         }
 
         return NextResponse.json(
@@ -121,7 +121,7 @@ export async function POST(request: NextRequest) {
             [configId, config.provider, config.model_name, testPrompt.length, reply.length, duration]
           );
           connection.release();
-        } catch {}
+        } catch (dbErr) { console.warn("[AI Models Test] 记录失败: ", dbErr); }
       }
 
       return NextResponse.json({
@@ -149,7 +149,7 @@ export async function POST(request: NextRequest) {
             [configId, config.provider, config.model_name, duration, errorMsg]
           );
           connection.release();
-        } catch {}
+        } catch (dbErr) { console.warn("[AI Models Test] 记录失败: ", dbErr); }
       }
 
       return NextResponse.json(

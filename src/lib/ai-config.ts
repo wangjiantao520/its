@@ -1,4 +1,4 @@
-import pool from '@/lib/db';
+import pool, { type DbRow } from '@/lib/db';
 
 export interface AIModelConfig {
   id: number;
@@ -10,6 +10,32 @@ export interface AIModelConfig {
   temperature: number;
   max_tokens: number;
   system_prompt?: string;
+}
+
+interface AIModelConfigRow extends DbRow {
+  id: number;
+  name: string;
+  provider: string;
+  model_name: string;
+  api_endpoint: string;
+  api_key: string;
+  temperature: string | number;
+  max_tokens: number;
+  system_prompt?: string;
+}
+
+function mapAIModelConfigRow(config: AIModelConfigRow): AIModelConfig {
+  return {
+    id: config.id,
+    name: config.name,
+    provider: config.provider,
+    model_name: config.model_name,
+    api_endpoint: config.api_endpoint,
+    api_key: config.api_key,
+    temperature: parseFloat(String(config.temperature)) || 0.3,
+    max_tokens: config.max_tokens || 3000,
+    system_prompt: config.system_prompt,
+  };
 }
 
 /**
@@ -24,19 +50,9 @@ export async function getActiveAIModelConfig(): Promise<AIModelConfig | null> {
       const [rows] = await connection.execute(
         'SELECT * FROM ai_model_configs WHERE is_active = 1 LIMIT 1'
       );
-      const config = (rows as any[])[0];
+      const config = (rows as AIModelConfigRow[])[0];
       if (config) {
-        return {
-          id: config.id,
-          name: config.name,
-          provider: config.provider,
-          model_name: config.model_name,
-          api_endpoint: config.api_endpoint,
-          api_key: config.api_key,
-          temperature: parseFloat(config.temperature) || 0.3,
-          max_tokens: config.max_tokens || 3000,
-          system_prompt: config.system_prompt,
-        };
+        return mapAIModelConfigRow(config);
       }
     } finally {
       connection.release();
@@ -106,6 +122,7 @@ export async function callAIModel(
 
     if (!response.ok) {
       const errorText = await response.text();
+      console.error('[AI Model] API 调用失败:', response.status, errorText);
       return {
         success: false,
         error: `API调用失败 (${response.status})`,
@@ -134,23 +151,14 @@ async function getAIModelConfigById(id: number): Promise<AIModelConfig | null> {
         'SELECT * FROM ai_model_configs WHERE id = ?',
         [id]
       );
-      const config = (rows as any[])[0];
+      const config = (rows as AIModelConfigRow[])[0];
       if (!config) return null;
-      return {
-        id: config.id,
-        name: config.name,
-        provider: config.provider,
-        model_name: config.model_name,
-        api_endpoint: config.api_endpoint,
-        api_key: config.api_key,
-        temperature: parseFloat(config.temperature) || 0.3,
-        max_tokens: config.max_tokens || 3000,
-        system_prompt: config.system_prompt,
-      };
+      return mapAIModelConfigRow(config);
     } finally {
       connection.release();
     }
-  } catch {
+  } catch (error) {
+    console.warn('[AI Config] 按 ID 读取配置失败:', (error as Error).message);
     return null;
   }
 }

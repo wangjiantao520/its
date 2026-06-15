@@ -52,11 +52,6 @@ const DEPRECIATION_LEVELS: { value: DepreciationLevel; label: string }[] = [
 
 export default function DeviceImportPage() {
   const { user, isLoggedIn } = useUser();
-
-  // 如果未登录，不渲染内容
-  if (!isLoggedIn || !user) {
-    return null;
-  }
   const [devices, setDevices] = useState<Partial<DeviceImportItem>[]>([]);
   const [currentDevice, setCurrentDevice] = useState<Partial<DeviceImportItem>>({
     category: '',
@@ -70,6 +65,11 @@ export default function DeviceImportPage() {
   });
   const [importRecords, setImportRecords] = useState<DeviceImportItem[]>(getDeviceImports());
   const [activeTab, setActiveTab] = useState('form');
+
+  // 如果未登录，不渲染内容（hooks 必须在 early return 之前调用）
+  if (!isLoggedIn || !user) {
+    return null;
+  }
 
   const handleAddDevice = () => {
     // 验证必填字段
@@ -120,7 +120,7 @@ export default function DeviceImportPage() {
         needSparePart: device.needSparePart || false,
         contractYears: device.contractYears || 1,
         submittedBy: user.name
-      } as any);
+      });
     });
 
     setImportRecords(getDeviceImports());
@@ -666,7 +666,7 @@ export default function DeviceImportPage() {
             <CardContent>
               {devices.length === 0 ? (
                 <div className="text-center py-8 text-gray-500">
-                  暂无设备，请先在"填写表单"标签页添加设备
+                  暂无设备，请先在“填写表单”标签页添加设备
                 </div>
               ) : (
                 <>

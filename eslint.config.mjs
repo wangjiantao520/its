@@ -29,6 +29,14 @@ const eslintConfig = defineConfig([
     },
   },
   {
+    // API 路由的数据库查询本质上是动态的（mysql2 返回 any[]）
+    // 这里降级为 warn 而非 error，避免大量无意义的类型断言
+    files: ['src/app/api/**/*.{ts,tsx}'],
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'warn',
+    },
+  },
+  {
     files: ['next.config.ts'],
     rules: {
       'no-restricted-syntax': ['error', ...nextConfigRestrictedSyntaxRules],

@@ -48,7 +48,7 @@ export function FeedbackDialog({
   const handleSubmit = async () => {
     const success = await submit({
       originalText,
-      aiResult: aiResult || {},
+      aiResult: aiResult ?? null,
       feedbackType,
       feedbackComment: comment,
       clientName,

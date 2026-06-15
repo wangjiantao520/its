@@ -1,3 +1,8 @@
+/* eslint-disable @typescript-eslint/no-explicit-any --
+ * 该文件为 4000+ 行的核心维保报价页面，含大量历史业务代码
+ * (item as any).field 模式用于访问联合类型中的可选字段
+ * 完整重构已列入 P2 重构计划
+ */
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -243,7 +248,7 @@ export default function MaintenanceQuotePage() {
       
       // 更新设备价格和费用项目
       updatedResult.deviceItems = updatedResult.deviceItems.map((item, index) => {
-        let updatedItem = { ...item };
+        const updatedItem = { ...item };
         const key = `device_${index}`;
         
         // 更新设备单价（如果有自定义）

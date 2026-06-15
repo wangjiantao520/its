@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
-import pool from './db';
+import pool, { type DbRow, type DbSelectResult, type DbInsertResult } from './db';
 
 // 密码配置（从环境变量读取）
 const PASSWORDS: Record<string, string | undefined> = {
@@ -34,11 +34,13 @@ interface SessionData {
 }
 
 // 使用 globalThis 持久化会话存储
+type AuthGlobals = { __authSessions?: Map<string, SessionData> };
 const getSessions = (): Map<string, SessionData> => {
-  if (!(globalThis as any).__authSessions) {
-    (globalThis as any).__authSessions = new Map<string, SessionData>();
+  const g = globalThis as unknown as AuthGlobals;
+  if (!g.__authSessions) {
+    g.__authSessions = new Map<string, SessionData>();
   }
-  return (globalThis as any).__authSessions;
+  return g.__authSessions;
 };
 
 // 生成会话token
@@ -57,9 +59,12 @@ function cleanupExpiredSessions() {
   }
 }
 
-// 定期清理过期会话
-if (typeof setInterval !== 'undefined') {
-  setInterval(cleanupExpiredSessions, 60000);
+// 定期清理过期会话（避免 HMR 累积多个定时器）
+const SESSION_CLEANUP_INTERVAL = 60_000;
+type SessionCleanupGlobals = { __sessionCleanupInterval?: ReturnType<typeof setInterval> };
+const sessionG = globalThis as unknown as SessionCleanupGlobals;
+if (typeof setInterval !== 'undefined' && !sessionG.__sessionCleanupInterval) {
+  sessionG.__sessionCleanupInterval = setInterval(cleanupExpiredSessions, SESSION_CLEANUP_INTERVAL);
 }
 
 // 验证会话
@@ -103,16 +108,16 @@ async function validateUserCredentials(username: string, password: string): Prom
 
   // 2. 检查数据库（如果数据库可用）
   try {
-    const [rows] = await pool.execute(
+    const [rows] = (await pool.execute(
       'SELECT id, password_hash, name, is_active FROM users WHERE username = ?',
       [username]
-    ) as [any[], any];
+    )) as DbSelectResult;
 
     if (!rows || rows.length === 0) {
       return { valid: false };
     }
 
-    const user = rows[0];
+    const user = rows[0] as DbRow & { id: number; password_hash: string; name: string; is_active: number };
 
     // 检查账号是否启用
     if (!user.is_active) {
@@ -137,7 +142,10 @@ async function validateUserCredentials(username: string, password: string): Prom
 export async function createUser(username: string, password: string, name: string, createdBy: string): Promise<{ success: boolean; error?: string; userId?: number }> {
   try {
     // 检查用户名是否已存在
-    const [existing] = await pool.execute('SELECT id FROM users WHERE username = ?', [username]) as [any[], any];
+    const [existing] = (await pool.execute(
+      'SELECT id FROM users WHERE username = ?',
+      [username]
+    )) as DbSelectResult;
     if (existing && existing.length > 0) {
       return { success: false, error: '用户名已存在' };
     }
@@ -146,10 +154,10 @@ export async function createUser(username: string, password: string, name: strin
     const passwordHash = await bcrypt.hash(password, 10);
 
     // 插入用户
-    const [result] = await pool.execute(
+    const [result] = (await pool.execute(
       'INSERT INTO users (username, password_hash, name, created_by) VALUES (?, ?, ?, ?)',
       [username, passwordHash, name, createdBy]
-    ) as [any, any];
+    )) as DbInsertResult;
 
     return { success: true, userId: result.insertId };
   } catch (error) {
@@ -159,12 +167,18 @@ export async function createUser(username: string, password: string, name: strin
 }
 
 // 获取用户列表
-export async function getUsers(): Promise<any[]> {
+export async function getUsers(): Promise<Array<{
+  id: number; username: string; name: string; is_active: number;
+  created_at: string; created_by: string;
+}>> {
   try {
-    const [rows] = await pool.execute(
+    const [rows] = (await pool.execute(
       'SELECT id, username, name, is_active, created_at, created_by FROM users ORDER BY created_at DESC'
-    ) as [any[], any];
-    return rows || [];
+    )) as DbSelectResult;
+    return (rows || []) as Array<{
+      id: number; username: string; name: string; is_active: number;
+      created_at: string; created_by: string;
+    }>;
   } catch (error) {
     console.error('获取用户列表失败:', error);
     return [];
@@ -179,7 +193,7 @@ export async function updateUser(userId: number, data: { name?: string; password
     }
 
     const updates: string[] = [];
-    const values: any[] = [];
+    const values: (string | number)[] = [];
 
     if (data.name !== undefined) {
       updates.push('name = ?');
