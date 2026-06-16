@@ -55,7 +55,10 @@ export default function LoginPage() {
         localStorage.setItem('rememberLogin', 'true');
       }
 
-      router.push('/device-review');
+      // 使用 window.location.href 强制刷新页面
+      // 确保 UserProvider 重新读取 localStorage 中的 token，更新 React state
+      // 否则 AuthProtected 会因为 state 仍是 isLoggedIn=false 而踢回登录页
+      window.location.href = '/device-review';
     } catch (err) {
       setAdminError('登录失败，请重试');
       setAdminLoading(false);
@@ -100,7 +103,9 @@ export default function LoginPage() {
         localStorage.setItem('rememberLogin', 'true');
       }
 
-      router.push('/device-import');
+      // 使用 window.location.href 强制刷新页面
+      // 确保 UserProvider 重新读取 localStorage 中的 token，更新 React state
+      window.location.href = '/device-import';
     } catch (err) {
       setItsError('登录失败，请重试');
       setItsLoading(false);
@@ -152,7 +157,7 @@ export default function LoginPage() {
                     autoComplete="off"
                   />
                   <p className="text-xs text-muted-foreground">
-                    环境变量 ADMIN_PASSWORD
+                    默认密码：<span className="font-mono font-semibold">admin123</span>（可在 .env 中修改 ADMIN_PASSWORD）
                   </p>
                 </div>
 
