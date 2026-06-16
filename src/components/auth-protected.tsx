@@ -22,11 +22,17 @@ const ROLE_PATHS: Record<UserRole, string[]> = {
 export function AuthProtected({ children, allowedRoles }: AuthProtectedProps) {
   const router = useRouter();
   const pathname = usePathname();
-  const { user, isLoggedIn } = useUser();
+  const { user, isLoggedIn, isLoading } = useUser();
 
   useEffect(() => {
     // 如果是公开路径，不需要登录
     if (PUBLIC_PATHS.includes(pathname)) {
+      return;
+    }
+
+    // 关键：等 UserProvider 初始化完成（读取 localStorage 并调 verifyTokenOnServer）后，再判断登录状态
+    // 否则初次渲染时 isLoggedIn 始终为 false，会错误地跳转到登录页
+    if (isLoading) {
       return;
     }
 
@@ -60,14 +66,23 @@ export function AuthProtected({ children, allowedRoles }: AuthProtectedProps) {
       const homePath = allowedPaths[0] || '/';
       router.push(homePath);
     }
-  }, [isLoggedIn, user, pathname, router, allowedRoles]);
+  }, [isLoggedIn, user, pathname, router, allowedRoles, isLoading]);
 
   // 如果是公开路径，直接渲染
   if (PUBLIC_PATHS.includes(pathname)) {
     return <>{children}</>;
   }
 
-  // 如果未登录，不渲染内容
+  // 加载中：显示加载占位符（避免闪烁和误判）
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-muted-foreground">加载中...</div>
+      </div>
+    );
+  }
+
+  // 如果未登录，不渲染内容（useEffect 会处理跳转）
   if (!isLoggedIn || !user) {
     return null;
   }
