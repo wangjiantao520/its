@@ -3,6 +3,7 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { useRouter } from 'next/navigation';
 import {
   BarChart,
   Bar,
@@ -149,6 +150,35 @@ const getActivityBadge = (type: string) => {
 };
 
 export default function DashboardPage() {
+  const router = useRouter();
+
+  const handleNewQuote = () => {
+    router.push('/maintenance');
+  };
+
+  const handleViewPending = () => {
+    router.push('/quotes');
+  };
+
+  const handleViewQuotes = () => {
+    router.push('/quotes');
+  };
+
+  const handleExportReport = () => {
+    // TODO: 实现导出功能
+    alert('导出报表功能开发中');
+  };
+
+  const handleViewQuote = (quoteId: string) => {
+    // TODO: 跳转到报价详情页
+    alert(`查看报价详情：${quoteId}`);
+  };
+
+  const handleViewExpiring = () => {
+    // TODO: 跳转到到期提醒页
+    router.push('/quotes');
+  };
+
   return (
     <div className="flex-1 space-y-6 p-8 pt-6">
       {/* Header */}
@@ -164,7 +194,7 @@ export default function DashboardPage() {
             <RefreshCw className="mr-2 h-4 w-4" />
             刷新
           </Button>
-          <Button size="sm">
+          <Button size="sm" onClick={handleNewQuote}>
             <Plus className="mr-2 h-4 w-4" />
             新建报价
           </Button>
@@ -173,7 +203,7 @@ export default function DashboardPage() {
 
       {/* Statistics Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card>
+        <Card className="cursor-pointer hover:shadow-lg transition-shadow" onClick={handleViewQuotes}>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">
               报价总数
@@ -188,7 +218,7 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="cursor-pointer hover:shadow-lg transition-shadow" onClick={handleViewQuotes}>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">
               本月新增
@@ -203,7 +233,7 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="cursor-pointer hover:shadow-lg transition-shadow" onClick={handleViewPending}>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">
               待审核
@@ -218,7 +248,7 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="cursor-pointer hover:shadow-lg transition-shadow" onClick={handleViewExpiring}>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">
               即将到期
@@ -298,7 +328,8 @@ export default function DashboardPage() {
               {expiringItems.map((item) => (
                 <div
                   key={item.id}
-                  className="flex items-center justify-between border-b pb-3 last:border-0 last:pb-0"
+                  className="flex items-center justify-between border-b pb-3 last:border-0 last:pb-0 cursor-pointer hover:bg-muted/50 transition-colors"
+                  onClick={handleViewExpiring}
                 >
                   <div className="space-y-1">
                     <p className="text-sm font-medium leading-none">
@@ -345,7 +376,8 @@ export default function DashboardPage() {
               {recentActivity.map((activity) => (
                 <div
                   key={activity.id}
-                  className="flex items-center justify-between border-b pb-3 last:border-0 last:pb-0"
+                  className="flex items-center justify-between border-b pb-3 last:border-0 last:pb-0 cursor-pointer hover:bg-muted/50 transition-colors"
+                  onClick={() => handleViewQuote(activity.quote)}
                 >
                   <div className="flex items-center gap-3">
                     <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted">
@@ -386,19 +418,19 @@ export default function DashboardPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-3">
-            <Button variant="default" className="w-full justify-start">
+            <Button variant="default" className="w-full justify-start" onClick={handleNewQuote}>
               <Plus className="mr-2 h-4 w-4" />
               新建报价
             </Button>
-            <Button variant="outline" className="w-full justify-start">
+            <Button variant="outline" className="w-full justify-start" onClick={handleViewPending}>
               <Eye className="mr-2 h-4 w-4" />
               待审核报价
             </Button>
-            <Button variant="outline" className="w-full justify-start">
+            <Button variant="outline" className="w-full justify-start" onClick={handleExportReport}>
               <Download className="mr-2 h-4 w-4" />
               导出报表
             </Button>
-            <Button variant="outline" className="w-full justify-start">
+            <Button variant="outline" className="w-full justify-start" onClick={handleViewQuotes}>
               <FileText className="mr-2 h-4 w-4" />
               报价管理
             </Button>
