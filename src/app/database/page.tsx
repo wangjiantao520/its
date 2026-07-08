@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -11,7 +11,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { 
   Plus, Edit, Trash2, Save, X, Search, Download,
-  Cpu, Wrench, Building2, Users, AlertCircle, CheckCircle2, Loader2
+  Cpu, Wrench, Building2, Users, AlertCircle, CheckCircle2, Loader2,
+  ChevronDown, ChevronRight
 } from 'lucide-react';
 
 // 设备定额类型
@@ -23,6 +24,8 @@ interface DeviceQuota {
   model: string;
   specification: string;
   maintenance_tier: string;
+  level: string;
+  engineer_level: string;
   annual_fault_count: number;
   a_gear_fault_count: number;
   b_gear_fault_count: number;
@@ -96,6 +99,9 @@ export default function DatabasePage() {
   
   // 操作反馈
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  
+  // 展开行状态
+  const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
 
   // 加载数据
   useEffect(() => {
@@ -460,6 +466,17 @@ export default function DatabasePage() {
     }
   };
 
+  // 展开/折叠行
+  const toggleRow = (id: number) => {
+    const newExpanded = new Set(expandedRows);
+    if (newExpanded.has(id)) {
+      newExpanded.delete(id);
+    } else {
+      newExpanded.add(id);
+    }
+    setExpandedRows(newExpanded);
+  };
+
   // 获取当前数据
   const getCurrentData = () => {
     switch (activeTab) {
@@ -498,6 +515,7 @@ export default function DatabasePage() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-12"></TableHead>
                 <TableHead>类别</TableHead>
                 <TableHead>名称</TableHead>
                 <TableHead>品牌</TableHead>
@@ -508,24 +526,86 @@ export default function DatabasePage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {(data as DeviceQuota[]).map((item) => (
-                <TableRow key={item.id}>
-                  <TableCell>{item.category}</TableCell>
-                  <TableCell className="font-medium">{item.name}</TableCell>
-                  <TableCell>{item.brand}</TableCell>
-                  <TableCell>{item.model}</TableCell>
-                  <TableCell>{item.maintenance_tier}</TableCell>
-                  <TableCell className="text-right">{item.annual_fault_count}</TableCell>
-                  <TableCell className="text-right">
-                    <Button variant="ghost" size="sm" onClick={() => handleEdit(item)}>
-                      <Edit className="w-4 h-4" />
-                    </Button>
-                    <Button variant="ghost" size="sm" onClick={() => handleDelete(item.id)}>
-                      <Trash2 className="w-4 h-4 text-red-600" />
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
+              {(data as DeviceQuota[]).map((item) => {
+                const isExpanded = expandedRows.has(item.id);
+                return (
+                  <React.Fragment key={item.id}>
+                    <TableRow className="cursor-pointer hover:bg-slate-50" onClick={() => toggleRow(item.id)}>
+                      <TableCell>
+                        {isExpanded ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
+                      </TableCell>
+                      <TableCell>{item.category}</TableCell>
+                      <TableCell className="font-medium">{item.name}</TableCell>
+                      <TableCell>{item.brand}</TableCell>
+                      <TableCell>{item.model}</TableCell>
+                      <TableCell>{item.maintenance_tier}</TableCell>
+                      <TableCell className="text-right">{item.annual_fault_count}</TableCell>
+                      <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                        <Button variant="ghost" size="sm" onClick={() => handleEdit(item)}>
+                          <Edit className="w-4 h-4" />
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={() => handleDelete(item.id)}>
+                          <Trash2 className="w-4 h-4 text-red-600" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                    {isExpanded && (
+                      <TableRow>
+                        <TableCell colSpan={8} className="bg-slate-50">
+                          <div className="p-4">
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                              <div className="space-y-1">
+                                <span className="text-xs text-slate-500">工程师等级</span>
+                                <p className="text-sm font-medium">{item.level || '-'}</p>
+                              </div>
+                              <div className="space-y-1">
+                                <span className="text-xs text-slate-500">工程师级别</span>
+                                <p className="text-sm font-medium">{item.engineer_level || '-'}</p>
+                              </div>
+                              <div className="space-y-1">
+                                <span className="text-xs text-slate-500">规格</span>
+                                <p className="text-sm font-medium">{item.specification || '-'}</p>
+                              </div>
+                              <div className="space-y-1">
+                                <span className="text-xs text-slate-500">故障处理天数</span>
+                                <p className="text-sm font-medium">{item.fault_processing_days || 0}</p>
+                              </div>
+                              <div className="space-y-1">
+                                <span className="text-xs text-slate-500">巡检天数</span>
+                                <p className="text-sm font-medium">{item.inspection_days || 0}</p>
+                              </div>
+                              <div className="space-y-1">
+                                <span className="text-xs text-slate-500">到场次数</span>
+                                <p className="text-sm font-medium">{item.on_site_count || 0}</p>
+                              </div>
+                              <div className="space-y-1">
+                                <span className="text-xs text-slate-500">A档故障次数</span>
+                                <p className="text-sm font-medium">{item.a_gear_fault_count || 0}</p>
+                              </div>
+                              <div className="space-y-1">
+                                <span className="text-xs text-slate-500">B档故障次数</span>
+                                <p className="text-sm font-medium">{item.b_gear_fault_count || 0}</p>
+                              </div>
+                              <div className="space-y-1">
+                                <span className="text-xs text-slate-500">C档故障次数</span>
+                                <p className="text-sm font-medium">{item.c_gear_fault_count || 0}</p>
+                              </div>
+                              <div className="space-y-1">
+                                <span className="text-xs text-slate-500">D档故障次数</span>
+                                <p className="text-sm font-medium">{item.d_gear_fault_count || 0}</p>
+                              </div>
+                              <div className="space-y-1">
+                                <span className="text-xs text-slate-500">E档故障次数</span>
+                                <p className="text-sm font-medium">{item.e_gear_fault_count || 0}</p>
+                              </div>
+                            </div>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </React.Fragment>
+                );
+              })}
             </TableBody>
           </Table>
         );
