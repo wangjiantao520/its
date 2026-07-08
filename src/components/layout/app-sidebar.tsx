@@ -89,11 +89,6 @@ const adminNavItems = [
     icon: ListFilter,
   },
   {
-    title: '客户管理',
-    url: '/clients',
-    icon: Users,
-  },
-  {
     title: '报表统计',
     url: '/reports',
     icon: BarChart3,
