@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -132,6 +132,9 @@ export default function DatabaseManagementPage() {
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [importUrl, setImportUrl] = useState('');
   const [importing, setImporting] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // 设备清单审核状态
   const [imports, setImports] = useState<DeviceImportItem[]>([]);
@@ -1031,25 +1034,40 @@ export default function DatabaseManagementPage() {
     }
   };
 
-  // 从Excel导入数据
+  // 从Excel导入数据（支持URL和文件上传）
   const handleImportExcel = async () => {
-    if (!importUrl.trim()) {
-      toast.error('请输入文件URL');
+    if (!importUrl.trim() && !selectedFile) {
+      toast.error('请输入文件URL或选择文件');
       return;
     }
     
     setImporting(true);
     try {
-      const response = await fetch('/api/import-excel', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: importUrl })
-      });
+      let response: Response;
+      
+      if (selectedFile) {
+        // 文件上传模式
+        const formData = new FormData();
+        formData.append('file', selectedFile);
+        response = await fetch('/api/import-file', {
+          method: 'POST',
+          body: formData
+        });
+      } else {
+        // URL模式
+        response = await fetch('/api/import-excel', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: importUrl })
+        });
+      }
+      
       const result = await response.json();
       if (result.success) {
         toast.success(result.message);
         setImportDialogOpen(false);
         setImportUrl('');
+        setSelectedFile(null);
         loadData();
       } else {
         toast.error(result.error || '导入失败');
@@ -1059,6 +1077,48 @@ export default function DatabaseManagementPage() {
       toast.error('导入Excel失败');
     } finally {
       setImporting(false);
+    }
+  };
+
+  // 下载导入模板
+  const handleDownloadTemplate = () => {
+    window.open('/api/import-template', '_blank');
+  };
+
+  // 处理文件选择
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (!file.name.endsWith('.xlsx') && !file.name.endsWith('.xls')) {
+        toast.error('请选择Excel文件（.xlsx或.xls格式）');
+        return;
+      }
+      setSelectedFile(file);
+      setImportUrl(''); // 清空URL
+    }
+  };
+
+  // 处理拖拽
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = () => {
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      if (!file.name.endsWith('.xlsx') && !file.name.endsWith('.xls')) {
+        toast.error('请选择Excel文件（.xlsx或.xls格式）');
+        return;
+      }
+      setSelectedFile(file);
+      setImportUrl(''); // 清空URL
     }
   };
 
@@ -1534,37 +1594,101 @@ export default function DatabaseManagementPage() {
               从Excel导入设备定额
             </DialogTitle>
             <DialogDescription>
-              请输入Excel文件的URL地址，系统将自动解析并导入数据。如果设备名称重复，将覆盖现有数据。
+              拖拽Excel文件到下方区域，或点击选择文件。也可以输入文件URL地址。
             </DialogDescription>
           </DialogHeader>
           <div className="py-4 space-y-4">
+            {/* 拖拽上传区域 */}
+            <div
+              className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
+                isDragging ? 'border-primary bg-primary/5' : 'border-gray-300 hover:border-primary'
+              }`}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xlsx,.xls"
+                onChange={handleFileSelect}
+                className="hidden"
+              />
+              <Upload className="w-12 h-12 mx-auto mb-4 text-gray-400" />
+              {selectedFile ? (
+                <div>
+                  <p className="text-lg font-medium text-primary">{selectedFile.name}</p>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    {(selectedFile.size / 1024).toFixed(1)} KB · 点击重新选择
+                  </p>
+                </div>
+              ) : (
+                <div>
+                  <p className="text-lg font-medium">拖拽文件到此处</p>
+                  <p className="text-sm text-muted-foreground mt-1">或点击选择文件</p>
+                </div>
+              )}
+            </div>
+
+            {/* 分隔线 */}
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <span className="w-full border-t" />
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-background px-2 text-muted-foreground">或者</span>
+              </div>
+            </div>
+
+            {/* URL输入 */}
             <div className="space-y-2">
               <Label>文件URL</Label>
               <Input
                 placeholder="请输入Excel文件的URL地址"
                 value={importUrl}
-                onChange={(e) => setImportUrl(e.target.value)}
+                onChange={(e) => {
+                  setImportUrl(e.target.value);
+                  setSelectedFile(null); // 清空文件选择
+                }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') handleImportExcel();
                 }}
-                autoFocus
               />
             </div>
+
+            {/* 下载模板 */}
+            <div className="flex justify-center">
+              <Button variant="outline" onClick={handleDownloadTemplate} className="text-sm">
+                <Download className="w-4 h-4 mr-2" />
+                下载导入模板
+              </Button>
+            </div>
+
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
               <p className="text-sm text-blue-800 font-medium">导入说明：</p>
               <ul className="text-sm text-blue-700 mt-2 space-y-1 list-disc list-inside">
-                <li>支持 .xlsx 格式的Excel文件</li>
-                <li>Excel应包含列：分类、名称、品牌、型号、档次、工程师等级、年故障次数等</li>
+                <li>支持 .xlsx 和 .xls 格式的Excel文件</li>
+                <li>请按照模板格式填写数据</li>
                 <li>名称重复的设备将被更新覆盖</li>
                 <li>新设备将被添加到定额库</li>
               </ul>
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setImportDialogOpen(false)} disabled={importing}>
+            <Button variant="outline" onClick={() => {
+              setImportDialogOpen(false);
+              setSelectedFile(null);
+              setImportUrl('');
+              setIsDragging(false);
+            }} disabled={importing}>
               取消
             </Button>
-            <Button onClick={handleImportExcel} className="bg-purple-600 hover:bg-purple-700" disabled={importing}>
+            <Button 
+              onClick={handleImportExcel} 
+              className="bg-purple-600 hover:bg-purple-700" 
+              disabled={importing || (!selectedFile && !importUrl)}
+            >
               {importing ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
