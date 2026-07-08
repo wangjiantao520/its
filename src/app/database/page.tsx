@@ -79,6 +79,7 @@ export default function QuotaLibraryPage() {
   const [activeTab, setActiveTab] = useState('device_quotas');
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<string>('all');
   
   // 数据状态
   const [deviceQuotas, setDeviceQuotas] = useState<DeviceQuota[]>([]);
@@ -102,6 +103,12 @@ export default function QuotaLibraryPage() {
   
   // 展开行状态
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
+
+  // 切换标签页时重置分类筛选
+  useEffect(() => {
+    setSelectedCategory('all');
+    setExpandedRows(new Set());
+  }, [activeTab]);
 
   // 加载数据
   useEffect(() => {
@@ -251,13 +258,42 @@ export default function QuotaLibraryPage() {
 
   // 过滤数据
   const filterData = <T extends Record<string, any>>(data: T[]): T[] => {
-    if (!searchTerm) return data;
-    const term = searchTerm.toLowerCase();
-    return data.filter(item => 
-      Object.values(item).some(val => 
-        String(val).toLowerCase().includes(term)
-      )
-    );
+    let filtered = data;
+    
+    // 按分类筛选
+    if (selectedCategory !== 'all') {
+      filtered = filtered.filter(item => item.category === selectedCategory);
+    }
+    
+    // 按搜索词筛选
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase();
+      filtered = filtered.filter(item => 
+        Object.values(item).some(val => 
+          String(val).toLowerCase().includes(term)
+        )
+      );
+    }
+    
+    return filtered;
+  };
+
+  // 获取当前标签页的分类列表
+  const getCategories = (): string[] => {
+    let data: any[] = [];
+    switch (activeTab) {
+      case 'device_quotas':
+        data = deviceQuotas;
+        break;
+      case 'self_construction_quotas':
+        data = selfConstructionQuotas;
+        break;
+      case 'intelligent_project_quotas':
+        data = intelligentProjectQuotas;
+        break;
+    }
+    const categories = [...new Set(data.map(item => item.category).filter(Boolean))];
+    return categories.sort();
   };
 
   // 更新编辑项的字段
@@ -818,6 +854,18 @@ export default function QuotaLibraryPage() {
                 className="pl-9"
               />
             </div>
+            {activeTab !== 'labor_price_config' && (
+              <select
+                value={selectedCategory}
+                onChange={(e) => setSelectedCategory(e.target.value)}
+                className="h-9 px-3 py-1 text-sm border border-slate-200 rounded-md bg-white hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="all">全部分类</option>
+                {getCategories().map(cat => (
+                  <option key={cat} value={cat}>{cat}</option>
+                ))}
+              </select>
+            )}
             <span className="text-sm text-slate-500">
               共 {getCurrentData().length} 条记录
             </span>
