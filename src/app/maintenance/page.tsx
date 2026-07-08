@@ -1760,7 +1760,7 @@ export default function MaintenanceQuotePage() {
                     <Switch
                       id="needSpareParts"
                       checked={needSpareParts}
-                      onCheckedChange={setNeedSpareParts}
+                      onCheckedChange={(checked) => setNeedSpareParts(checked)}
                     />
                     <Label htmlFor="needSpareParts" className="cursor-pointer flex-1">
                       需要备件
