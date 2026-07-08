@@ -574,21 +574,45 @@ export default function MaintenanceQuotePage() {
       const res = await fetch('/api/device-quotas-db');
       const data = await res.json();
       if (data.success) {
-        // 将数据库数据转换为 FullDeviceQuota 格式
+        // 将数据库数据转换为 FullDeviceQuota 格式（包含完整价格信息）
         const formatted = data.data.map((d: any, index: number) => ({
-          id: d.id || index + 1,
+          id: d.id || `device-${index + 1}`,
+          serialNumber: d.serial_number || d.serialNumber || index + 1,
           category: d.category || '其他',
           name: d.name || '',
-          brand: d.brand || '',
           model: d.model || '',
+          level: d.level || '',
+          levelName: d.level_name || d.levelName || '',
+          engineerLevel: d.engineer_level || d.engineerLevel || '',
+          deviceCount: d.device_count || d.deviceCount || 1,
           unit: d.unit || '台',
+          inspectionLaborFee: d.inspection_labor_fee || d.inspectionLaborFee || 0,
+          onSiteFeeAnnual: d.on_site_fee_annual || d.onSiteFeeAnnual || 0,
+          trafficFee: d.traffic_fee || d.trafficFee || 0,
+          faultHandlingFeeTotal: d.fault_handling_fee_total || d.faultHandlingFeeTotal || 0,
+          cityPrice: d.city_price || d.cityPrice || 0,
+          year1TotalPrice: d.year1_total_price || d.year1TotalPrice || 0,
+          year2TotalPrice: d.year2_total_price || d.year2TotalPrice || 0,
+          year3TotalPrice: d.year3_total_price || d.year3TotalPrice || 0,
+          urbanPrice: d.urban_price || d.urbanPrice || 0,
+          ruralPrice: d.rural_price || d.ruralPrice || 0,
+          townPrice: d.town_price || d.townPrice || 0,
+          villagePrice: d.village_price || d.villagePrice || 0,
+          townYear1: d.town_year1 || d.townYear1 || 0,
+          townYear2: d.town_year2 || d.townYear2 || 0,
+          townYear3: d.town_year3 || d.townYear3 || 0,
+          villageYear1: d.village_year1 || d.villageYear1 || 0,
+          villageYear2: d.village_year2 || d.villageYear2 || 0,
+          villageYear3: d.village_year3 || d.villageYear3 || 0,
+          // 兼容旧字段
+          brand: d.brand || '',
           failureCount: d.failureCount || d.failure_count || 1,
           depreciationLevel: d.depreciationLevel || d.depreciation_level || '一档',
           serviceTime: d.serviceTime || d.service_time || '4年',
           warrantyStatus: d.warrantyStatus || d.warranty_status || '保内',
           regionType: d.regionType || d.region_type || '一类地区',
           maintenanceLevel: d.maintenanceLevel || d.maintenance_level || '一级',
-          price: d.price || 0,
+          price: d.price || d.city_price || d.cityPrice || 0,
         }));
         setDbDeviceQuotas(formatted);
       }
