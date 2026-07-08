@@ -485,9 +485,10 @@ export default function MaintenanceQuotePage() {
   const [contactPhone, setContactPhone] = useState('');
   const [engineerLevel, setEngineerLevel] = useState<EngineerLevel>('中级');
 
-  // 使用 useEffect 初始化日期，避免 hydration mismatch
+  // 使用 useEffect 初始化日期和加载设备定额数据，避免 hydration mismatch
   useEffect(() => {
     setQuoteDate(new Date().toISOString().split('T')[0]);
+    loadDeviceQuotasFromDB();
   }, []);
   
   // 使用新的完整数据结构的标志
@@ -561,6 +562,42 @@ export default function MaintenanceQuotePage() {
   // 编辑设备定额状态
   const [editingQuota, setEditingQuota] = useState<FullDeviceQuota | null>(null);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+
+  // 从数据库加载的设备定额数据
+  const [dbDeviceQuotas, setDbDeviceQuotas] = useState<FullDeviceQuota[]>([]);
+  const [dbDevicesLoading, setDbDevicesLoading] = useState(false);
+
+  // 从数据库加载设备定额
+  const loadDeviceQuotasFromDB = async () => {
+    setDbDevicesLoading(true);
+    try {
+      const res = await fetch('/api/device-quotas-db');
+      const data = await res.json();
+      if (data.success) {
+        // 将数据库数据转换为 FullDeviceQuota 格式
+        const formatted = data.data.map((d: any, index: number) => ({
+          id: d.id || index + 1,
+          category: d.category || '其他',
+          name: d.name || '',
+          brand: d.brand || '',
+          model: d.model || '',
+          unit: d.unit || '台',
+          failureCount: d.failureCount || d.failure_count || 1,
+          depreciationLevel: d.depreciationLevel || d.depreciation_level || '一档',
+          serviceTime: d.serviceTime || d.service_time || '4年',
+          warrantyStatus: d.warrantyStatus || d.warranty_status || '保内',
+          regionType: d.regionType || d.region_type || '一类地区',
+          maintenanceLevel: d.maintenanceLevel || d.maintenance_level || '一级',
+          price: d.price || 0,
+        }));
+        setDbDeviceQuotas(formatted);
+      }
+    } catch (error) {
+      console.error('加载设备定额失败:', error);
+    } finally {
+      setDbDevicesLoading(false);
+    }
+  };
 
   // ========== 新增功能状态 ==========
   // 历史报价复用
@@ -1756,11 +1793,11 @@ export default function MaintenanceQuotePage() {
                   
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 max-h-48 overflow-y-auto p-1">
                     {useFullData ? (
-                      // 新版：使用完整设备数据（按分类筛选 - 多选）
+                      // 新版：使用数据库加载的设备数据（按分类筛选 - 多选）
                       (() => {
                         const filteredDevices = selectedCategories.length === 0 
-                          ? FULL_DEVICE_QUOTAS 
-                          : FULL_DEVICE_QUOTAS.filter(d => selectedCategories.includes(d.category));
+                          ? dbDeviceQuotas 
+                          : dbDeviceQuotas.filter(d => selectedCategories.includes(d.category));
                         
                         return (
                           <>
@@ -2680,10 +2717,10 @@ export default function MaintenanceQuotePage() {
             </CardHeader>
             <CardContent>
               {(() => {
-                // 获取要显示的数据
+                // 获取要显示的数据（从数据库加载）
                 const displayData = useFullData 
-                  ? FULL_DEVICE_QUOTAS 
-                  : FULL_DEVICE_QUOTAS.filter(d => selectedCategories.includes(d.category));
+                  ? dbDeviceQuotas 
+                  : dbDeviceQuotas.filter(d => selectedCategories.includes(d.category));
                 
                 // 计算分页
                 const totalPages = Math.ceil(displayData.length / ITEMS_PER_PAGE);
@@ -3606,8 +3643,8 @@ export default function MaintenanceQuotePage() {
                 // 创建设备
                 const newDevices = completionDraft.devices.map((d: any) => {
                   const quota = d.matchedDeviceId 
-                    ? FULL_DEVICE_QUOTAS.find((q: any) => q.id === d.matchedDeviceId)
-                    : FULL_DEVICE_QUOTAS[0];
+                    ? dbDeviceQuotas.find((q: any) => q.id === d.matchedDeviceId)
+                    : dbDeviceQuotas[0];
                   
                   if (!quota) return null;
                   
