@@ -137,6 +137,10 @@ import {
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 export default function MaintenanceQuotePage() {
+  // 动态设备数据（从数据库加载）
+  const [dbDeviceQuotas, setDbDeviceQuotas] = useState<any[]>([]);
+  const [dbDataLoading, setDbDataLoading] = useState(true);
+  
   // AI辅助报价状态
   const [aiRequirementText, setAiRequirementText] = useState('');
   const [aiRecognitionStatus, setAiRecognitionStatus] = useState<RecognitionStatus>('idle');
@@ -489,6 +493,56 @@ export default function MaintenanceQuotePage() {
   useEffect(() => {
     setQuoteDate(new Date().toISOString().split('T')[0]);
   }, []);
+
+  // 从数据库加载设备定额数据
+  useEffect(() => {
+    const loadDeviceData = async () => {
+      try {
+        setDbDataLoading(true);
+        const response = await fetch('/api/device-params?type=device_quotas');
+        const result = await response.json();
+        if (result.success && Array.isArray(result.data)) {
+          // 将数据库数据转换为 FullDeviceQuota 格式
+          const convertedData = result.data.map((item: any) => ({
+            id: item.id || item.item_id,
+            category: item.category || '',
+            name: item.name || '',
+            brand: item.brand || '',
+            model: item.model || '',
+            specification: item.specification || '',
+            maintenanceTier: item.maintenance_tier || 'C档',
+            annualFaultCount: item.annual_fault_count || 0,
+            aGearFaultCount: item.a_gear_fault_count || 0,
+            bGearFaultCount: item.b_gear_fault_count || 0,
+            cGearFaultCount: item.c_gear_fault_count || 0,
+            dGearFaultCount: item.d_gear_fault_count || 0,
+            eGearFaultCount: item.e_gear_fault_count || 0,
+            faultProcessingDays: item.fault_processing_days || 0,
+            inspectionDays: item.inspection_days || 0,
+            onSiteCount: item.on_site_count || 0,
+            inspectionFee: item.inspection_fee || 0,
+            arrivalFee: item.arrival_fee || 0,
+            onSiteFee: item.on_site_fee || 0,
+            trafficFee: item.traffic_fee || 0,
+            sparePartFee: item.spare_part_fee || 0,
+            year1TotalPrice: item.year1_total_price || 0,
+            year2TotalPrice: item.year2_total_price || 0,
+            year3TotalPrice: item.year3_total_price || 0,
+            cityPrice: item.city_price || 0,
+            urbanPrice: item.urban_price || 0,
+            townPrice: item.town_price || 0,
+            ruralPrice: item.rural_price || 0,
+          }));
+          setDbDeviceQuotas(convertedData);
+        }
+      } catch (error) {
+        console.error('加载设备数据失败:', error);
+      } finally {
+        setDbDataLoading(false);
+      }
+    };
+    loadDeviceData();
+  }, []);
   
   // 使用新的完整数据结构的标志
   const [useFullData, setUseFullData] = useState(true);
@@ -513,6 +567,13 @@ export default function MaintenanceQuotePage() {
       default:
         return quota.cityPrice;
     }
+  };
+
+  // 从动态数据获取设备分类
+  const getDynamicDeviceCategories = () => {
+    if (dbDeviceQuotas.length === 0) return getDeviceCategories();
+    const categories = [...new Set(dbDeviceQuotas.map((d: any) => d.category).filter(Boolean))];
+    return categories;
   };
 
   // 设备选择和数量（支持新老两种数据结构）
@@ -1718,14 +1779,14 @@ export default function MaintenanceQuotePage() {
                             variant="ghost" 
                             size="sm" 
                             className="h-7 text-xs"
-                            onClick={() => setSelectedCategories(getDeviceCategories())}
+                            onClick={() => setSelectedCategories(getDynamicDeviceCategories())}
                           >
                             全选
                           </Button>
                         </div>
                       </div>
                       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
-                        {getDeviceCategories().map((category) => (
+                        {getDynamicDeviceCategories().map((category) => (
                           <label 
                             key={category} 
                             className="flex items-center gap-2 p-2 border rounded-md hover:bg-slate-50 cursor-pointer"
@@ -1759,8 +1820,8 @@ export default function MaintenanceQuotePage() {
                       // 新版：使用完整设备数据（按分类筛选 - 多选）
                       (() => {
                         const filteredDevices = selectedCategories.length === 0 
-                          ? FULL_DEVICE_QUOTAS 
-                          : FULL_DEVICE_QUOTAS.filter(d => selectedCategories.includes(d.category));
+                          ? (dbDataLoading ? [] : dbDeviceQuotas)
+                          : (dbDataLoading ? [] : dbDeviceQuotas).filter((d: any) => selectedCategories.includes(d.category));
                         
                         return (
                           <>
@@ -3606,8 +3667,8 @@ export default function MaintenanceQuotePage() {
                 // 创建设备
                 const newDevices = completionDraft.devices.map((d: any) => {
                   const quota = d.matchedDeviceId 
-                    ? FULL_DEVICE_QUOTAS.find((q: any) => q.id === d.matchedDeviceId)
-                    : FULL_DEVICE_QUOTAS[0];
+                    ? (dbDataLoading ? null : dbDeviceQuotas.find((q: any) => q.id === d.matchedDeviceId))
+                    : (dbDataLoading ? null : dbDeviceQuotas[0]);
                   
                   if (!quota) return null;
                   
