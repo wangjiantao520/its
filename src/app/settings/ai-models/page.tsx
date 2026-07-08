@@ -497,6 +497,29 @@ export default function AIModelsPage() {
                           ))}
                         </div>
                       </div>
+                      <Button
+                        className="mt-4 w-full"
+                        size="sm"
+                        onClick={() => {
+                          setFormData({
+                            name: `${PROVIDER_LABELS[key] || key}配置`,
+                            provider: key,
+                            model_name: preset.defaultModel,
+                            api_endpoint: preset.endpoint,
+                            api_key: '',
+                            temperature: 0.3,
+                            max_tokens: 3000,
+                            system_prompt: '',
+                            description: `使用${PROVIDER_LABELS[key] || key}的${preset.defaultModel}模型`,
+                            is_default: 0,
+                            sort_order: 0,
+                          });
+                          setCreating(true);
+                        }}
+                      >
+                        <Plus className="w-4 h-4 mr-2" />
+                        辅助配置
+                      </Button>
                     </CardContent>
                   </Card>
                 ))}
