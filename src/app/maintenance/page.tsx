@@ -1021,12 +1021,12 @@ export default function MaintenanceQuotePage() {
     }
   };
 
-  // 监听合同年限或设备变化，自动重新计算报价
+  // 监听合同年限、设备、备件选项变化，自动重新计算报价
   useEffect(() => {
     if (selectedDevices.length > 0 && (quoteResult || fullQuoteResult)) {
       handleCalculate();
     }
-  }, [contractYears, selectedDevices]);
+  }, [contractYears, selectedDevices, needSpareParts]);
 
   // 导出报价单 - 简化版本（导出Word）
   const handleExportQuote = () => {
