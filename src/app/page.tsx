@@ -33,7 +33,7 @@ export default function Home() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-foreground">欢迎使用工程报价系统</h1>
+        <h1 className="text-2xl font-bold text-foreground">欢迎使用ITS报价系统</h1>
         <p className="text-muted-foreground mt-1">
           快速创建和管理工程报价及维保报价
         </p>

@@ -156,7 +156,7 @@ export function AppSidebar() {
             <FileText className="h-5 w-5" />
           </div>
           <div className="flex-1">
-            <h1 className="text-lg font-semibold">工程报价系统</h1>
+            <h1 className="text-lg font-semibold">ITS报价系统</h1>
             <p className="text-xs text-muted-foreground">宁德移动ICT项目</p>
           </div>
           <Button
