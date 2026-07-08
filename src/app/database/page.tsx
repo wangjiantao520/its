@@ -399,6 +399,41 @@ export default function QuotaLibraryPage() {
               <Label>到场次数</Label>
               <Input type="number" value={editingItem.on_site_count || 0} onChange={(e) => updateEditingItem('on_site_count', parseInt(e.target.value))} />
             </div>
+            <div className="col-span-2 border-t pt-4 mt-2">
+              <h4 className="font-medium text-sm mb-2">费用配置</h4>
+            </div>
+            <div className="space-y-2">
+              <Label>巡检费(元)</Label>
+              <Input type="number" value={editingItem.inspection_labor_fee || 0} onChange={(e) => updateEditingItem('inspection_labor_fee', parseFloat(e.target.value))} />
+            </div>
+            <div className="space-y-2">
+              <Label>上门费(元)</Label>
+              <Input type="number" value={editingItem.visit_service_fee || 0} onChange={(e) => updateEditingItem('visit_service_fee', parseFloat(e.target.value))} />
+            </div>
+            <div className="space-y-2">
+              <Label>交通费(元)</Label>
+              <Input type="number" value={editingItem.traffic_fee || 0} onChange={(e) => updateEditingItem('traffic_fee', parseFloat(e.target.value))} />
+            </div>
+            <div className="space-y-2">
+              <Label>故障处理费(元)</Label>
+              <Input type="number" value={editingItem.fault_handling_fee || 0} onChange={(e) => updateEditingItem('fault_handling_fee', parseFloat(e.target.value))} />
+            </div>
+            <div className="space-y-2">
+              <Label>工具仪表摊销(元)</Label>
+              <Input type="number" value={editingItem.tool_amortization || 0} onChange={(e) => updateEditingItem('tool_amortization', parseFloat(e.target.value))} />
+            </div>
+            <div className="space-y-2">
+              <Label>耗材费(元)</Label>
+              <Input type="number" value={editingItem.consumable_fee || 0} onChange={(e) => updateEditingItem('consumable_fee', parseFloat(e.target.value))} />
+            </div>
+            <div className="space-y-2">
+              <Label>备件风险准备金(元)</Label>
+              <Input type="number" value={editingItem.spare_part_reserve || 0} onChange={(e) => updateEditingItem('spare_part_reserve', parseFloat(e.target.value))} />
+            </div>
+            <div className="space-y-2">
+              <Label>备件费(元)</Label>
+              <Input type="number" value={editingItem.spare_part_fee || 0} onChange={(e) => updateEditingItem('spare_part_fee', parseFloat(e.target.value))} />
+            </div>
           </div>
         );
 

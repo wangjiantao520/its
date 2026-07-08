@@ -83,6 +83,11 @@ export async function initDatabase() {
         inspection_duration REAL DEFAULT 0,
         inspection_times_per_year INTEGER DEFAULT 4,
         inspection_content TEXT,
+        -- 上门服务费
+        visit_service_fee REAL DEFAULT 0,
+        visit_person_count INTEGER DEFAULT 1,
+        visit_duration REAL DEFAULT 0,
+        visit_frequency REAL DEFAULT 0,
         traffic_fee REAL DEFAULT 0,
         single_trip_duration REAL DEFAULT 0,
         connection_duration REAL DEFAULT 0,
@@ -93,6 +98,10 @@ export async function initDatabase() {
         fault_service_count REAL DEFAULT 0,
         fault_handler_count INTEGER DEFAULT 1,
         fault_handling_duration REAL DEFAULT 0,
+        -- 故障处理费
+        fault_handling_fee REAL DEFAULT 0,
+        fault_handling_labor_fee REAL DEFAULT 0,
+        fault_handling_material_fee REAL DEFAULT 0,
         tool_amortization REAL DEFAULT 0,
         tool_details TEXT,
         consumable_fee REAL DEFAULT 0,

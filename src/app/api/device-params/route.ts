@@ -73,8 +73,11 @@ export async function POST(request: NextRequest) {
           (category, name, brand, model, specification, maintenance_tier, 
            annual_fault_count, a_gear_fault_count, b_gear_fault_count, 
            c_gear_fault_count, d_gear_fault_count, e_gear_fault_count, 
-           fault_processing_days, inspection_days, on_site_count) 
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+           fault_processing_days, inspection_days, on_site_count,
+           inspection_labor_fee, visit_service_fee, traffic_fee, 
+           fault_handling_fee, tool_amortization, consumable_fee, 
+           spare_part_reserve, spare_part_fee) 
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
         params = [
           data.category, data.name, data.brand || '', data.model || '',
           data.specification || '', data.maintenance_tier || 'C档',
@@ -82,7 +85,11 @@ export async function POST(request: NextRequest) {
           data.b_gear_fault_count || 0, data.c_gear_fault_count || 0,
           data.d_gear_fault_count || 0, data.e_gear_fault_count || 0,
           data.fault_processing_days || 0, data.inspection_days || 0,
-          data.on_site_count || 0
+          data.on_site_count || 0,
+          data.inspection_labor_fee || 0, data.visit_service_fee || 0,
+          data.traffic_fee || 0, data.fault_handling_fee || 0,
+          data.tool_amortization || 0, data.consumable_fee || 0,
+          data.spare_part_reserve || 0, data.spare_part_fee || 0
         ];
         break;
 

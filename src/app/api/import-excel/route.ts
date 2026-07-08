@@ -53,7 +53,9 @@ export async function POST(request: NextRequest) {
           UPDATE device_quotas SET
             brand = ?, model = ?, level = ?, engineer_level = ?,
             year_fault_rate = ?, inspection_labor_price = ?,
-            arrival_service_price = ?, traffic_price = ?, spare_parts_price = ?,
+            arrival_service_price = ?, traffic_price = ?, fault_handling_fee = ?,
+            tool_amortization = ?, consumable_fee = ?, spare_part_reserve = ?,
+            spare_parts_price = ?,
             year1_total_price = ?, year2_total_price = ?, year3_total_price = ?,
             city_price = ?, town_price = ?, rural_price = ?,
             unit = ?, note = ?, updated_at = CURRENT_TIMESTAMP
@@ -67,6 +69,10 @@ export async function POST(request: NextRequest) {
           device.inspection_labor_price || 0,
           device.arrival_service_price || 0,
           device.traffic_price || 0,
+          device.fault_handling_fee || 0,
+          device.tool_amortization || 0,
+          device.consumable_fee || 0,
+          device.spare_part_reserve || 0,
           device.spare_parts_price || 0,
           device.year1_total_price || 0,
           device.year2_total_price || 0,
@@ -85,10 +91,11 @@ export async function POST(request: NextRequest) {
           INSERT INTO device_quotas (
             category, name, brand, model, level, engineer_level,
             year_fault_rate, inspection_labor_price, arrival_service_price,
-            traffic_price, spare_parts_price, year1_total_price,
-            year2_total_price, year3_total_price, city_price, town_price,
-            rural_price, unit, note
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            traffic_price, fault_handling_fee, tool_amortization,
+            consumable_fee, spare_part_reserve, spare_parts_price,
+            year1_total_price, year2_total_price, year3_total_price,
+            city_price, town_price, rural_price, unit, note
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
           device.category || '未分类',
           device.name,
@@ -100,6 +107,10 @@ export async function POST(request: NextRequest) {
           device.inspection_labor_price || 0,
           device.arrival_service_price || 0,
           device.traffic_price || 0,
+          device.fault_handling_fee || 0,
+          device.tool_amortization || 0,
+          device.consumable_fee || 0,
+          device.spare_part_reserve || 0,
           device.spare_parts_price || 0,
           device.year1_total_price || 0,
           device.year2_total_price || 0,
@@ -143,6 +154,10 @@ function parseExcelContent(content: string): Array<{
   inspection_labor_price?: number;
   arrival_service_price?: number;
   traffic_price?: number;
+  fault_handling_fee?: number;
+  tool_amortization?: number;
+  consumable_fee?: number;
+  spare_part_reserve?: number;
   spare_parts_price?: number;
   year1_total_price?: number;
   year2_total_price?: number;
@@ -164,6 +179,10 @@ function parseExcelContent(content: string): Array<{
     inspection_labor_price?: number;
     arrival_service_price?: number;
     traffic_price?: number;
+    fault_handling_fee?: number;
+    tool_amortization?: number;
+    consumable_fee?: number;
+    spare_part_reserve?: number;
     spare_parts_price?: number;
     year1_total_price?: number;
     year2_total_price?: number;
@@ -200,18 +219,22 @@ function parseExcelContent(content: string): Array<{
 
     // 解析数值字段
     device.year_fault_rate = parseNumber(parts[6]);
-    device.inspection_labor_price = parseNumber(parts[7]);
-    device.arrival_service_price = parseNumber(parts[8]);
-    device.traffic_price = parseNumber(parts[9]);
-    device.spare_parts_price = parseNumber(parts[10]);
-    device.year1_total_price = parseNumber(parts[11]);
-    device.year2_total_price = parseNumber(parts[12]);
-    device.year3_total_price = parseNumber(parts[13]);
-    device.city_price = parseNumber(parts[14]);
-    device.town_price = parseNumber(parts[15]);
-    device.rural_price = parseNumber(parts[16]);
-    device.unit = parts[17] || '';
-    device.note = parts[18] || '';
+    device.inspection_labor_price = parseNumber(parts[7]);   // 巡检费
+    device.arrival_service_price = parseNumber(parts[8]);    // 上门费
+    device.traffic_price = parseNumber(parts[9]);            // 交通费
+    device.fault_handling_fee = parseNumber(parts[10]);      // 故障处理费
+    device.tool_amortization = parseNumber(parts[11]);       // 工具仪表摊销
+    device.consumable_fee = parseNumber(parts[12]);          // 耗材费
+    device.spare_part_reserve = parseNumber(parts[13]);      // 备件风险准备金
+    device.spare_parts_price = parseNumber(parts[14]);       // 备件费
+    device.year1_total_price = parseNumber(parts[15]);
+    device.year2_total_price = parseNumber(parts[16]);
+    device.year3_total_price = parseNumber(parts[17]);
+    device.city_price = parseNumber(parts[18]);
+    device.town_price = parseNumber(parts[19]);
+    device.rural_price = parseNumber(parts[20]);
+    device.unit = parts[21] || '';
+    device.note = parts[22] || '';
 
     // 只添加有名称的设备
     if (device.name) {
