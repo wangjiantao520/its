@@ -114,7 +114,7 @@ const adminNavItems = [
     icon: History,
   },
   {
-    title: '数据库管理',
+    title: '设备参数管理',
     url: '/database',
     icon: Database,
   },

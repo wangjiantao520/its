@@ -1,36 +1,36 @@
-import mysql, { type RowDataPacket, type ResultSetHeader, type FieldPacket } from 'mysql2/promise';
+import Database from 'better-sqlite3';
+import path from 'path';
+import fs from 'fs';
 
 // 数据库类型导出
-export type DbRow = RowDataPacket;
-export type DbRows = RowDataPacket[];
-export type DbSelectResult = [RowDataPacket[], FieldPacket[]];
-export type DbInsertResult = [ResultSetHeader, FieldPacket[]];
+export type DbRow = Record<string, any>;
+export type DbRows = Record<string, any>[];
+export type DbSelectResult = [Record<string, any>[], any[]];
+export type DbInsertResult = [{ insertId: number | bigint; affectedRows: number }, any[]];
 
-// 数据库配置
-const dbConfig = {
-  host: process.env.DB_HOST || '127.0.0.1',
-  port: parseInt(process.env.DB_PORT || '3306'),
-  user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || '',
-  database: process.env.DB_NAME || 'quotation_system',
-  waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0
-};
+// SQLite 数据库路径
+const DB_PATH = process.env.DB_PATH || path.join(process.cwd(), 'data', 'quotation.db');
 
-// 创建连接池
-const pool = mysql.createPool(dbConfig);
+// 确保数据目录存在
+const dbDir = path.dirname(DB_PATH);
+if (!fs.existsSync(dbDir)) {
+  fs.mkdirSync(dbDir, { recursive: true });
+}
+
+// 创建 SQLite 数据库连接
+const db = new Database(DB_PATH);
+
+// 启用 WAL 模式以提高性能
+db.pragma('journal_mode = WAL');
 
 // 测试数据库连接
 export async function testConnection() {
   try {
-    const connection = await pool.getConnection();
-    await connection.ping();
-    console.log('✅ 数据库连接成功');
-    connection.release();
+    db.exec('SELECT 1');
+    console.log('✅ SQLite 数据库连接成功');
     return true;
   } catch (error) {
-    console.error('❌ 数据库连接失败:', error);
+    console.error('❌ SQLite 数据库连接失败:', error);
     return false;
   }
 }
@@ -38,262 +38,316 @@ export async function testConnection() {
 // 初始化数据库表
 export async function initDatabase() {
   try {
-    const connection = await pool.getConnection();
-
     // 创建客户表
-    await connection.execute(`
+    db.exec(`
       CREATE TABLE IF NOT EXISTS clients (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        client_code VARCHAR(50) UNIQUE NOT NULL,
-        name VARCHAR(200) NOT NULL,
-        contact_person VARCHAR(100),
-        contact_phone VARCHAR(20),
-        contact_email VARCHAR(100),
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        client_code TEXT UNIQUE NOT NULL,
+        name TEXT NOT NULL,
+        contact_person TEXT,
+        contact_phone TEXT,
+        contact_email TEXT,
         address TEXT,
-        region VARCHAR(20) DEFAULT '城区',
-        level ENUM('normal', 'vip', 'partner') DEFAULT 'normal',
+        region TEXT DEFAULT '城区',
+        level TEXT DEFAULT 'normal',
         remark TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        INDEX idx_client_code (client_code),
-        INDEX idx_name (name),
-        INDEX idx_level (level)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
     `);
 
     // 创建设备定额表
-    await connection.execute(`
+    db.exec(`
       CREATE TABLE IF NOT EXISTS device_quotas (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        category VARCHAR(50) NOT NULL,
-        name VARCHAR(200) NOT NULL,
-        brand VARCHAR(100),
-        model VARCHAR(100),
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        category TEXT NOT NULL,
+        name TEXT NOT NULL,
+        brand TEXT,
+        model TEXT,
         specification TEXT,
-        maintenance_tier VARCHAR(10) DEFAULT 'C档',
-        annual_fault_count DECIMAL(5,2),
-        a_gear_fault_count DECIMAL(5,2),
-        b_gear_fault_count DECIMAL(5,2),
-        c_gear_fault_count DECIMAL(5,2),
-        d_gear_fault_count DECIMAL(5,2),
-        e_gear_fault_count DECIMAL(5,2),
-        fault_processing_days DECIMAL(5,2),
-        inspection_days DECIMAL(5,2),
-        on_site_count INT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        INDEX idx_category (category),
-        INDEX idx_name (name)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        maintenance_tier TEXT DEFAULT 'C档',
+        annual_fault_count REAL DEFAULT 0,
+        a_gear_fault_count REAL DEFAULT 0,
+        b_gear_fault_count REAL DEFAULT 0,
+        c_gear_fault_count REAL DEFAULT 0,
+        d_gear_fault_count REAL DEFAULT 0,
+        e_gear_fault_count REAL DEFAULT 0,
+        fault_processing_days REAL DEFAULT 0,
+        inspection_days REAL DEFAULT 0,
+        on_site_count INTEGER DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
     `);
 
     // 创建工程报价表
-    await connection.execute(`
+    db.exec(`
       CREATE TABLE IF NOT EXISTS engineering_quotes (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        quote_number VARCHAR(50) UNIQUE NOT NULL,
-        version INT DEFAULT 1,
-        project_name VARCHAR(200) NOT NULL,
-        client_id INT,
-        client_name VARCHAR(100),
-        contact_person VARCHAR(50),
-        contact_phone VARCHAR(20),
-        contact_email VARCHAR(100),
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        quote_number TEXT UNIQUE NOT NULL,
+        version INTEGER DEFAULT 1,
+        project_name TEXT NOT NULL,
+        client_id INTEGER,
+        client_name TEXT,
+        contact_person TEXT,
+        contact_phone TEXT,
+        contact_email TEXT,
         project_address TEXT,
         quote_date DATE,
-        validity_days INT DEFAULT 30,
-        engineer_name VARCHAR(50),
-        subtotal DECIMAL(15,2) DEFAULT 0,
-        management_rate DECIMAL(5,4) DEFAULT 0.08,
-        management_fee DECIMAL(15,2) DEFAULT 0,
-        profit_rate DECIMAL(5,4) DEFAULT 0.10,
-        profit DECIMAL(15,2) DEFAULT 0,
-        regulatory_rate DECIMAL(5,4) DEFAULT 0.01,
-        regulatory_fee DECIMAL(15,2) DEFAULT 0,
-        tax_rate DECIMAL(5,4) DEFAULT 0.13,
-        tax DECIMAL(15,2) DEFAULT 0,
-        total DECIMAL(15,2) DEFAULT 0,
-        status VARCHAR(20) DEFAULT 'draft',
-        items JSON,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        INDEX idx_quote_number (quote_number),
-        INDEX idx_status (status),
-        INDEX idx_created_at (created_at)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        validity_days INTEGER DEFAULT 30,
+        engineer_name TEXT,
+        subtotal REAL DEFAULT 0,
+        management_rate REAL DEFAULT 0.08,
+        management_fee REAL DEFAULT 0,
+        profit_rate REAL DEFAULT 0.10,
+        profit REAL DEFAULT 0,
+        regulatory_rate REAL DEFAULT 0.01,
+        regulatory_fee REAL DEFAULT 0,
+        tax_rate REAL DEFAULT 0.13,
+        tax REAL DEFAULT 0,
+        total REAL DEFAULT 0,
+        status TEXT DEFAULT 'draft',
+        items TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
     `);
 
     // 创建维保报价表
-    await connection.execute(`
+    db.exec(`
       CREATE TABLE IF NOT EXISTS maintenance_quotes (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        quote_number VARCHAR(50) UNIQUE NOT NULL,
-        project_name VARCHAR(200) NOT NULL,
-        client_id INT,
-        client_name VARCHAR(100),
-        contact_person VARCHAR(50),
-        contact_phone VARCHAR(20),
-        contact_email VARCHAR(100),
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        quote_number TEXT UNIQUE NOT NULL,
+        project_name TEXT NOT NULL,
+        client_id INTEGER,
+        client_name TEXT,
+        contact_person TEXT,
+        contact_phone TEXT,
+        contact_email TEXT,
         project_address TEXT,
         quote_date DATE,
-        validity_days INT DEFAULT 30,
-        engineer_name VARCHAR(50),
-        engineer_level VARCHAR(20) DEFAULT '中级',
-        sla_coefficient DECIMAL(5,2) DEFAULT 1.0,
-        region_coefficient DECIMAL(5,2) DEFAULT 1.0,
-        years INT DEFAULT 1,
-        years_discount DECIMAL(5,4) DEFAULT 1.0,
-        equipment_count INT DEFAULT 0,
-        bulk_discount DECIMAL(5,4) DEFAULT 1.0,
-        total_inspection DECIMAL(15,2) DEFAULT 0,
-        total_onsite DECIMAL(15,2) DEFAULT 0,
-        total_repair DECIMAL(15,2) DEFAULT 0,
-        total_tools DECIMAL(15,2) DEFAULT 0,
-        total_consumables DECIMAL(15,2) DEFAULT 0,
-        total_spare_parts DECIMAL(15,2) DEFAULT 0,
-        subtotal_before_discount DECIMAL(15,2) DEFAULT 0,
-        sla_adjustment DECIMAL(15,2) DEFAULT 0,
-        region_adjustment DECIMAL(15,2) DEFAULT 0,
-        subtotal_after_coefficients DECIMAL(15,2) DEFAULT 0,
-        years_discount_amount DECIMAL(15,2) DEFAULT 0,
-        bulk_discount_amount DECIMAL(15,2) DEFAULT 0,
-        subtotal DECIMAL(15,2) DEFAULT 0,
-        tax DECIMAL(15,2) DEFAULT 0,
-        total DECIMAL(15,2) DEFAULT 0,
-        devices JSON,
-        status VARCHAR(20) DEFAULT 'draft',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        INDEX idx_quote_number (quote_number),
-        INDEX idx_created_at (created_at)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        validity_days INTEGER DEFAULT 30,
+        engineer_name TEXT,
+        engineer_level TEXT DEFAULT '中级',
+        sla_coefficient REAL DEFAULT 1.0,
+        region_coefficient REAL DEFAULT 1.0,
+        years INTEGER DEFAULT 1,
+        years_discount REAL DEFAULT 1.0,
+        equipment_count INTEGER DEFAULT 0,
+        bulk_discount REAL DEFAULT 1.0,
+        total_inspection REAL DEFAULT 0,
+        total_onsite REAL DEFAULT 0,
+        total_repair REAL DEFAULT 0,
+        total_tools REAL DEFAULT 0,
+        total_consumables REAL DEFAULT 0,
+        total_spare_parts REAL DEFAULT 0,
+        subtotal_before_discount REAL DEFAULT 0,
+        sla_adjustment REAL DEFAULT 0,
+        region_adjustment REAL DEFAULT 0,
+        subtotal_after_coefficients REAL DEFAULT 0,
+        years_discount_amount REAL DEFAULT 0,
+        bulk_discount_amount REAL DEFAULT 0,
+        subtotal REAL DEFAULT 0,
+        tax REAL DEFAULT 0,
+        total REAL DEFAULT 0,
+        devices TEXT,
+        status TEXT DEFAULT 'draft',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
     `);
 
     // 创建报价版本历史表
-    await connection.execute(`
+    db.exec(`
       CREATE TABLE IF NOT EXISTS quote_versions (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        quote_id INT NOT NULL,
-        quote_type VARCHAR(20) NOT NULL,
-        version INT NOT NULL,
-        data JSON NOT NULL,
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        quote_id INTEGER NOT NULL,
+        quote_type TEXT NOT NULL,
+        version INTEGER NOT NULL,
+        data TEXT NOT NULL,
         change_summary TEXT,
-        created_by VARCHAR(100),
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        INDEX idx_quote_id_type (quote_id, quote_type)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        created_by TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
     `);
 
     // 创建审核日志表
-    await connection.execute(`
+    db.exec(`
       CREATE TABLE IF NOT EXISTS quote_audit_logs (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        quote_id INT NOT NULL,
-        quote_type VARCHAR(20) NOT NULL,
-        action VARCHAR(30) NOT NULL,
-        from_status VARCHAR(50),
-        to_status VARCHAR(50),
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        quote_id INTEGER NOT NULL,
+        quote_type TEXT NOT NULL,
+        action TEXT NOT NULL,
+        from_status TEXT,
+        to_status TEXT,
         comment TEXT,
-        operator VARCHAR(100),
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        INDEX idx_quote_id_type (quote_id, quote_type)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        operator TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
     `);
 
     // 创建分享链接表
-    await connection.execute(`
+    db.exec(`
       CREATE TABLE IF NOT EXISTS quote_shares (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        quote_id INT NOT NULL,
-        share_token VARCHAR(64) UNIQUE NOT NULL,
-        quote_type VARCHAR(20) NOT NULL,
-        password VARCHAR(20) DEFAULT NULL,
-        expires_at TIMESTAMP NULL DEFAULT NULL,
-        max_views INT DEFAULT 0,
-        view_count INT DEFAULT 0,
-        is_active TINYINT(1) DEFAULT 1,
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        quote_id INTEGER NOT NULL,
+        share_token TEXT UNIQUE NOT NULL,
+        quote_type TEXT NOT NULL,
+        password TEXT,
+        expires_at DATETIME,
+        max_views INTEGER DEFAULT 0,
+        view_count INTEGER DEFAULT 0,
+        is_active INTEGER DEFAULT 1,
         remark TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        INDEX idx_share_token (share_token)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
     `);
 
     // 创建用户表
-    await connection.execute(`
+    db.exec(`
       CREATE TABLE IF NOT EXISTS users (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        username VARCHAR(50) UNIQUE NOT NULL,
-        password_hash VARCHAR(255) NOT NULL,
-        name VARCHAR(100),
-        role VARCHAR(20) DEFAULT 'its',
-        is_active TINYINT(1) DEFAULT 1,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        created_by VARCHAR(100)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        name TEXT,
+        role TEXT DEFAULT 'its',
+        is_active INTEGER DEFAULT 1,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        created_by TEXT
+      )
     `);
 
     // 创建自施工工序定额表
-    await connection.execute(`
+    db.exec(`
       CREATE TABLE IF NOT EXISTS self_construction_quotas (
-        id VARCHAR(20) PRIMARY KEY,
-        category VARCHAR(50) NOT NULL,
-        name VARCHAR(200) NOT NULL,
-        unit VARCHAR(20) NOT NULL,
-        quantity DECIMAL(10,2) DEFAULT 1,
-        price DECIMAL(15,2) NOT NULL,
+        id TEXT PRIMARY KEY,
+        category TEXT NOT NULL,
+        name TEXT NOT NULL,
+        unit TEXT NOT NULL,
+        quantity REAL DEFAULT 1,
+        price REAL NOT NULL,
         remark TEXT,
-        sort_order INT DEFAULT 0,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        INDEX idx_category (category)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        sort_order INTEGER DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
     `);
 
     // 创建集成商智能化项目定额表
-    await connection.execute(`
+    db.exec(`
       CREATE TABLE IF NOT EXISTS intelligent_project_quotas (
-        id VARCHAR(20) PRIMARY KEY,
-        serial_number INT NOT NULL,
-        category VARCHAR(50) NOT NULL,
-        name VARCHAR(200) NOT NULL,
-        brand_model VARCHAR(200) DEFAULT '',
+        id TEXT PRIMARY KEY,
+        serial_number INTEGER NOT NULL,
+        category TEXT NOT NULL,
+        name TEXT NOT NULL,
+        brand_model TEXT DEFAULT '',
         description TEXT,
-        deductible_tax_rate DECIMAL(5,2) DEFAULT 0,
-        unit VARCHAR(20) NOT NULL,
-        price DECIMAL(15,2) NOT NULL,
+        deductible_tax_rate REAL DEFAULT 0,
+        unit TEXT NOT NULL,
+        price REAL NOT NULL,
         remark TEXT,
-        sort_order INT DEFAULT 0,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        INDEX idx_category (category)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        sort_order INTEGER DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
     `);
 
     // 创建人工单价配置表
-    await connection.execute(`
+    db.exec(`
       CREATE TABLE IF NOT EXISTS labor_price_config (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        level VARCHAR(50) NOT NULL,
-        unit_price DECIMAL(15,2) NOT NULL,
-        unit VARCHAR(20) DEFAULT '人天',
-        description VARCHAR(200) DEFAULT '',
-        sort_order INT DEFAULT 0,
-        is_active TINYINT(1) DEFAULT 1,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        level TEXT NOT NULL,
+        unit_price REAL NOT NULL,
+        unit TEXT DEFAULT '人天',
+        description TEXT DEFAULT '',
+        sort_order INTEGER DEFAULT 0,
+        is_active INTEGER DEFAULT 1,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
     `);
 
-    connection.release();
-    console.log('✅ 数据库表初始化完成');
+    // 创建AI模型配置表
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS ai_models (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        model_name TEXT NOT NULL,
+        api_endpoint TEXT NOT NULL,
+        api_key TEXT NOT NULL,
+        description TEXT,
+        is_active INTEGER DEFAULT 1,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    console.log('✅ SQLite 数据库表初始化完成');
     return true;
   } catch (error) {
-    console.error('❌ 数据库初始化失败:', error);
+    console.error('❌ SQLite 数据库初始化失败:', error);
     return false;
   }
 }
 
-// 导出连接池
-export { pool };
+// 兼容 MySQL 风格的 pool 接口
+export const pool = {
+  execute: async (sql: string, params?: any[]) => {
+    const stmt = db.prepare(sql);
+    
+    if (sql.trim().toUpperCase().startsWith('SELECT') || 
+        sql.trim().toUpperCase().startsWith('PRAGMA')) {
+      const rows = params ? stmt.all(...params) : stmt.all();
+      return [rows, []];
+    } else {
+      const result = params ? stmt.run(...params) : stmt.run();
+      return [{ insertId: result.lastInsertRowid, affectedRows: result.changes }, []];
+    }
+  },
+  query: async (sql: string, params?: any[]) => {
+    const stmt = db.prepare(sql);
+    if (sql.trim().toUpperCase().startsWith('SELECT') || 
+        sql.trim().toUpperCase().startsWith('PRAGMA')) {
+      const rows = params ? stmt.all(...params) : stmt.all();
+      return [rows, []];
+    } else {
+      const result = params ? stmt.run(...params) : stmt.run();
+      return [{ insertId: result.lastInsertRowid, affectedRows: result.changes }, []];
+    }
+  },
+  getConnection: async () => ({
+    execute: async (sql: string, params?: any[]) => {
+      const stmt = db.prepare(sql);
+      if (sql.trim().toUpperCase().startsWith('SELECT') || 
+          sql.trim().toUpperCase().startsWith('PRAGMA')) {
+        const rows = params ? stmt.all(...params) : stmt.all();
+        return [rows, []];
+      } else {
+        const result = params ? stmt.run(...params) : stmt.run();
+        return [{ insertId: result.lastInsertRowid, affectedRows: result.changes }, []];
+      }
+    },
+    query: async (sql: string, params?: any[]) => {
+      const stmt = db.prepare(sql);
+      if (sql.trim().toUpperCase().startsWith('SELECT') || 
+          sql.trim().toUpperCase().startsWith('PRAGMA')) {
+        const rows = params ? stmt.all(...params) : stmt.all();
+        return [rows, []];
+      } else {
+        const result = params ? stmt.run(...params) : stmt.run();
+        return [{ insertId: result.lastInsertRowid, affectedRows: result.changes }, []];
+      }
+    },
+    ping: async () => {},
+    release: () => {}
+  })
+};
+
+// 初始化数据库
+initDatabase();
+
+// 导出数据库实例
+export { db };
 export default pool;
