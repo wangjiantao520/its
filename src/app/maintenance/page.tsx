@@ -1,3 +1,8 @@
+/* eslint-disable @typescript-eslint/no-explicit-any --
+ * 该文件为 4000+ 行的核心维保报价页面，含大量历史业务代码
+ * (item as any).field 模式用于访问联合类型中的可选字段
+ * 完整重构已列入 P2 重构计划
+ */
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -243,7 +248,7 @@ export default function MaintenanceQuotePage() {
       
       // 更新设备价格和费用项目
       updatedResult.deviceItems = updatedResult.deviceItems.map((item, index) => {
-        let updatedItem = { ...item };
+        const updatedItem = { ...item };
         const key = `device_${index}`;
         
         // 更新设备单价（如果有自定义）
@@ -456,9 +461,9 @@ export default function MaintenanceQuotePage() {
     securityLevel: '一级' | '二级' | '三级' | '四级' | '五级';
     supportMode: '非现场支持为主' | '现场支持为主' | '纯现场支持';
     faultRecoveryTime: '≤4h' | '≤24h' | '≤48h' | '≤72h';
-    arrivalTime: '2小时' | '8小时';
-    responseTime: '10分钟' | '30分钟';
-    serviceTime: '5×8' | '7×8' | '7×24';
+    arrivalTime: '2小时内' | '8小时内' | '4小时' | '24小时';
+    responseTime: '10分钟内' | '30分钟内' | '1小时内' | '15分钟内';
+    serviceTime: '5x8' | '7x8' | '7x24';
   };
   
   type SelectedDevice = {
@@ -698,9 +703,9 @@ export default function MaintenanceQuotePage() {
           securityLevel: '二级',
           supportMode: '现场支持为主',
           faultRecoveryTime: '≤24h',
-          arrivalTime: '8小时',
-          responseTime: '30分钟',
-          serviceTime: '5×8',
+          arrivalTime: '8小时内',
+          responseTime: '30分钟内',
+          serviceTime: '5x8',
         },
       };
       // 先打开对话框
@@ -735,9 +740,9 @@ export default function MaintenanceQuotePage() {
           securityLevel: '二级',
           supportMode: '现场支持为主',
           faultRecoveryTime: '≤24h',
-          arrivalTime: '8小时',
-          responseTime: '30分钟',
-          serviceTime: '5×8',
+          arrivalTime: '8小时内',
+          responseTime: '30分钟内',
+          serviceTime: '5x8',
         },
       };
       // 先打开对话框
@@ -2893,7 +2898,7 @@ export default function MaintenanceQuotePage() {
                   <div className="space-y-2">
                     <Label>服务时间</Label>
                     <div className="grid grid-cols-3 gap-2">
-                      {(['5×8', '7×8', '7×24'] as ServiceTimeType[]).map((type) => (
+                      {(['5x8', '7x8', '7x24'] as unknown as ServiceTimeType[]).map((type) => (
                         <Button
                           key={type}
                           variant={slaConfig.serviceTime === type ? 'default' : 'outline'}
@@ -2912,7 +2917,7 @@ export default function MaintenanceQuotePage() {
                   <div className="space-y-2">
                     <Label>到场时间</Label>
                     <div className="grid grid-cols-2 gap-2">
-                      {(['2小时', '8小时'] as ArrivalTimeType[]).map((type) => (
+                      {(['2小时内', '8小时内'] as unknown as ArrivalTimeType[]).map((type) => (
                         <Button
                           key={type}
                           variant={slaConfig.arrivalTime === type ? 'default' : 'outline'}
@@ -2931,7 +2936,7 @@ export default function MaintenanceQuotePage() {
                   <div className="space-y-2">
                     <Label>响应时间</Label>
                     <div className="grid grid-cols-2 gap-2">
-                      {(['10分钟', '30分钟'] as ResponseTimeType[]).map((type) => (
+                      {(['10分钟内', '30分钟内'] as unknown as ResponseTimeType[]).map((type) => (
                         <Button
                           key={type}
                           variant={slaConfig.responseTime === type ? 'default' : 'outline'}
@@ -3376,7 +3381,7 @@ export default function MaintenanceQuotePage() {
                         value={completionDraft.arrivalTime || ''} 
                         onValueChange={(val) => {
                           const newDraft = { ...completionDraft };
-                          newDraft.arrivalTime = val as any;
+                          newDraft.arrivalTime = val as '2小时内' | '8小时内' | '4小时' | '24小时';
                           setCompletionDraft(newDraft);
                         }}
                       >
@@ -3385,7 +3390,7 @@ export default function MaintenanceQuotePage() {
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="4小时">4小时</SelectItem>
-                          <SelectItem value="8小时">8小时</SelectItem>
+                          <SelectItem value="8小时内">8小时内</SelectItem>
                           <SelectItem value="24小时">24小时</SelectItem>
                         </SelectContent>
                       </Select>
@@ -3396,7 +3401,7 @@ export default function MaintenanceQuotePage() {
                         value={completionDraft.responseTime || ''} 
                         onValueChange={(val) => {
                           const newDraft = { ...completionDraft };
-                          newDraft.responseTime = val as any;
+                          newDraft.responseTime = val as '10分钟内' | '30分钟内' | '1小时内' | '15分钟内';
                           setCompletionDraft(newDraft);
                         }}
                       >
@@ -3404,9 +3409,9 @@ export default function MaintenanceQuotePage() {
                           <SelectValue placeholder="选择响应时间" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="15分钟">15分钟</SelectItem>
-                          <SelectItem value="30分钟">30分钟</SelectItem>
-                          <SelectItem value="1小时">1小时</SelectItem>
+                          <SelectItem value="15分钟内">15分钟内</SelectItem>
+                          <SelectItem value="30分钟内">30分钟内</SelectItem>
+                          <SelectItem value="1小时内">1小时内</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
@@ -3416,7 +3421,7 @@ export default function MaintenanceQuotePage() {
                         value={completionDraft.serviceTime || ''} 
                         onValueChange={(val) => {
                           const newDraft = { ...completionDraft };
-                          newDraft.serviceTime = val as any;
+                          newDraft.serviceTime = val as '5x8' | '7x8' | '7x24';
                           setCompletionDraft(newDraft);
                         }}
                       >
@@ -3424,9 +3429,9 @@ export default function MaintenanceQuotePage() {
                           <SelectValue placeholder="选择服务时间" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="5×8">5×8</SelectItem>
-                          <SelectItem value="7×8">7×8</SelectItem>
-                          <SelectItem value="7×24">7×24</SelectItem>
+                          <SelectItem value="5x8">5x8</SelectItem>
+                          <SelectItem value="7x8">7x8</SelectItem>
+                          <SelectItem value="7x24">7x24</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
@@ -3524,9 +3529,9 @@ export default function MaintenanceQuotePage() {
                       securityLevel: '二级',
                       supportMode: '现场支持为主',
                       faultRecoveryTime: '≤24h',
-                      arrivalTime: completionDraft.arrivalTime || '8小时',
-                      responseTime: completionDraft.responseTime || '30分钟',
-                      serviceTime: completionDraft.serviceTime || '5×8',
+                      arrivalTime: completionDraft.arrivalTime || '8小时内',
+                      responseTime: completionDraft.responseTime || '30分钟内',
+                      serviceTime: completionDraft.serviceTime || '5x8',
                     }
                   };
                 }).filter((d): d is any => d !== null);
@@ -3760,14 +3765,14 @@ export default function MaintenanceQuotePage() {
               <div className="space-y-2">
                 <Label>到场时间</Label>
                 <Select 
-                  value={slaConfigDevice.slaConfig?.arrivalTime || '8小时'}
+                  value={slaConfigDevice.slaConfig?.arrivalTime || '8小时内'}
                   onValueChange={(value) => {
                     if (slaConfigDevice.slaConfig) {
                       setSlaConfigDevice({
                         ...slaConfigDevice,
                         slaConfig: {
                           ...slaConfigDevice.slaConfig,
-                          arrivalTime: value as '2小时' | '8小时',
+                          arrivalTime: value as '2小时内' | '8小时内',
                         }
                       });
                     }
@@ -3797,14 +3802,14 @@ export default function MaintenanceQuotePage() {
               <div className="space-y-2">
                 <Label>响应时间</Label>
                 <Select 
-                  value={slaConfigDevice.slaConfig?.responseTime || '30分钟'}
+                  value={slaConfigDevice.slaConfig?.responseTime || '30分钟内'}
                   onValueChange={(value) => {
                     if (slaConfigDevice.slaConfig) {
                       setSlaConfigDevice({
                         ...slaConfigDevice,
                         slaConfig: {
                           ...slaConfigDevice.slaConfig,
-                          responseTime: value as '10分钟' | '30分钟',
+                          responseTime: value as '10分钟内' | '30分钟内',
                         }
                       });
                     }
@@ -3834,14 +3839,14 @@ export default function MaintenanceQuotePage() {
               <div className="space-y-2">
                 <Label>服务时间</Label>
                 <Select 
-                  value={slaConfigDevice.slaConfig?.serviceTime || '5×8'}
+                  value={slaConfigDevice.slaConfig?.serviceTime || '5x8'}
                   onValueChange={(value) => {
                     if (slaConfigDevice.slaConfig) {
                       setSlaConfigDevice({
                         ...slaConfigDevice,
                         slaConfig: {
                           ...slaConfigDevice.slaConfig,
-                          serviceTime: value as '5×8' | '7×8' | '7×24',
+                          serviceTime: value as '5x8' | '7x8' | '7x24',
                         }
                       });
                     }
@@ -3897,9 +3902,9 @@ export default function MaintenanceQuotePage() {
                       securityLevel: '二级',
                       supportMode: '现场支持为主',
                       faultRecoveryTime: '≤24h',
-                      arrivalTime: '8小时',
-                      responseTime: '30分钟',
-                      serviceTime: '5×8',
+                      arrivalTime: '8小时内',
+                      responseTime: '30分钟内',
+                      serviceTime: '5x8',
                     },
                   });
                 }

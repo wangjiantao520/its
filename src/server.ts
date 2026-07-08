@@ -1,3 +1,5 @@
+// 必须在导入 next 之前加载 .env，否则 process.env.ADMIN_PASSWORD 等配置为空
+import 'dotenv/config';
 import { createServer } from 'http';
 import { parse } from 'url';
 import next from 'next';

@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
+import type { LucideIcon } from 'lucide-react';
 import { useUser } from '@/contexts/user-context';
 import { getAuthHeader } from '@/contexts/user-context';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -9,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { toast } from 'sonner';
 import {
   Table,
   TableBody,
@@ -56,12 +58,21 @@ interface Quote {
   quote_number: string;
   client_name: string;
   project_name: string;
+  total: number;
   total_amount: number;
   status: QuoteStatus;
   created_at: string;
   updated_at: string;
   created_by: string;
   valid_until?: string;
+}
+
+interface ActionMenuItem {
+  label: string;
+  icon: LucideIcon | null;
+  onClick: () => void;
+  disabled?: boolean;
+  variant?: 'default' | 'destructive';
 }
 
 // 状态配置
@@ -126,6 +137,7 @@ export default function QuotesPage() {
   const [isLoading, setIsLoading] = useState(false);
 
   // 过滤和排序后的报价单
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const filteredQuotes = useMemo(() => {
     let result = [...quotes];
 
@@ -218,40 +230,224 @@ export default function QuotesPage() {
   const handleBatchApprove = async () => {
     if (selectedIds.size === 0) return;
     setIsLoading(true);
-    // TODO: 调用API
-    console.log('批量批准:', Array.from(selectedIds));
-    setTimeout(() => {
-      setIsLoading(false);
+    try {
+      const results = await Promise.allSettled(
+        Array.from(selectedIds).map((id) =>
+          fetch(`/api/quotes/${id}/status`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'approve' }),
+          }).then((r) => r.json())
+        )
+      );
+      const succeeded = results.filter((r) => r.status === 'fulfilled' && r.value.success).length;
+      const failed = selectedIds.size - succeeded;
+      toast.success(`批量批准完成：成功 ${succeeded}，失败 ${failed}`);
+      await loadQuotes();
       setSelectedIds(new Set());
-    }, 1000);
+    } catch (e) {
+      const err = e instanceof Error ? e : new Error(String(e));
+      toast.error('批量批准失败：' + err.message);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  // 批量导出
+  // 批量导出（CSV）
   const handleBatchExport = async () => {
     if (selectedIds.size === 0) return;
     setIsLoading(true);
-    // TODO: 调用API
-    console.log('批量导出:', Array.from(selectedIds));
-    setTimeout(() => {
+    try {
+      const exportRows = filteredQuotes
+        .filter((q) => selectedIds.has(q.id))
+        .map((q) => ({
+          报价编号: q.quote_number,
+          客户: q.client_name,
+          项目: q.project_name,
+          金额: q.total,
+          状态: q.status,
+          创建时间: q.created_at,
+        }));
+      const headers = Object.keys(exportRows[0] || {}) as Array<keyof typeof exportRows[0]>;
+      const csv = [
+        headers.join(','),
+        ...exportRows.map((row) =>
+          headers.map((h) => `"${String((row as Record<string, unknown>)[h] ?? '').replace(/"/g, '""')}"`).join(',')
+        ),
+      ].join('\n');
+      const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `报价单导出_${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success(`已导出 ${exportRows.length} 条报价`);
+    } catch (e) {
+      const err = e instanceof Error ? e : new Error(String(e));
+      toast.error('批量导出失败：' + err.message);
+    } finally {
       setIsLoading(false);
-    }, 1000);
+    }
   };
 
   // 批量归档
   const handleBatchArchive = async () => {
     if (selectedIds.size === 0) return;
     setIsLoading(true);
-    // TODO: 调用API
-    console.log('批量归档:', Array.from(selectedIds));
-    setTimeout(() => {
-      setIsLoading(false);
+    try {
+      const results = await Promise.allSettled(
+        Array.from(selectedIds).map((id) =>
+          fetch(`/api/quotes/${id}/status`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'archive' }),
+          }).then((r) => r.json())
+        )
+      );
+      const succeeded = results.filter((r) => r.status === 'fulfilled' && r.value.success).length;
+      const failed = selectedIds.size - succeeded;
+      toast.success(`批量归档完成：成功 ${succeeded}，失败 ${failed}`);
+      await loadQuotes();
       setSelectedIds(new Set());
-    }, 1000);
+    } catch (e) {
+      const err = e instanceof Error ? e : new Error(String(e));
+      toast.error('批量归档失败：' + err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // 复制报价
+  const handleCopyQuote = (quote: Quote) => {
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText(quote.quote_number).then(
+        () => toast.success(`报价编号已复制：${quote.quote_number}`),
+        () => toast.error('复制失败，请手动复制')
+      );
+    } else {
+      toast.info(`报价编号：${quote.quote_number}`);
+    }
+  };
+
+  // 分享报价（生成分享链接）
+  const handleShareQuote = async (quote: Quote) => {
+    try {
+      const response = await fetch('/api/quotes/share', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quoteId: quote.id, expiryDays: 7 }),
+      });
+      const data = await response.json();
+      if (data.success && data.data?.shareUrl) {
+        const shareUrl = `${window.location.origin}${data.data.shareUrl}`;
+        if (navigator.clipboard) {
+          await navigator.clipboard.writeText(shareUrl);
+          toast.success('分享链接已复制到剪贴板');
+        } else {
+          toast.info(`分享链接：${shareUrl}`);
+        }
+      } else {
+        toast.error(data.error || '生成分享链接失败');
+      }
+    } catch (e) {
+      const err = e instanceof Error ? e : new Error(String(e));
+      toast.error('分享失败：' + err.message);
+    }
+  };
+
+  // 单条操作：批准
+  const handleApproveQuote = async (quote: Quote) => {
+    try {
+      const res = await fetch(`/api/quotes/${quote.id}/status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'approve' }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success(`已批准：${quote.quote_number}`);
+        void loadQuotes();
+      } else {
+        toast.error(data.error || '批准失败');
+      }
+    } catch (e) {
+      const err = e instanceof Error ? e : new Error(String(e));
+      toast.error('批准失败：' + err.message);
+    }
+  };
+
+  // 单条操作：发送
+  const handleSendQuote = async (quote: Quote) => {
+    try {
+      const res = await fetch(`/api/quotes/${quote.id}/status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'send' }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success(`已发送：${quote.quote_number}`);
+        void loadQuotes();
+      } else {
+        toast.error(data.error || '发送失败');
+      }
+    } catch (e) {
+      const err = e instanceof Error ? e : new Error(String(e));
+      toast.error('发送失败：' + err.message);
+    }
+  };
+
+  // 单条操作：导出 PDF
+  const handleExportPdf = async (quote: Quote) => {
+    try {
+      const res = await fetch(`/api/quotes/${quote.id}/export?format=pdf`, {
+        headers: { Authorization: `Bearer ${token ?? ''}` },
+      });
+      if (!res.ok) {
+        toast.error('导出失败：服务器返回 ' + res.status);
+        return;
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${quote.quote_number}.pdf`;
+      link.click();
+      window.URL.revokeObjectURL(url);
+      toast.success(`已导出：${quote.quote_number}.pdf`);
+    } catch (e) {
+      const err = e instanceof Error ? e : new Error(String(e));
+      toast.error('导出失败：' + err.message);
+    }
+  };
+
+  // 单条操作：删除
+  const handleDeleteQuote = async (quote: Quote) => {
+    if (!window.confirm(`确认删除报价 ${quote.quote_number}？此操作不可恢复。`)) {
+      return;
+    }
+    try {
+      const res = await fetch(`/api/quotes/${quote.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token ?? ''}` },
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success(`已删除：${quote.quote_number}`);
+        void loadQuotes();
+      } else {
+        toast.error(data.error || '删除失败');
+      }
+    } catch (e) {
+      const err = e instanceof Error ? e : new Error(String(e));
+      toast.error('删除失败：' + err.message);
+    }
   };
 
   // 获取操作菜单项
-  const getActionItems = (quote: Quote) => {
-    const items = [
+  const getActionItems = (quote: Quote): ActionMenuItem[] => {
+    const items: ActionMenuItem[] = [
       {
         label: '查看详情',
         icon: Eye,
@@ -264,14 +460,14 @@ export default function QuotesPage() {
         disabled: quote.status === 'archived',
       },
       {
-        label: '复制报价',
+        label: '复制编号',
         icon: Copy,
-        onClick: () => console.log('复制:', quote.id),
+        onClick: () => handleCopyQuote(quote),
       },
       {
         label: '分享链接',
         icon: Share2,
-        onClick: () => console.log('分享:', quote.id),
+        onClick: () => handleShareQuote(quote),
       },
     ];
 
@@ -279,7 +475,7 @@ export default function QuotesPage() {
       items.push({
         label: '批准报价',
         icon: CheckCircle,
-        onClick: () => console.log('批准:', quote.id),
+        onClick: () => handleApproveQuote(quote),
       });
     }
 
@@ -287,7 +483,7 @@ export default function QuotesPage() {
       items.push({
         label: '发送报价',
         icon: Send,
-        onClick: () => console.log('发送:', quote.id),
+        onClick: () => handleSendQuote(quote),
       });
     }
 
@@ -295,7 +491,7 @@ export default function QuotesPage() {
       items.push({
         label: '导出PDF',
         icon: Download,
-        onClick: () => console.log('导出:', quote.id),
+        onClick: () => handleExportPdf(quote),
       });
     }
 
@@ -304,7 +500,8 @@ export default function QuotesPage() {
       {
         label: '删除',
         icon: Trash2,
-        onClick: () => console.log('删除:', quote.id),
+        onClick: () => handleDeleteQuote(quote),
+        variant: 'destructive',
         disabled: quote.status === 'sent',
       } as any
     );
@@ -325,6 +522,32 @@ export default function QuotesPage() {
   };
 
   const hasActiveFilters = searchQuery || dateRange.start || dateRange.end;
+
+  // ============ 加载报价数据 ============
+  const loadQuotes = async () => {
+    setIsLoading(true);
+    try {
+      const res = await fetch('/api/quotes', {
+        headers: { Authorization: `Bearer ${token ?? ''}` },
+      });
+      const data = await res.json();
+      if (data.success && Array.isArray(data.data)) {
+        setQuotes(data.data);
+      } else {
+        toast.error('加载报价失败：' + (data.error ?? '返回数据格式异常'));
+      }
+    } catch (e) {
+      const err = e instanceof Error ? e : new Error(String(e));
+      toast.error('加载报价失败：' + err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadQuotes();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div className="space-y-6">

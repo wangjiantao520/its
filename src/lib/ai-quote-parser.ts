@@ -39,8 +39,8 @@ export interface AiQuoteDraft {
   region?: "城区" | "市区县城郊区" | "乡镇" | "农村";
   contractYears?: number;
   serviceMode?: "远程" | "驻场" | "混合";
-  responseTime?: "10分钟内" | "30分钟内" | "1小时内";
-  arrivalTime?: "2小时内" | "8小时内";
+  responseTime?: "10分钟内" | "30分钟内" | "1小时内" | "15分钟内";
+  arrivalTime?: "2小时内" | "8小时内" | "4小时" | "24小时";
   serviceTime?: "5x8" | "7x8" | "7x24";
   annualInspectionCount?: number;
   needSpareParts?: boolean;
