@@ -94,6 +94,46 @@ interface LaborPriceConfig {
   is_active: number;
 }
 
+// 云数据中心维保设备定额
+interface MaintenanceDeviceQuota {
+  id: number;
+  name: string;
+  brand: string;
+  model: string;
+  specification: string;
+  category: string;
+  unit: string;
+  quantity: number;
+  unit_price: number;
+  total_price: number;
+  maintenance_rate: number;
+  maintenance_fee: number;
+  sla_level: string;
+  remark: string;
+  sort_order: number;
+}
+
+// 维保费率配置
+interface MaintenanceRateConfig {
+  id: number;
+  device_type: string;
+  rate: number;
+  description: string;
+  sort_order: number;
+}
+
+// SLA配置
+interface SlaConfig {
+  id: number;
+  level_name: string;
+  inspection_frequency: string;
+  response_time: string;
+  fix_time: string;
+  on_site_time: string;
+  description: string;
+  sort_order: number;
+}
+
 export default function DatabaseManagementPage() {
   const { user } = useUser();
   const [activeTab, setActiveTab] = useState('device_quotas');
@@ -106,6 +146,9 @@ export default function DatabaseManagementPage() {
   const [selfConstructionQuotas, setSelfConstructionQuotas] = useState<SelfConstructionQuota[]>([]);
   const [intelligentProjectQuotas, setIntelligentProjectQuotas] = useState<IntelligentProjectQuota[]>([]);
   const [laborPriceConfigs, setLaborPriceConfigs] = useState<LaborPriceConfig[]>([]);
+  const [maintenanceDeviceQuotas, setMaintenanceDeviceQuotas] = useState<MaintenanceDeviceQuota[]>([]);
+  const [maintenanceRateConfigs, setMaintenanceRateConfigs] = useState<MaintenanceRateConfig[]>([]);
+  const [slaConfigs, setSlaConfigs] = useState<SlaConfig[]>([]);
   
   // 编辑对话框
   const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -171,6 +214,9 @@ export default function DatabaseManagementPage() {
         setSelfConstructionQuotas(result.data.self_construction_quotas || []);
         setIntelligentProjectQuotas(result.data.intelligent_project_quotas || []);
         setLaborPriceConfigs(result.data.labor_price_config || []);
+        setMaintenanceDeviceQuotas(result.data.maintenance_device_quotas || []);
+        setMaintenanceRateConfigs(result.data.maintenance_rates || []);
+        setSlaConfigs(result.data.sla_configs || []);
       }
     } catch (error) {
       showMessage('error', '加载数据失败: ' + String(error));

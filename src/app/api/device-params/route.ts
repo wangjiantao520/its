@@ -13,12 +13,18 @@ export async function GET(request: NextRequest) {
       const [selfConstruction] = await pool.execute('SELECT * FROM self_construction_quotas ORDER BY category, sort_order') as [any[], any];
       const [intelligentProject] = await pool.execute('SELECT * FROM intelligent_project_quotas ORDER BY category, sort_order') as [any[], any];
       const [laborPrice] = await pool.execute('SELECT * FROM labor_price_config ORDER BY sort_order') as [any[], any];
+      const [maintenanceDeviceQuotas] = await pool.execute('SELECT * FROM maintenance_device_quotas ORDER BY category, name') as [any[], any];
+      const [maintenanceRates] = await pool.execute('SELECT * FROM maintenance_rates ORDER BY category, name') as [any[], any];
+      const [slaConfigs] = await pool.execute('SELECT * FROM sla_configs ORDER BY category, name') as [any[], any];
 
       console.log('查询结果:', {
         deviceQuotas: deviceQuotas.length,
         selfConstruction: selfConstruction.length,
         intelligentProject: intelligentProject.length,
-        laborPrice: laborPrice.length
+        laborPrice: laborPrice.length,
+        maintenanceDeviceQuotas: maintenanceDeviceQuotas.length,
+        maintenanceRates: maintenanceRates.length,
+        slaConfigs: slaConfigs.length
       });
 
       return NextResponse.json({
@@ -27,7 +33,10 @@ export async function GET(request: NextRequest) {
           device_quotas: deviceQuotas,
           self_construction_quotas: selfConstruction,
           intelligent_project_quotas: intelligentProject,
-          labor_price_config: laborPrice
+          labor_price_config: laborPrice,
+          maintenance_device_quotas: maintenanceDeviceQuotas,
+          maintenance_rates: maintenanceRates,
+          sla_configs: slaConfigs
         }
       });
     }
@@ -45,6 +54,15 @@ export async function GET(request: NextRequest) {
         break;
       case 'labor_price_config':
         query = 'SELECT * FROM labor_price_config ORDER BY sort_order';
+        break;
+      case 'maintenance_device_quotas':
+        query = 'SELECT * FROM maintenance_device_quotas ORDER BY category, name';
+        break;
+      case 'maintenance_rates':
+        query = 'SELECT * FROM maintenance_rates ORDER BY category, name';
+        break;
+      case 'sla_configs':
+        query = 'SELECT * FROM sla_configs ORDER BY category, name';
         break;
       default:
         return NextResponse.json({ success: false, message: '无效的类型' }, { status: 400 });

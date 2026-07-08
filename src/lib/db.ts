@@ -356,6 +356,60 @@ export async function initDatabase() {
       )
     `);
 
+    // 创建维保设备定额表（云数据中心）
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS maintenance_device_quotas (
+        id TEXT PRIMARY KEY,
+        category TEXT NOT NULL,
+        name TEXT NOT NULL,
+        brand TEXT DEFAULT '',
+        model TEXT DEFAULT '',
+        specification TEXT DEFAULT '',
+        unit TEXT DEFAULT '台',
+        quantity REAL DEFAULT 1,
+        original_price REAL DEFAULT 0,
+        maintenance_rate REAL DEFAULT 0,
+        annual_fee REAL DEFAULT 0,
+        network_type TEXT DEFAULT '内网',
+        remark TEXT,
+        sort_order INTEGER DEFAULT 0,
+        is_active INTEGER DEFAULT 1,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // 创建维保费率配置表
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS maintenance_rate_config (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        device_type TEXT NOT NULL,
+        rate REAL NOT NULL,
+        description TEXT DEFAULT '',
+        sort_order INTEGER DEFAULT 0,
+        is_active INTEGER DEFAULT 1,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // 创建SLA配置表
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS sla_config (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        level_name TEXT NOT NULL,
+        inspection_frequency TEXT DEFAULT '',
+        response_time TEXT DEFAULT '',
+        fix_time TEXT DEFAULT '',
+        on_site_time TEXT DEFAULT '',
+        description TEXT DEFAULT '',
+        sort_order INTEGER DEFAULT 0,
+        is_active INTEGER DEFAULT 1,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
     console.log('✅ SQLite 数据库表初始化完成');
     return true;
   } catch (error) {
