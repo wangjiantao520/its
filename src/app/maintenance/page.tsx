@@ -485,6 +485,11 @@ export default function MaintenanceQuotePage() {
   const [projectName, setProjectName] = useState('');
   const [contractYears, setContractYears] = useState<string>('1');
   const [needSpareParts, setNeedSpareParts] = useState<boolean>(false);
+
+  // 调试：监听 needSpareParts 变化
+  useEffect(() => {
+    console.log('[needSpareParts] changed to:', needSpareParts);
+  }, [needSpareParts]);
   const [region, setRegion] = useState<RegionType>('城区');
   const [contactPerson, setContactPerson] = useState('');
   const [contactPhone, setContactPhone] = useState('');
@@ -1761,7 +1766,7 @@ export default function MaintenanceQuotePage() {
                       type="checkbox"
                       id="needSpareParts"
                       checked={needSpareParts}
-                      onChange={(e) => setNeedSpareParts(e.target.checked)}
+                      onChange={(e) => { console.log('[needSpareParts] clicked:', e.target.checked); setNeedSpareParts(e.target.checked); }}
                       className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                     />
                     <Label htmlFor="needSpareParts" className="cursor-pointer flex-1">
