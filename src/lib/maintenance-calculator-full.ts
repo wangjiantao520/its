@@ -153,13 +153,11 @@ export function calculateFullDeviceQuote(
   let baseCityPrice: number;
   if (needSparePart) {
     // 需要备件：AE + AJ + AO + AW + AD + BA
-    // 由于Excel中已经预计算好了不同设备的价格，我们使用Excel预计算值
-    // Excel公式：AE+AJ+AO+AW+AD+BA (需要备件时)
-    baseCityPrice = quota.cityPrice;
+    // 基础价格 + 备件风险准备金
+    baseCityPrice = quota.cityPrice + sparePartReserve;
   } else {
     // 不需要备件：AE + AJ + AO + AW + AY
-    // Excel公式：AE+AJ+AO+AW+AY (不需要备件时)
-    // 验证过正好等于Excel预计算值
+    // 使用Excel预计算值（不包含备件风险准备金）
     baseCityPrice = quota.cityPrice;
   }
   
