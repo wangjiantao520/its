@@ -1,83 +1,140 @@
 import { NextRequest, NextResponse } from 'next/server';
-import pool, { initDatabase } from '@/lib/db';
-import { FULL_DEVICE_QUOTAS } from '@/lib/complete-device-data';
-import { SELF_CONSTRUCTION_QUOTA, INTELLIGENT_PROJECT_QUOTA } from '@/lib/self-construction-quota';
+import { pool } from '@/lib/db';
+import { MOCK_DEVICE_QUOTAS } from '@/lib/maintenance-quota';
+import { SELF_CONSTRUCTION_QUOTA, type IntelligentItem } from '@/lib/self-construction-quota';
 
-// POST /api/seed-all-data - 导入所有设备数据到SQLite数据库
 export async function POST(request: NextRequest) {
   try {
-    await initDatabase();
-
+    // 导入维保设备定额（完整数据）
     let deviceInserted = 0;
-    let selfInserted = 0;
-    let intelligentInserted = 0;
-
-    // 1. 导入设备定额数据（使用简化字段映射）
-    for (const device of FULL_DEVICE_QUOTAS) {
-      // 检查是否已存在（使用name作为唯一标识）
-      const [existing] = await pool.execute(
+    for (const device of MOCK_DEVICE_QUOTAS) {
+      // 检查是否已存在
+      const [existingRows] = await pool.query(
         'SELECT id FROM device_quotas WHERE name = ? AND category = ?',
         [device.name, device.category]
-      );
-      if ((existing as any[]).length === 0) {
-        // 使用数据库中现有的字段
+      ) as [any[], any];
+      
+      if (existingRows.length === 0) {
+        // 插入完整的维保设备数据
         await pool.execute(
           `INSERT INTO device_quotas (
-            category, name, brand, model, specification,
-            maintenance_tier, annual_fault_count,
-            a_gear_fault_count, b_gear_fault_count, c_gear_fault_count,
-            d_gear_fault_count, e_gear_fault_count,
-            fault_processing_days, inspection_days, on_site_count
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            name, category, model, level, engineer_level,
+            inspection_labor_fee, inspection_person_count, inspection_duration,
+            inspection_times_per_year, inspection_content,
+            traffic_fee, single_trip_duration, connection_duration,
+            on_site_connection_labor_fee, in_warranty_factor,
+            base_fault_count, depreciation_factor, fault_service_count,
+            fault_handler_count, fault_handling_duration,
+            tool_amortization, tool_details, consumable_fee, consumable_details,
+            spare_part_reserve, spare_part_basis,
+            city_price, fault_handling_fee_total, core_maintenance_content,
+            sort_order
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
-            device.category,
             device.name,
-            device.model || '', // brand使用model
-            device.level || '', // model使用level
-            device.levelName || '', // specification使用levelName
-            device.level || 'C档', // maintenance_tier
-            device.baseFaultCount || 0, // annual_fault_count
-            0, // a_gear_fault_count
-            0, // b_gear_fault_count
-            0, // c_gear_fault_count
-            0, // d_gear_fault_count
-            0, // e_gear_fault_count
-            device.faultHandlingDuration ? device.faultHandlingDuration / 60 / 8 : 0, // fault_processing_days (分钟转天)
-            device.inspectionDuration || 0, // inspection_days
-            device.inspectionTimesPerYear || 0 // on_site_count
+            device.category,
+            device.model,
+            device.level,
+            device.engineerLevel,
+            device.inspectionLaborFee,
+            device.inspectionPersonCount,
+            device.inspectionDuration,
+            device.inspectionTimesPerYear,
+            device.inspectionContent,
+            device.trafficFee,
+            device.singleTripDuration,
+            device.connectionDuration,
+            device.onSiteConnectionLaborFee,
+            device.inWarrantyFactor,
+            device.baseFaultCount,
+            device.depreciationFactor,
+            device.faultServiceCount,
+            device.faultHandlerCount,
+            device.faultHandlingDuration,
+            device.toolAmortization,
+            device.toolDetails,
+            device.consumableFee,
+            device.consumableDetails,
+            device.sparePartReserve,
+            device.sparePartBasis,
+            device.cityPrice,
+            device.faultHandlingFeeTotal,
+            device.coreMaintenanceContent,
+            deviceInserted,
           ]
         );
         deviceInserted++;
       }
     }
 
-    // 2. 导入自施工定额数据
+    // 导入自施工定额
+    let selfInserted = 0;
     for (const item of SELF_CONSTRUCTION_QUOTA) {
-      const [existing] = await pool.execute(
+      const [existingRows] = await pool.query(
         'SELECT id FROM self_construction_quotas WHERE id = ?',
         [item.id]
-      );
-      if ((existing as any[]).length === 0) {
+      ) as [any[], any];
+      
+      if (existingRows.length === 0) {
         await pool.execute(
-          `INSERT INTO self_construction_quotas (id, category, name, unit, quantity, price, remark, sort_order)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-          [item.id, item.category, item.name, item.unit, item.quantity, item.price, item.remark || '', 0]
+          `INSERT INTO self_construction_quotas (
+            id, category, name, unit, quantity, price, remark, sort_order
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            item.id,
+            item.category,
+            item.name,
+            item.unit,
+            item.quantity,
+            item.price,
+            item.remark || '',
+            selfInserted,
+          ]
         );
         selfInserted++;
       }
     }
 
-    // 3. 导入智能化项目定额数据
-    for (const item of INTELLIGENT_PROJECT_QUOTA) {
-      const [existing] = await pool.execute(
+    // 导入智能化项目定额
+    let intelligentInserted = 0;
+    
+    // 智能化项目数据（从self-construction-quota.ts导入）
+    const intelligentData: IntelligentItem[] = [];
+    try {
+      // 尝试从文件导入
+      const mod = await import('@/lib/self-construction-quota');
+      if ('INTELLIGENT_PROJECT_QUOTA' in mod) {
+        intelligentData.push(...(mod as any).INTELLIGENT_PROJECT_QUOTA);
+      }
+    } catch (e) {
+      console.log('未找到智能化项目数据');
+    }
+    
+    for (const item of intelligentData) {
+      const [existingRows] = await pool.query(
         'SELECT id FROM intelligent_project_quotas WHERE id = ?',
         [item.id]
-      );
-      if ((existing as any[]).length === 0) {
+      ) as [any[], any];
+      
+      if (existingRows.length === 0) {
         await pool.execute(
-          `INSERT INTO intelligent_project_quotas (id, serial_number, category, name, brand_model, description, deductible_tax_rate, unit, price, remark, sort_order)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [item.id, item.serialNumber, item.category, item.name, item.brandModel || '', item.description || '', item.deductibleTaxRate, item.unit, item.price, item.remark || '', 0]
+          `INSERT INTO intelligent_project_quotas (
+            id, serial_number, category, name, brand_model, description,
+            deductible_tax_rate, unit, price, remark, sort_order
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            item.id,
+            item.serialNumber,
+            item.category,
+            item.name,
+            item.brandModel,
+            item.description || '',
+            item.deductibleTaxRate,
+            item.unit,
+            item.price,
+            item.remark || '',
+            intelligentInserted,
+          ]
         );
         intelligentInserted++;
       }
@@ -85,13 +142,17 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      message: `数据导入完成！设备定额 ${deviceInserted} 条，自施工定额 ${selfInserted} 条，智能化项目 ${intelligentInserted} 条`,
-      data: { deviceInserted, selfInserted, intelligentInserted },
+      message: `数据导入完成！维保设备 ${deviceInserted} 条，自施工定额 ${selfInserted} 条，智能化项目 ${intelligentInserted} 条`,
+      data: {
+        deviceInserted,
+        selfInserted,
+        intelligentInserted,
+      },
     });
   } catch (error) {
     console.error('导入数据失败:', error);
     return NextResponse.json(
-      { success: false, error: '导入数据失败: ' + (error as Error).message },
+      { success: false, error: `导入数据失败: ${error instanceof Error ? error.message : '未知错误'}` },
       { status: 500 }
     );
   }

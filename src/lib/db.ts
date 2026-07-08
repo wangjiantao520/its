@@ -56,7 +56,7 @@ export async function initDatabase() {
       )
     `);
 
-    // 创建设备定额表
+    // 创建设备定额表（维保用）
     db.exec(`
       CREATE TABLE IF NOT EXISTS device_quotas (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -66,6 +66,8 @@ export async function initDatabase() {
         model TEXT,
         specification TEXT,
         maintenance_tier TEXT DEFAULT 'C档',
+        level TEXT DEFAULT 'B',
+        engineer_level TEXT DEFAULT '初级',
         annual_fault_count REAL DEFAULT 0,
         a_gear_fault_count REAL DEFAULT 0,
         b_gear_fault_count REAL DEFAULT 0,
@@ -75,6 +77,32 @@ export async function initDatabase() {
         fault_processing_days REAL DEFAULT 0,
         inspection_days REAL DEFAULT 0,
         on_site_count INTEGER DEFAULT 0,
+        -- 维保参数
+        inspection_labor_fee REAL DEFAULT 0,
+        inspection_person_count INTEGER DEFAULT 1,
+        inspection_duration REAL DEFAULT 0,
+        inspection_times_per_year INTEGER DEFAULT 4,
+        inspection_content TEXT,
+        traffic_fee REAL DEFAULT 0,
+        single_trip_duration REAL DEFAULT 0,
+        connection_duration REAL DEFAULT 0,
+        on_site_connection_labor_fee REAL DEFAULT 0,
+        in_warranty_factor REAL DEFAULT 1.0,
+        base_fault_count REAL DEFAULT 0,
+        depreciation_factor REAL DEFAULT 1.0,
+        fault_service_count REAL DEFAULT 0,
+        fault_handler_count INTEGER DEFAULT 1,
+        fault_handling_duration REAL DEFAULT 0,
+        tool_amortization REAL DEFAULT 0,
+        tool_details TEXT,
+        consumable_fee REAL DEFAULT 0,
+        consumable_details TEXT,
+        spare_part_reserve REAL DEFAULT 0,
+        spare_part_basis TEXT,
+        city_price REAL DEFAULT 0,
+        fault_handling_fee_total REAL DEFAULT 0,
+        core_maintenance_content TEXT,
+        sort_order INTEGER DEFAULT 0,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
       )

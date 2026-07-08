@@ -9,10 +9,17 @@ export async function GET(request: NextRequest) {
 
     if (!type) {
       // 返回所有类型的汇总
-      const [deviceQuotas] = await pool.execute('SELECT * FROM device_quotas ORDER BY category, name');
-      const [selfConstruction] = await pool.execute('SELECT * FROM self_construction_quotas ORDER BY category, sort_order');
-      const [intelligentProject] = await pool.execute('SELECT * FROM intelligent_project_quotas ORDER BY category, sort_order');
-      const [laborPrice] = await pool.execute('SELECT * FROM labor_price_config ORDER BY sort_order');
+      const [deviceQuotas] = await pool.execute('SELECT * FROM device_quotas ORDER BY category, name') as [any[], any];
+      const [selfConstruction] = await pool.execute('SELECT * FROM self_construction_quotas ORDER BY category, sort_order') as [any[], any];
+      const [intelligentProject] = await pool.execute('SELECT * FROM intelligent_project_quotas ORDER BY category, sort_order') as [any[], any];
+      const [laborPrice] = await pool.execute('SELECT * FROM labor_price_config ORDER BY sort_order') as [any[], any];
+
+      console.log('查询结果:', {
+        deviceQuotas: deviceQuotas.length,
+        selfConstruction: selfConstruction.length,
+        intelligentProject: intelligentProject.length,
+        laborPrice: laborPrice.length
+      });
 
       return NextResponse.json({
         success: true,
