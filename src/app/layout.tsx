@@ -6,6 +6,7 @@ import { FontPreload } from '@/components/font-preload';
 import { UserProvider } from '@/contexts/user-context';
 import { ThemeProvider } from '@/contexts/theme-context';
 import { AuthProtected } from '@/components/auth-protected';
+import { Toaster } from 'sonner';
 
 export const metadata: Metadata = {
   title: {
@@ -33,6 +34,7 @@ export default function RootLayout({
           <UserProvider>
             <AuthProtected>
               <AppLayout>{children}</AppLayout>
+              <Toaster position="top-right" />
             </AuthProtected>
           </UserProvider>
         </ThemeProvider>

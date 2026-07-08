@@ -10,10 +10,11 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { 
-  Plus, Edit, Trash2, Save, X, Search, Download,
+  Plus, Edit, Trash2, Save, X, Search, Download, Upload,
   Cpu, Wrench, Building2, Users, AlertCircle, CheckCircle2, Loader2,
   ChevronDown, ChevronRight
 } from 'lucide-react';
+import { toast } from 'sonner';
 
 // 设备定额类型
 interface DeviceQuota {
@@ -121,6 +122,11 @@ export default function QuotaLibraryPage() {
   // 分页状态
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
+  
+  // 导入对话框状态
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [importUrl, setImportUrl] = useState('');
+  const [importing, setImporting] = useState(false);
 
   // 切换标签页时重置分类筛选和分页
   useEffect(() => {
@@ -973,6 +979,37 @@ export default function QuotaLibraryPage() {
     }
   };
 
+  // 从Excel导入数据
+  const handleImportExcel = async () => {
+    if (!importUrl.trim()) {
+      toast.error('请输入文件URL');
+      return;
+    }
+    
+    setImporting(true);
+    try {
+      const response = await fetch('/api/import-excel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: importUrl })
+      });
+      const result = await response.json();
+      if (result.success) {
+        toast.success(result.message);
+        setImportDialogOpen(false);
+        setImportUrl('');
+        loadData();
+      } else {
+        toast.error(result.error || '导入失败');
+      }
+    } catch (error) {
+      console.error('导入Excel失败:', error);
+      toast.error('导入Excel失败');
+    } finally {
+      setImporting(false);
+    }
+  };
+
   // 导入数据
   const handleSeedData = async () => {
     setConfirmError('');
@@ -1010,6 +1047,10 @@ export default function QuotaLibraryPage() {
           <p className="text-slate-600 mt-1">管理系统中所有设备参数、定额系数和价格配置</p>
         </div>
         <div className="flex gap-2">
+          <Button onClick={() => setImportDialogOpen(true)} variant="outline" className="border-purple-600 text-purple-600 hover:bg-purple-50">
+            <Upload className="w-4 h-4 mr-2" />
+            从Excel导入
+          </Button>
           <Button onClick={handleSeedData} variant="outline" className="border-green-600 text-green-600 hover:bg-green-50">
             <Download className="w-4 h-4 mr-2" />
             导入定额库数据
@@ -1155,6 +1196,62 @@ export default function QuotaLibraryPage() {
             </Button>
             <Button onClick={handleConfirm} className="bg-amber-600 hover:bg-amber-700">
               确认
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 导入Excel对话框 */}
+      <Dialog open={importDialogOpen} onOpenChange={setImportDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Upload className="w-5 h-5 text-purple-600" />
+              从Excel导入设备定额
+            </DialogTitle>
+            <DialogDescription>
+              请输入Excel文件的URL地址，系统将自动解析并导入数据。如果设备名称重复，将覆盖现有数据。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4 space-y-4">
+            <div className="space-y-2">
+              <Label>文件URL</Label>
+              <Input
+                placeholder="请输入Excel文件的URL地址"
+                value={importUrl}
+                onChange={(e) => setImportUrl(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleImportExcel();
+                }}
+                autoFocus
+              />
+            </div>
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+              <p className="text-sm text-blue-800 font-medium">导入说明：</p>
+              <ul className="text-sm text-blue-700 mt-2 space-y-1 list-disc list-inside">
+                <li>支持 .xlsx 格式的Excel文件</li>
+                <li>Excel应包含列：分类、名称、品牌、型号、档次、工程师等级、年故障次数等</li>
+                <li>名称重复的设备将被更新覆盖</li>
+                <li>新设备将被添加到定额库</li>
+              </ul>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setImportDialogOpen(false)} disabled={importing}>
+              取消
+            </Button>
+            <Button onClick={handleImportExcel} className="bg-purple-600 hover:bg-purple-700" disabled={importing}>
+              {importing ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  导入中...
+                </>
+              ) : (
+                <>
+                  <Upload className="w-4 h-4 mr-2" />
+                  开始导入
+                </>
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
