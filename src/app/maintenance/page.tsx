@@ -1900,7 +1900,6 @@ export default function MaintenanceQuotePage() {
                             <TableHead>故障率</TableHead>
                             <TableHead>预计故障次数</TableHead>
                             <TableHead>在保状态</TableHead>
-                            <TableHead>需要备件</TableHead>
                             <TableHead>合同年限</TableHead>
                             <TableHead>设备分档</TableHead>
                             <TableHead>折旧系数</TableHead>
@@ -1973,12 +1972,6 @@ export default function MaintenanceQuotePage() {
                                 <Switch
                                   checked={item.inWarranty}
                                   onCheckedChange={(checked) => handleUpdateWarranty(index, checked)}
-                                />
-                              </TableCell>
-                              <TableCell>
-                                <Switch
-                                  checked={item.needSparePart}
-                                  onCheckedChange={(checked) => handleUpdateNeedSparePart(index, checked)}
                                 />
                               </TableCell>
                               <TableCell>
