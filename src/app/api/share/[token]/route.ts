@@ -51,7 +51,6 @@ export async function GET(
 
     // 通用字段（两个表都有的）
     let selectFields = 'id, quote_number, project_name, client_name, contact_person, contact_phone, total, created_at';
-    let extraFields = '';
 
     if (share.quote_type === 'engineering') {
       selectFields += ', subtotal, tax';
@@ -74,16 +73,22 @@ export async function GET(
     }
 
     // 解析JSON字段（只处理存在的字段）
-    const quoteData: any = { ...quote };
+    const quoteData: Record<string, unknown> = { ...quote };
     if (quote.devices) {
       try {
         quoteData.devices = typeof quote.devices === 'string' ? JSON.parse(quote.devices) : quote.devices;
-      } catch { quoteData.devices = []; }
+      } catch (parseErr) {
+        console.warn('[Share] 解析 devices 字段失败，使用空数组:', parseErr);
+        quoteData.devices = [];
+      }
     }
     if (quote.sla_config) {
       try {
         quoteData.slaConfig = typeof quote.sla_config === 'string' ? JSON.parse(quote.sla_config) : quote.sla_config;
-      } catch { quoteData.slaConfig = null; }
+      } catch (parseErr) {
+        console.warn('[Share] 解析 sla_config 字段失败，使用 null:', parseErr);
+        quoteData.slaConfig = null;
+      }
     }
 
     return NextResponse.json({

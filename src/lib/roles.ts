@@ -158,7 +158,8 @@ export interface DeviceImportItem extends Partial<FullDeviceQuota> {
   reviewComment?: string;
 }
 
-// 模拟设备导入数据存储
+// 模拟设备导入数据存储（addDeviceImport/updateDeviceImportStatus 会修改此数组）
+// eslint-disable-next-line prefer-const
 let deviceImports: DeviceImportItem[] = [];
 
 export const getDeviceImports = (): DeviceImportItem[] => {

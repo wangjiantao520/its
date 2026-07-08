@@ -8,6 +8,13 @@ function requireAuth(request: NextRequest) {
   return session;
 }
 
+<<<<<<< HEAD
+=======
+type RouteContext = {
+  params: Promise<{ id: string }>;
+};
+
+>>>>>>> dev-0602-zwj
 // GET /api/clients/[id] — get client by id with quote history
 export async function GET(
   request: NextRequest,
@@ -19,8 +26,12 @@ export async function GET(
   }
 
   try {
+<<<<<<< HEAD
     const { id: idStr } = await params;
     const id = parseInt(idStr, 10);
+=======
+    const id = parseInt((await context.params).id, 10);
+>>>>>>> dev-0602-zwj
     if (isNaN(id)) {
       return NextResponse.json({ success: false, error: '无效的客户ID' }, { status: 400 });
     }
@@ -88,8 +99,12 @@ export async function PUT(
   }
 
   try {
+<<<<<<< HEAD
     const { id: idStr } = await params;
     const id = parseInt(idStr, 10);
+=======
+    const id = parseInt((await context.params).id, 10);
+>>>>>>> dev-0602-zwj
     if (isNaN(id)) {
       return NextResponse.json({ success: false, error: '无效的客户ID' }, { status: 400 });
     }
@@ -168,8 +183,12 @@ export async function DELETE(
   }
 
   try {
+<<<<<<< HEAD
     const { id: idStr } = await params;
     const id = parseInt(idStr, 10);
+=======
+    const id = parseInt((await context.params).id, 10);
+>>>>>>> dev-0602-zwj
     if (isNaN(id)) {
       return NextResponse.json({ success: false, error: '无效的客户ID' }, { status: 400 });
     }

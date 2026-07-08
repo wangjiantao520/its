@@ -53,7 +53,10 @@ async function verifyTokenOnServer(token: string): Promise<{ role: UserRole; nam
       };
     }
     return null;
-  } catch {
+  } catch (e) {
+    if (typeof console !== 'undefined') {
+      console.warn('[UserContext] 解析本地用户信息失败:', e);
+    }
     return null;
   }
 }

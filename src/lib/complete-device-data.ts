@@ -1,6 +1,7 @@
 import type { FullDeviceQuota } from './device-quota-full';
 
-// 设备定额库数据（支持动态添加）
+// 设备定额库数据（支持动态添加：addDeviceToQuota/updateDeviceInQuota 会修改此数组）
+// eslint-disable-next-line prefer-const
 let deviceQuotaList: FullDeviceQuota[] = [
   {
     "id": "device-001",

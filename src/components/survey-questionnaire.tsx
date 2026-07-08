@@ -64,17 +64,17 @@ export function SurveyQuestionnaire({
   };
 
   // 更新回答
-  const updateAnswer = (questionId: string, value: any) => {
+  const updateAnswer = (questionId: string, value: string | string[] | number | boolean | null) => {
     if (readOnly) return;
     
     setAnswers(prev => {
       const existing = prev.find(a => a.questionId === questionId);
       if (existing) {
         return prev.map(a =>
-          a.questionId === questionId ? { ...a, value, timestamp: new Date() } : a
+          a.questionId === questionId ? { ...a, value: value ?? '', timestamp: new Date() } : a
         );
       }
-      return [...prev, { questionId, value, timestamp: new Date() }];
+      return [...prev, { questionId, value: value ?? '', timestamp: new Date() }];
     });
     
     // 清除验证状态

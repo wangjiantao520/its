@@ -142,7 +142,7 @@ export function parseSurveyExcel(data: ArrayBuffer): SurveyFormData {
     
     const firstSheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[firstSheetName];
-    const jsonData: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+    const jsonData: unknown[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as unknown[][];
     
     const formData = createEmptySurveyForm();
     

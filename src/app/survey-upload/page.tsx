@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Upload, FileSpreadsheet, Download, Trash2, CheckCircle2, Calculator } from 'lucide-react';
 import { parseSurveyExcel, generateQuoteFromSurvey, type SurveyFormData, type QuoteResult } from '@/lib/survey-parser';
+import type { FullDeviceQuota } from '@/lib/device-quota-full';
 
 const SurveyUploadPage = () => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -412,7 +413,7 @@ const SurveyUploadPage = () => {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {quoteResult.selectedDevices.map((item: any, index: number) => (
+                          {quoteResult.selectedDevices.map((item: FullDeviceQuota, index: number) => (
                             <TableRow key={index}>
                               <TableCell>{index + 1}</TableCell>
                               <TableCell>{item.name}</TableCell>
