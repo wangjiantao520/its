@@ -666,7 +666,7 @@ export default function DatabaseManagementPage() {
                   // 使用 city_price 作为默认显示金额（城市维保单价）
                   const annualFee = item.city_price || item.year1_total_price || 0;
                   return (
-                    <React.Fragment key={item.id}>
+                    <React.Fragment key={item.id || `device-${index}`}>
                       <TableRow className="cursor-pointer hover:bg-slate-50" onClick={() => toggleRow(item.id)}>
                         <TableCell className="text-center text-slate-500 font-mono text-sm">{serialNumber}</TableCell>
                         <TableCell>
@@ -850,7 +850,7 @@ export default function DatabaseManagementPage() {
               </TableHeader>
               <TableBody>
                 {(data as SelfConstructionQuota[]).map((item, index) => (
-                  <TableRow key={item.id}>
+                  <TableRow key={item.id || `self-${index}`}>
                     <TableCell className="text-center text-slate-500 font-mono text-sm">{startSerial + index + 1}</TableCell>
                     <TableCell>{item.category}</TableCell>
                     <TableCell className="font-medium">{item.name}</TableCell>
@@ -913,7 +913,7 @@ export default function DatabaseManagementPage() {
               </TableHeader>
               <TableBody>
                 {(data as IntelligentProjectQuota[]).map((item, index) => (
-                  <TableRow key={item.id}>
+                  <TableRow key={item.id || `intelligent-${index}`}>
                     <TableCell className="text-center text-slate-500 font-mono text-sm">{startSerial + index + 1}</TableCell>
                     <TableCell>{item.category}</TableCell>
                     <TableCell className="font-medium">{item.name}</TableCell>
@@ -976,7 +976,7 @@ export default function DatabaseManagementPage() {
               </TableHeader>
               <TableBody>
                 {(data as LaborPriceConfig[]).map((item, index) => (
-                  <TableRow key={item.id}>
+                  <TableRow key={item.id || `labor-${index}`}>
                     <TableCell className="text-center text-slate-500 font-mono text-sm">{startSerial + index + 1}</TableCell>
                     <TableCell className="font-medium">{item.level}</TableCell>
                     <TableCell>{item.description}</TableCell>
@@ -1299,8 +1299,8 @@ export default function DatabaseManagementPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {imports.filter(i => i.status === 'pending').map(item => (
-                      <TableRow key={item.id}>
+                    {imports.filter(i => i.status === 'pending').map((item, index) => (
+                      <TableRow key={item.id || `import-pending-${index}`}>
                         <TableCell className="font-medium">{item.submittedBy}</TableCell>
                         <TableCell>{item.category}</TableCell>
                         <TableCell>{item.deviceCount} 台</TableCell>
@@ -1358,8 +1358,8 @@ export default function DatabaseManagementPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {imports.filter(i => i.status !== 'pending').map(item => (
-                      <TableRow key={item.id}>
+                    {imports.filter(i => i.status !== 'pending').map((item, index) => (
+                      <TableRow key={item.id || `import-history-${index}`}>
                         <TableCell className="font-medium">{item.submittedBy}</TableCell>
                         <TableCell>{item.category}</TableCell>
                         <TableCell>{item.deviceCount} 台</TableCell>
