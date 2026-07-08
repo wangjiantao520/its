@@ -1757,10 +1757,12 @@ export default function MaintenanceQuotePage() {
                 <div className="space-y-2">
                   <Label>备件选项</Label>
                   <div className="flex items-center space-x-2 rounded-md border border-slate-200 p-3">
-                    <Switch
+                    <input
+                      type="checkbox"
                       id="needSpareParts"
                       checked={needSpareParts}
-                      onCheckedChange={(checked) => setNeedSpareParts(checked)}
+                      onChange={(e) => setNeedSpareParts(e.target.checked)}
+                      className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                     />
                     <Label htmlFor="needSpareParts" className="cursor-pointer flex-1">
                       需要备件
