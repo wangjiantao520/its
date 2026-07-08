@@ -58,7 +58,7 @@ export default function LoginPage() {
       // 使用 window.location.href 强制刷新页面
       // 确保 UserProvider 重新读取 localStorage 中的 token，更新 React state
       // 否则 AuthProtected 会因为 state 仍是 isLoggedIn=false 而踢回登录页
-      window.location.href = '/device-review';
+      window.location.href = '/';
     } catch (err) {
       setAdminError('登录失败，请重试');
       setAdminLoading(false);
