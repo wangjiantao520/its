@@ -9,12 +9,16 @@ import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Textarea } from '@/components/ui/textarea';
 import { 
   Plus, Edit, Trash2, Save, X, Search, Download, Upload,
   Cpu, Wrench, Building2, Users, AlertCircle, CheckCircle2, Loader2,
-  ChevronDown, ChevronRight
+  ChevronDown, ChevronRight, CheckSquare, Settings, FileText
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useUser } from '@/contexts/user-context';
+import { getDeviceImports, updateDeviceImportStatus, DeviceImportItem, ImportStatus } from '@/lib/roles';
 
 // 设备定额类型
 interface DeviceQuota {
@@ -90,7 +94,8 @@ interface LaborPriceConfig {
   is_active: number;
 }
 
-export default function QuotaLibraryPage() {
+export default function DatabaseManagementPage() {
+  const { user } = useUser();
   const [activeTab, setActiveTab] = useState('device_quotas');
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -127,6 +132,18 @@ export default function QuotaLibraryPage() {
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [importUrl, setImportUrl] = useState('');
   const [importing, setImporting] = useState(false);
+
+  // 设备清单审核状态
+  const [imports, setImports] = useState<DeviceImportItem[]>([]);
+  const [selectedItem, setSelectedItem] = useState<DeviceImportItem | null>(null);
+  const [reviewComment, setReviewComment] = useState('');
+  const [isReviewDialogOpen, setIsReviewDialogOpen] = useState(false);
+  const [dialogAction, setDialogAction] = useState<'approve' | 'reject' | null>(null);
+
+  // 加载设备清单审核数据
+  useEffect(() => {
+    setImports(getDeviceImports());
+  }, []);
 
   // 切换标签页时重置分类筛选和分页
   useEffect(() => {
@@ -1078,8 +1095,8 @@ export default function QuotaLibraryPage() {
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">定额库配置</h1>
-          <p className="text-slate-600 mt-1">管理系统中所有设备参数、定额系数和价格配置</p>
+          <h1 className="text-2xl font-bold text-slate-900">基础数据管理</h1>
+          <p className="text-slate-600 mt-1">管理设备定额、人工单价、设备清单审核和系统配置</p>
         </div>
         <div className="flex gap-2">
           <Button onClick={() => setImportDialogOpen(true)} variant="outline" className="border-purple-600 text-purple-600 hover:bg-purple-50">
@@ -1124,9 +1141,18 @@ export default function QuotaLibraryPage() {
             <Users className="w-4 h-4 mr-2" />
             人工单价
           </TabsTrigger>
+          <TabsTrigger value="device_review">
+            <CheckSquare className="w-4 h-4 mr-2" />
+            设备清单审核
+          </TabsTrigger>
+          <TabsTrigger value="system_settings">
+            <Settings className="w-4 h-4 mr-2" />
+            系统参数
+          </TabsTrigger>
         </TabsList>
 
         <div className="mt-4">
+          {activeTab !== 'device_review' && activeTab !== 'system_settings' && (
           <div className="flex items-center gap-4 mb-4">
             <div className="relative flex-1 max-w-sm">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -1153,6 +1179,7 @@ export default function QuotaLibraryPage() {
               共 {getCurrentData().total} 条记录
             </span>
           </div>
+          )}
 
           <Card>
             <CardContent className="p-0">
@@ -1230,6 +1257,242 @@ export default function QuotaLibraryPage() {
               取消
             </Button>
             <Button onClick={handleConfirm} className="bg-amber-600 hover:bg-amber-700">
+              确认
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 设备清单审核标签页 */}
+      {activeTab === 'device_review' && (
+        <div className="space-y-6">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <CheckSquare className="w-5 h-5 text-blue-600" />
+                    待审核清单
+                  </CardTitle>
+                  <CardDescription>审核ITS成员提交的设备清单</CardDescription>
+                </div>
+                {imports.filter(i => i.status === 'pending').length > 0 && (
+                  <Badge variant="secondary" className="text-base px-3 py-1">
+                    待审核: {imports.filter(i => i.status === 'pending').length}
+                  </Badge>
+                )}
+              </div>
+            </CardHeader>
+            <CardContent>
+              {imports.filter(i => i.status === 'pending').length === 0 ? (
+                <p className="text-muted-foreground text-center py-8">暂无待审核的清单</p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>提交人</TableHead>
+                      <TableHead>项目名称</TableHead>
+                      <TableHead>设备数量</TableHead>
+                      <TableHead>提交时间</TableHead>
+                      <TableHead>状态</TableHead>
+                      <TableHead className="text-right">操作</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {imports.filter(i => i.status === 'pending').map(item => (
+                      <TableRow key={item.id}>
+                        <TableCell className="font-medium">{item.submittedBy}</TableCell>
+                        <TableCell>{item.category}</TableCell>
+                        <TableCell>{item.deviceCount} 台</TableCell>
+                        <TableCell>{new Date(item.submittedAt).toLocaleString('zh-CN')}</TableCell>
+                        <TableCell>
+                          <Badge variant="secondary">待审核</Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-2">
+                            <Button size="sm" variant="outline" onClick={() => {
+                              setSelectedItem(item);
+                              setDialogAction('approve');
+                              setReviewComment('');
+                              setIsReviewDialogOpen(true);
+                            }}>
+                              <CheckCircle2 className="w-4 h-4 mr-1 text-green-600" />
+                              通过
+                            </Button>
+                            <Button size="sm" variant="outline" onClick={() => {
+                              setSelectedItem(item);
+                              setDialogAction('reject');
+                              setReviewComment('');
+                              setIsReviewDialogOpen(true);
+                            }}>
+                              <X className="w-4 h-4 mr-1 text-red-600" />
+                              拒绝
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>已审核清单</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {imports.filter(i => i.status !== 'pending').length === 0 ? (
+                <p className="text-muted-foreground text-center py-8">暂无已审核的清单</p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>提交人</TableHead>
+                      <TableHead>项目名称</TableHead>
+                      <TableHead>设备数量</TableHead>
+                      <TableHead>提交时间</TableHead>
+                      <TableHead>状态</TableHead>
+                      <TableHead>审核人</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {imports.filter(i => i.status !== 'pending').map(item => (
+                      <TableRow key={item.id}>
+                        <TableCell className="font-medium">{item.submittedBy}</TableCell>
+                        <TableCell>{item.category}</TableCell>
+                        <TableCell>{item.deviceCount} 台</TableCell>
+                        <TableCell>{new Date(item.submittedAt).toLocaleString('zh-CN')}</TableCell>
+                        <TableCell>
+                          {item.status === 'approved' ? (
+                            <Badge className="bg-green-600">已通过</Badge>
+                          ) : (
+                            <Badge className="bg-red-600">已拒绝</Badge>
+                          )}
+                        </TableCell>
+                        <TableCell>{item.reviewedBy || '-'}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* 系统参数标签页 */}
+      {activeTab === 'system_settings' && (
+        <div className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Settings className="w-5 h-5 text-slate-600" />
+                系统参数设置
+              </CardTitle>
+              <CardDescription>配置系统全局参数</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="space-y-4">
+                <h3 className="text-lg font-medium">报价参数</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>管理费率 (%)</Label>
+                    <Input type="number" defaultValue="10" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>利润率 (%)</Label>
+                    <Input type="number" defaultValue="8" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>税率 (%)</Label>
+                    <Input type="number" defaultValue="6" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>风险系数 (%)</Label>
+                    <Input type="number" defaultValue="5" />
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <h3 className="text-lg font-medium">维保参数</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>响应时间 (小时)</Label>
+                    <Input type="number" defaultValue="4" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>到场时间 (小时)</Label>
+                    <Input type="number" defaultValue="24" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>巡检周期 (月)</Label>
+                    <Input type="number" defaultValue="3" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>质保期 (年)</Label>
+                    <Input type="number" defaultValue="1" />
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-end">
+                <Button onClick={() => toast.success('系统参数已保存')}>
+                  <Save className="w-4 h-4 mr-2" />
+                  保存设置
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* 审核确认对话框 */}
+      <Dialog open={isReviewDialogOpen} onOpenChange={setIsReviewDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {dialogAction === 'approve' ? '确认通过' : '确认拒绝'}
+            </DialogTitle>
+            <DialogDescription>
+              {selectedItem && (
+                <>
+                  {dialogAction === 'approve' 
+                    ? `确认通过 ${selectedItem.submittedBy} 提交的 "${selectedItem.category}" 设备清单？`
+                    : `确认拒绝 ${selectedItem.submittedBy} 提交的 "${selectedItem.category}" 设备清单？`}
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <Label>审核意见（可选）</Label>
+            <Textarea
+              placeholder="请输入审核意见..."
+              value={reviewComment}
+              onChange={(e) => setReviewComment(e.target.value)}
+              className="mt-2"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsReviewDialogOpen(false)}>
+              取消
+            </Button>
+            <Button 
+              onClick={() => {
+                if (!selectedItem || !dialogAction) return;
+                const status = dialogAction === 'approve' ? 'approved' : 'rejected';
+                updateDeviceImportStatus(selectedItem.id, status, user?.name || '', reviewComment);
+                setImports(getDeviceImports());
+                setIsReviewDialogOpen(false);
+                setSelectedItem(null);
+                setDialogAction(null);
+                setReviewComment('');
+                toast.success(dialogAction === 'approve' ? '清单已通过' : '清单已拒绝');
+              }}
+              className={dialogAction === 'approve' ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'}
+            >
               确认
             </Button>
           </DialogFooter>

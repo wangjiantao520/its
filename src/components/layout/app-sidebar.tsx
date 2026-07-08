@@ -99,22 +99,7 @@ const adminNavItems = [
     icon: UserCheck,
   },
   {
-    title: '设备清单审核',
-    url: '/device-review',
-    icon: CheckSquare,
-  },
-  {
-    title: '数据管理',
-    url: '/data',
-    icon: Settings,
-  },
-  {
-    title: '历史记录',
-    url: '/history',
-    icon: History,
-  },
-  {
-    title: '定额库配置',
+    title: '基础数据管理',
     url: '/database',
     icon: Database,
   },
