@@ -126,6 +126,30 @@ export async function initDatabase() {
       )
     `);
 
+    // 数据库迁移：为已存在的 device_quotas 表添加缺失的列
+    try {
+      // 检查并添加费用相关字段
+      const columns = db.prepare("PRAGMA table_info(device_quotas)").all().map((col: any) => col.name);
+      
+      const addColumns = [
+        { name: 'visit_service_fee', type: 'REAL DEFAULT 0' },
+        { name: 'fault_handling_fee', type: 'REAL DEFAULT 0' },
+        { name: 'tool_amortization', type: 'REAL DEFAULT 0' },
+        { name: 'consumable_fee', type: 'REAL DEFAULT 0' },
+        { name: 'spare_part_reserve', type: 'REAL DEFAULT 0' },
+        { name: 'spare_part_fee', type: 'REAL DEFAULT 0' }
+      ];
+
+      for (const col of addColumns) {
+        if (!columns.includes(col.name)) {
+          db.exec(`ALTER TABLE device_quotas ADD COLUMN ${col.name} ${col.type}`);
+          console.log(`[DB Migration] Added column: ${col.name}`);
+        }
+      }
+    } catch (migrationError) {
+      console.warn('[DB Migration] Migration check failed:', migrationError);
+    }
+
     // 创建工程报价表
     db.exec(`
       CREATE TABLE IF NOT EXISTS engineering_quotes (
