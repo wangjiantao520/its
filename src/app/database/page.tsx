@@ -10,7 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { 
-  Plus, Edit, Trash2, Save, X, Search, 
+  Plus, Edit, Trash2, Save, X, Search, Download,
   Cpu, Wrench, Building2, Users, AlertCircle, CheckCircle2, Loader2
 } from 'lucide-react';
 
@@ -650,6 +650,35 @@ export default function DatabasePage() {
     }
   };
 
+  // 导入数据
+  const handleSeedData = async () => {
+    setConfirmError('');
+    setConfirmPassword('');
+    setPendingAction(() => async () => {
+      try {
+        setMessage(null);
+        setLoading(true);
+        const response = await fetch('/api/seed-all-data', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+        const result = await response.json();
+        if (result.success) {
+          showMessage('success', result.message);
+          loadData();
+        } else {
+          showMessage('error', result.error || '导入失败');
+        }
+      } catch (error) {
+        console.error('导入数据失败:', error);
+        showMessage('error', '导入数据失败');
+      } finally {
+        setLoading(false);
+      }
+    });
+    setConfirmDialogOpen(true);
+  };
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
@@ -657,10 +686,16 @@ export default function DatabasePage() {
           <h1 className="text-2xl font-bold text-slate-900">设备参数管理</h1>
           <p className="text-slate-600 mt-1">管理系统中所有设备参数、定额系数和价格配置</p>
         </div>
-        <Button onClick={handleAdd} className="bg-blue-600 hover:bg-blue-700">
-          <Plus className="w-4 h-4 mr-2" />
-          新增
-        </Button>
+        <div className="flex gap-2">
+          <Button onClick={handleSeedData} variant="outline" className="border-green-600 text-green-600 hover:bg-green-50">
+            <Download className="w-4 h-4 mr-2" />
+            导入设备数据
+          </Button>
+          <Button onClick={handleAdd} className="bg-blue-600 hover:bg-blue-700">
+            <Plus className="w-4 h-4 mr-2" />
+            新增
+          </Button>
+        </div>
       </div>
 
       {message && (
