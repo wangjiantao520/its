@@ -69,6 +69,40 @@ export async function PUT(request: NextRequest) {
         ];
         break;
 
+      case 'maintenance_device_quotas':
+        query = `UPDATE maintenance_device_quotas SET 
+          name=?, brand=?, model=?, specification=?, category=?, unit=?, quantity=?,
+          original_price=?, maintenance_rate=?, annual_fee=?, network_type=?, 
+          remark=?, sort_order=?, is_active=? 
+          WHERE id=?`;
+        params = [
+          data.name, data.brand || '', data.model || '', data.specification || '',
+          data.category || '', data.unit || '台', data.quantity || 1,
+          data.original_price || 0, data.maintenance_rate || 0, data.annual_fee || 0,
+          data.network_type || '内网', data.remark || '', data.sort_order || 0,
+          data.is_active !== undefined ? data.is_active : 1, id
+        ];
+        break;
+
+      case 'maintenance_rate_config':
+        query = `UPDATE maintenance_rate_config SET 
+          device_type=?, maintenance_rate=?, description=? 
+          WHERE id=?`;
+        params = [
+          data.device_type, data.maintenance_rate || 0, data.description || '', id
+        ];
+        break;
+
+      case 'sla_config':
+        query = `UPDATE sla_config SET 
+          sla_level=?, response_time=?, resolution_time=?, penalty_rate=?, description=? 
+          WHERE id=?`;
+        params = [
+          data.sla_level, data.response_time || 0, data.resolution_time || 0,
+          data.penalty_rate || 0, data.description || '', id
+        ];
+        break;
+
       default:
         return NextResponse.json({ success: false, message: '无效的类型' }, { status: 400 });
     }
@@ -105,6 +139,15 @@ export async function DELETE(request: NextRequest) {
         break;
       case 'labor_price_config':
         query = 'DELETE FROM labor_price_config WHERE id = ?';
+        break;
+      case 'maintenance_device_quotas':
+        query = 'DELETE FROM maintenance_device_quotas WHERE id = ?';
+        break;
+      case 'maintenance_rate_config':
+        query = 'DELETE FROM maintenance_rate_config WHERE id = ?';
+        break;
+      case 'sla_config':
+        query = 'DELETE FROM sla_config WHERE id = ?';
         break;
       default:
         return NextResponse.json({ success: false, message: '无效的类型' }, { status: 400 });

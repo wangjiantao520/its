@@ -144,6 +144,38 @@ export async function POST(request: NextRequest) {
         ];
         break;
 
+      case 'maintenance_device_quotas':
+        query = `INSERT INTO maintenance_device_quotas 
+          (name, brand, model, specification, category, unit, quantity, 
+           original_price, maintenance_rate, annual_fee, network_type, remark, sort_order, is_active) 
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+        params = [
+          data.name, data.brand || '', data.model || '', data.specification || '',
+          data.category || '', data.unit || '台', data.quantity || 1,
+          data.original_price || 0, data.maintenance_rate || 0, data.annual_fee || 0,
+          data.network_type || '内网', data.remark || '', data.sort_order || 0, data.is_active !== undefined ? data.is_active : 1
+        ];
+        break;
+
+      case 'maintenance_rate_config':
+        query = `INSERT INTO maintenance_rate_config 
+          (device_type, maintenance_rate, description) 
+          VALUES (?, ?, ?)`;
+        params = [
+          data.device_type, data.maintenance_rate || 0, data.description || ''
+        ];
+        break;
+
+      case 'sla_config':
+        query = `INSERT INTO sla_config 
+          (sla_level, response_time, resolution_time, penalty_rate, description) 
+          VALUES (?, ?, ?, ?, ?)`;
+        params = [
+          data.sla_level, data.response_time || 0, data.resolution_time || 0,
+          data.penalty_rate || 0, data.description || ''
+        ];
+        break;
+
       default:
         return NextResponse.json({ success: false, message: '无效的类型' }, { status: 400 });
     }

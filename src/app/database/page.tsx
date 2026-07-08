@@ -627,6 +627,122 @@ export default function DatabaseManagementPage() {
           </div>
         );
 
+      case 'maintenance_device_quotas':
+        return (
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>设备名称</Label>
+              <Input value={safeValue(editingItem.name)} onChange={(e) => updateEditingItem('name', e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>分类</Label>
+              <Input value={safeValue(editingItem.category)} onChange={(e) => updateEditingItem('category', e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>品牌</Label>
+              <Input value={safeValue(editingItem.brand)} onChange={(e) => updateEditingItem('brand', e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>型号</Label>
+              <Input value={safeValue(editingItem.model)} onChange={(e) => updateEditingItem('model', e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>单位</Label>
+              <Input value={safeValue(editingItem.unit, '台')} onChange={(e) => updateEditingItem('unit', e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>数量</Label>
+              <Input type="number" value={editingItem.quantity || 1} onChange={(e) => updateEditingItem('quantity', parseInt(e.target.value))} />
+            </div>
+            <div className="space-y-2">
+              <Label>中标单价(元)</Label>
+              <Input type="number" value={editingItem.original_price || 0} onChange={(e) => updateEditingItem('original_price', parseFloat(e.target.value))} />
+            </div>
+            <div className="space-y-2">
+              <Label>维保率</Label>
+              <Input type="number" step="0.01" value={editingItem.maintenance_rate || 0} onChange={(e) => updateEditingItem('maintenance_rate', parseFloat(e.target.value))} />
+            </div>
+            <div className="space-y-2">
+              <Label>年维保费(元)</Label>
+              <Input type="number" value={editingItem.annual_fee || 0} onChange={(e) => updateEditingItem('annual_fee', parseFloat(e.target.value))} />
+            </div>
+            <div className="space-y-2">
+              <Label>网络类型</Label>
+              <select 
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                value={safeValue(editingItem.network_type, '内网')} 
+                onChange={(e) => updateEditingItem('network_type', e.target.value)}
+              >
+                <option value="内网">内网</option>
+                <option value="外网">外网</option>
+              </select>
+            </div>
+            <div className="space-y-2">
+              <Label>排序</Label>
+              <Input type="number" value={editingItem.sort_order || 0} onChange={(e) => updateEditingItem('sort_order', parseInt(e.target.value))} />
+            </div>
+            <div className="space-y-2">
+              <Label>是否启用</Label>
+              <select 
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                value={editingItem.is_active ?? 1} 
+                onChange={(e) => updateEditingItem('is_active', parseInt(e.target.value))}
+              >
+                <option value={1}>启用</option>
+                <option value={0}>禁用</option>
+              </select>
+            </div>
+            <div className="space-y-2 col-span-2">
+              <Label>备注</Label>
+              <Input value={safeValue(editingItem.remark)} onChange={(e) => updateEditingItem('remark', e.target.value)} />
+            </div>
+          </div>
+        );
+
+      case 'maintenance_rate_config':
+        return (
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>设备类型</Label>
+              <Input value={safeValue(editingItem.device_type)} onChange={(e) => updateEditingItem('device_type', e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>维保率</Label>
+              <Input type="number" step="0.01" value={editingItem.maintenance_rate || 0} onChange={(e) => updateEditingItem('maintenance_rate', parseFloat(e.target.value))} />
+            </div>
+            <div className="space-y-2 col-span-2">
+              <Label>描述</Label>
+              <Input value={safeValue(editingItem.description)} onChange={(e) => updateEditingItem('description', e.target.value)} />
+            </div>
+          </div>
+        );
+
+      case 'sla_config':
+        return (
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>服务等级</Label>
+              <Input value={safeValue(editingItem.sla_level)} onChange={(e) => updateEditingItem('sla_level', e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>响应时间(小时)</Label>
+              <Input type="number" value={editingItem.response_time || 0} onChange={(e) => updateEditingItem('response_time', parseFloat(e.target.value))} />
+            </div>
+            <div className="space-y-2">
+              <Label>解决时间(小时)</Label>
+              <Input type="number" value={editingItem.resolution_time || 0} onChange={(e) => updateEditingItem('resolution_time', parseFloat(e.target.value))} />
+            </div>
+            <div className="space-y-2">
+              <Label>惩罚比例</Label>
+              <Input type="number" step="0.01" value={editingItem.penalty_rate || 0} onChange={(e) => updateEditingItem('penalty_rate', parseFloat(e.target.value))} />
+            </div>
+            <div className="space-y-2 col-span-2">
+              <Label>描述</Label>
+              <Input value={safeValue(editingItem.description)} onChange={(e) => updateEditingItem('description', e.target.value)} />
+            </div>
+          </div>
+        );
+
       default:
         return null;
     }
