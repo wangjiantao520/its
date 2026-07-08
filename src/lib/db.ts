@@ -103,6 +103,15 @@ export async function initDatabase() {
         fault_handling_fee_total REAL DEFAULT 0,
         core_maintenance_content TEXT,
         sort_order INTEGER DEFAULT 0,
+        is_active INTEGER DEFAULT 1,
+        unit TEXT DEFAULT '台',
+        year1_total_price REAL DEFAULT 0,
+        year2_total_price REAL DEFAULT 0,
+        year3_total_price REAL DEFAULT 0,
+        urban_price REAL DEFAULT 0,
+        town_price REAL DEFAULT 0,
+        rural_price REAL DEFAULT 0,
+        fault_handling_fee_detail TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
       )
@@ -250,6 +259,7 @@ export async function initDatabase() {
     db.exec(`
       CREATE TABLE IF NOT EXISTS self_construction_quotas (
         id TEXT PRIMARY KEY,
+        item_id TEXT,
         category TEXT NOT NULL,
         name TEXT NOT NULL,
         unit TEXT NOT NULL,
@@ -266,7 +276,8 @@ export async function initDatabase() {
     db.exec(`
       CREATE TABLE IF NOT EXISTS intelligent_project_quotas (
         id TEXT PRIMARY KEY,
-        serial_number INTEGER NOT NULL,
+        item_id TEXT NOT NULL,
+        serial_number INTEGER,
         category TEXT NOT NULL,
         name TEXT NOT NULL,
         brand_model TEXT DEFAULT '',

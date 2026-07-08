@@ -75,7 +75,7 @@ interface LaborPriceConfig {
   is_active: number;
 }
 
-export default function DatabasePage() {
+export default function QuotaLibraryPage() {
   const [activeTab, setActiveTab] = useState('device_quotas');
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -763,13 +763,13 @@ export default function DatabasePage() {
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">设备参数管理</h1>
+          <h1 className="text-2xl font-bold text-slate-900">定额库配置</h1>
           <p className="text-slate-600 mt-1">管理系统中所有设备参数、定额系数和价格配置</p>
         </div>
         <div className="flex gap-2">
           <Button onClick={handleSeedData} variant="outline" className="border-green-600 text-green-600 hover:bg-green-50">
             <Download className="w-4 h-4 mr-2" />
-            导入设备数据
+            导入定额库数据
           </Button>
           <Button onClick={handleAdd} className="bg-blue-600 hover:bg-blue-700">
             <Plus className="w-4 h-4 mr-2" />
