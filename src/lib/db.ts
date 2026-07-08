@@ -225,6 +225,75 @@ export async function initDatabase() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
 
+    // ========== 工程报价模块新增表 ==========
+    // 创建自施工工序定额表
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS self_construction_quotas (
+        id VARCHAR(20) PRIMARY KEY,
+        category VARCHAR(50) NOT NULL,
+        name VARCHAR(200) NOT NULL,
+        unit VARCHAR(20) NOT NULL,
+        quantity DECIMAL(10,2) DEFAULT 1,
+        price DECIMAL(15,2) NOT NULL,
+        remark TEXT,
+        sort_order INT DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_category (category),
+        INDEX idx_name (name)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    // 创建集成商智能化项目定额表
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS intelligent_project_quotas (
+        id VARCHAR(20) PRIMARY KEY,
+        serial_number INT NOT NULL,
+        category VARCHAR(50) NOT NULL,
+        name VARCHAR(200) NOT NULL,
+        brand_model VARCHAR(200) DEFAULT '',
+        description TEXT,
+        deductible_tax_rate DECIMAL(5,2) DEFAULT 0,
+        unit VARCHAR(20) NOT NULL,
+        price DECIMAL(15,2) NOT NULL,
+        remark TEXT,
+        sort_order INT DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_category (category),
+        INDEX idx_name (name)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    // 创建人工单价配置表
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS labor_price_config (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        level VARCHAR(50) NOT NULL COMMENT '人员等级',
+        unit_price DECIMAL(15,2) NOT NULL COMMENT '人天单价',
+        unit VARCHAR(20) DEFAULT '人天' COMMENT '单位',
+        description VARCHAR(200) DEFAULT '' COMMENT '说明',
+        sort_order INT DEFAULT 0 COMMENT '排序',
+        is_active TINYINT(1) DEFAULT 1 COMMENT '是否启用',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_level (level),
+        INDEX idx_is_active (is_active)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    // 初始化默认人工单价档位
+    const [existingLabor] = await connection.execute('SELECT COUNT(*) as cnt FROM labor_price_config');
+    if ((existingLabor as any[])[0].cnt === 0) {
+      await connection.execute(`
+        INSERT INTO labor_price_config (level, unit_price, unit, description, sort_order) VALUES
+        ('初级', 200.00, '人天', '初级工程师', 1),
+        ('中级', 300.00, '人天', '中级工程师', 2),
+        ('高级', 400.00, '人天', '高级工程师', 3),
+        ('专家', 500.00, '人天', '专家级工程师', 4)
+      `);
+    }
+
     console.log('✅ 数据库表初始化成功');
     connection.release();
     return true;
