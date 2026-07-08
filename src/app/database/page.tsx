@@ -679,6 +679,35 @@ export default function DatabasePage() {
     setConfirmDialogOpen(true);
   };
 
+  // 导入完整设备数据（带价格）
+  const handleImportFull = async () => {
+    setConfirmError('');
+    setConfirmPassword('');
+    setPendingAction(() => async () => {
+      try {
+        setMessage(null);
+        setLoading(true);
+        const response = await fetch('/api/migrate-device-data', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+        const result = await response.json();
+        if (result.success) {
+          showMessage('success', result.message || '导入完整设备数据成功！');
+          loadData();
+        } else {
+          showMessage('error', result.error || '导入失败');
+        }
+      } catch (error) {
+        console.error('导入数据失败:', error);
+        showMessage('error', '导入数据失败');
+      } finally {
+        setLoading(false);
+      }
+    });
+    setConfirmDialogOpen(true);
+  };
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
@@ -687,9 +716,13 @@ export default function DatabasePage() {
           <p className="text-slate-600 mt-1">管理系统中所有设备参数、定额系数和价格配置</p>
         </div>
         <div className="flex gap-2">
+          <Button onClick={handleImportFull} variant="outline" className="border-purple-600 text-purple-600 hover:bg-purple-50">
+            <Download className="w-4 h-4 mr-2" />
+            导入完整设备数据(带价格)
+          </Button>
           <Button onClick={handleSeedData} variant="outline" className="border-green-600 text-green-600 hover:bg-green-50">
             <Download className="w-4 h-4 mr-2" />
-            导入设备数据
+            导入基础数据
           </Button>
           <Button onClick={handleAdd} className="bg-blue-600 hover:bg-blue-700">
             <Plus className="w-4 h-4 mr-2" />
