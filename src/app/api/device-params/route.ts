@@ -35,8 +35,8 @@ export async function GET(request: NextRequest) {
           intelligent_project_quotas: intelligentProject,
           labor_price_config: laborPrice,
           maintenance_device_quotas: maintenanceDeviceQuotas,
-          maintenance_rates: maintenanceRates,
-          sla_configs: slaConfigs
+          maintenance_rate_config: maintenanceRates,
+          sla_config: slaConfigs
         }
       });
     }

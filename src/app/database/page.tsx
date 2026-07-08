@@ -214,8 +214,8 @@ export default function DatabaseManagementPage() {
         setIntelligentProjectQuotas(result.data.intelligent_project_quotas || []);
         setLaborPriceConfigs(result.data.labor_price_config || []);
         setMaintenanceDeviceQuotas(result.data.maintenance_device_quotas || []);
-        setMaintenanceRateConfigs(result.data.maintenance_rates || []);
-        setSlaConfigs(result.data.sla_configs || []);
+        setMaintenanceRateConfigs(result.data.maintenance_rate_config || []);
+        setSlaConfigs(result.data.sla_config || []);
       }
     } catch (error) {
       showMessage('error', '加载数据失败: ' + String(error));
