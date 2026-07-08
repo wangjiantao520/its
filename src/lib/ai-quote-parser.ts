@@ -1,7 +1,7 @@
 // AI辅助报价 - 调用真实DeepSeek API版本
 // 类型定义
 
-export type RecognitionStatus = 'idle' | 'analyzing' | 'success' | 'needs_info' | 'failed' | 'not_configured';
+export type RecognitionStatus = 'idle' | 'recognizing' | 'analyzing' | 'success' | 'needs_info' | 'failed' | 'not_configured';
 
 export interface CandidateDevice {
   id: string;

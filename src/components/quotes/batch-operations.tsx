@@ -209,14 +209,6 @@ export function BatchOperations<T extends BatchSelectableItem = BatchSelectableI
 
   const handleEditConfirm = (value: number | string) => {
     const field = Object.keys(editDialog.field)[0] as keyof BatchPayload;
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
-    onBatchAction(`edit-${field === 'quantity' ? 'quantity' : field === 'serviceYears' ? 'service-years' : field}` as any, {
-      [field]: value,
-    });
-=======
->>>>>>> bde36429f3f891b8547edd102e5452f260447f1d
     const fieldMap: Record<string, BatchAction> = {
       quantity: 'edit-quantity',
       serviceYears: 'edit-service-years',
@@ -224,10 +216,6 @@ export function BatchOperations<T extends BatchSelectableItem = BatchSelectableI
     };
     const action = fieldMap[field as string] || 'edit-quantity';
     onBatchAction(action, { [field]: value });
-<<<<<<< HEAD
-=======
->>>>>>> dev-0602-zwj
->>>>>>> bde36429f3f891b8547edd102e5452f260447f1d
     setEditDialog((d) => ({ ...d, open: false }));
   };
 

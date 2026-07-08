@@ -146,6 +146,8 @@ export default function MaintenanceQuotePage() {
   const [completionDraft, setCompletionDraft] = useState<AiQuoteDraft | null>(null);
   const [showAiChat, setShowAiChat] = useState(false);  // 新增：AI对话面板
   const [aiChatHistory, setAiChatHistory] = useState<ChatMessage[]>([]);  // 新增：对话历史
+  const [uploadedFileContent, setUploadedFileContent] = useState<string>('');  // 新增：上传文件内容
+  const [uploadedFileName, setUploadedFileName] = useState<string>('');  // 新增：上传文件名
 
   // 价格设置功能
   const [showPriceSettings, setShowPriceSettings] = useState(false);
@@ -176,6 +178,64 @@ export default function MaintenanceQuotePage() {
     setAiRecognitionStatus('idle');
     setAiDraft(null);
     setShowAiPreview(false);
+    setUploadedFileContent('');
+    setUploadedFileName('');
+  };
+
+  const handleClearFile = () => {
+    setUploadedFileName('');
+    setUploadedFileContent('');
+    setAiRequirementText('');
+    setAiRecognitionStatus('idle');
+    // 清空文件输入框
+    const fileInput = document.getElementById('file-upload') as HTMLInputElement;
+    if (fileInput) {
+      fileInput.value = '';
+    }
+  };
+
+  // 文件上传处理函数
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setUploadedFileName(file.name);
+    setAiRecognitionStatus('recognizing');
+
+    try {
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        const content = e.target?.result as string;
+        setUploadedFileContent(content);
+        
+        // 将文件内容作为需求文本进行AI识别
+        const fullText = `从文件 ${file.name} 中提取的设备清单：\n\n${content}`;
+        setAiRequirementText(fullText);
+        
+        // 自动触发AI识别
+        try {
+          const draft = await parseQuoteRequirement(fullText);
+          setAiDraft(draft);
+          setCompletionDraft(JSON.parse(JSON.stringify(draft)));
+          setAiRecognitionStatus(draft.missingFields.length > 0 && draft.devices.length === 0 ? 'needs_info' : 'success');
+          setShowAiCompletionDialog(true);
+        } catch (error) {
+          console.error('AI解析失败:', error);
+          setAiRecognitionStatus('failed');
+        }
+      };
+      
+      // 根据文件类型选择读取方式
+      if (file.name.endsWith('.txt') || file.name.endsWith('.csv') || file.name.endsWith('.md')) {
+        reader.readAsText(file);
+      } else {
+        setAiRecognitionStatus('failed');
+        alert('暂不支持该文件格式，请上传 .txt, .csv, 或 .md 文件');
+      }
+    } catch (error) {
+      console.error('文件读取失败:', error);
+      setAiRecognitionStatus('failed');
+    }
   };
 
   const handleUseExample = (example: string) => {
@@ -1413,10 +1473,42 @@ export default function MaintenanceQuotePage() {
                 <Sparkles className="h-5 w-5 text-blue-600" />
                 AI 快速识别
               </CardTitle>
-              <CardDescription>用自然语言描述您的需求，AI 将自动识别参数</CardDescription>
+              <CardDescription>用自然语言描述您的需求或导入设备清单文件，AI 将自动识别参数</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              {/* 文件上传区域 */}
               <div className="space-y-2">
+                <Label className="text-sm font-medium">导入设备清单文件</Label>
+                <div className="border-2 border-dashed border-slate-300 rounded-lg p-6 text-center hover:border-blue-400 transition-colors">
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls,.csv,.txt"
+                    onChange={handleFileUpload}
+                    className="hidden"
+                    id="file-upload"
+                  />
+                  <label htmlFor="file-upload" className="cursor-pointer">
+                    <FileUp className="h-10 w-10 mx-auto text-slate-400 mb-2" />
+                    <p className="text-sm text-slate-600 mb-1">点击或拖拽文件到此处</p>
+                    <p className="text-xs text-slate-400">支持 Excel (.xlsx, .xls)、CSV (.csv)、文本文件 (.txt)</p>
+                  </label>
+                </div>
+                {uploadedFileName && (
+                  <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
+                    <div className="flex items-center gap-2">
+                      <FileText className="h-4 w-4 text-blue-600" />
+                      <span className="text-sm">{uploadedFileName}</span>
+                    </div>
+                    <Button variant="ghost" size="sm" onClick={handleClearFile}>
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                )}
+              </div>
+
+              {/* 文本输入区域 */}
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">或直接描述需求</Label>
                 <textarea
                   placeholder="请描述项目情况，例如：某乡镇单位有 20 台使用 3 年的台式电脑、2 台使用 5 年的电动装订机，需要一年维保，每季度巡检一次，故障后 8 小时内到场。"
                   value={aiRequirementText}
@@ -1426,11 +1518,11 @@ export default function MaintenanceQuotePage() {
                 />
               </div>
               <div className="flex flex-wrap gap-2">
-                <Button onClick={handleAiParse} disabled={!aiRequirementText.trim() || aiRecognitionStatus === 'analyzing'}>
+                <Button onClick={handleAiParse} disabled={(!aiRequirementText.trim() && !uploadedFileContent) || aiRecognitionStatus === 'analyzing'}>
                   {aiRecognitionStatus === 'analyzing' ? (
                     <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> 识别中...</>
                   ) : (
-                    <><Sparkles className="h-4 w-4 mr-2" /> 智能识别需求</>
+                    <><Sparkles className="h-4 w-4 mr-2" /> 智能识别{uploadedFileContent ? '文件' : '需求'}</>
                   )}
                 </Button>
                 <Button variant="secondary" onClick={handleClearAi}>
@@ -3381,15 +3473,7 @@ export default function MaintenanceQuotePage() {
                         value={completionDraft.arrivalTime || ''} 
                         onValueChange={(val) => {
                           const newDraft = { ...completionDraft };
-<<<<<<< HEAD
                           newDraft.arrivalTime = val as '2小时内' | '8小时内' | '4小时' | '24小时';
-=======
-<<<<<<< HEAD
-                          newDraft.arrivalTime = val as any;
-=======
-                          newDraft.arrivalTime = val as '2小时内' | '8小时内';
->>>>>>> dev-0602-zwj
->>>>>>> bde36429f3f891b8547edd102e5452f260447f1d
                           setCompletionDraft(newDraft);
                         }}
                       >
@@ -3409,15 +3493,7 @@ export default function MaintenanceQuotePage() {
                         value={completionDraft.responseTime || ''} 
                         onValueChange={(val) => {
                           const newDraft = { ...completionDraft };
-<<<<<<< HEAD
                           newDraft.responseTime = val as '10分钟内' | '30分钟内' | '1小时内' | '15分钟内';
-=======
-<<<<<<< HEAD
-                          newDraft.responseTime = val as any;
-=======
-                          newDraft.responseTime = val as '10分钟内' | '30分钟内' | '1小时内';
->>>>>>> dev-0602-zwj
->>>>>>> bde36429f3f891b8547edd102e5452f260447f1d
                           setCompletionDraft(newDraft);
                         }}
                       >
@@ -3437,15 +3513,7 @@ export default function MaintenanceQuotePage() {
                         value={completionDraft.serviceTime || ''} 
                         onValueChange={(val) => {
                           const newDraft = { ...completionDraft };
-<<<<<<< HEAD
                           newDraft.serviceTime = val as '5x8' | '7x8' | '7x24';
-=======
-<<<<<<< HEAD
-                          newDraft.serviceTime = val as any;
-=======
-                          newDraft.serviceTime = val as '5x8' | '7x8' | '7x24';
->>>>>>> dev-0602-zwj
->>>>>>> bde36429f3f891b8547edd102e5452f260447f1d
                           setCompletionDraft(newDraft);
                         }}
                       >
