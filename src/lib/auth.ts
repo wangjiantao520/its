@@ -157,9 +157,9 @@ export async function createUser(username: string, password: string, name: strin
     const [result] = (await pool.execute(
       'INSERT INTO users (username, password_hash, name, created_by) VALUES (?, ?, ?, ?)',
       [username, passwordHash, name, createdBy]
-    )) as DbInsertResult;
+    )) as unknown as DbInsertResult;
 
-    return { success: true, userId: result.insertId };
+    return { success: true, userId: (result as any).insertId };
   } catch (error) {
     console.error('创建用户失败:', error);
     return { success: false, error: '创建用户失败' };

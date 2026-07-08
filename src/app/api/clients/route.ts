@@ -141,11 +141,13 @@ export async function POST(request: NextRequest) {
       ]
     );
 
+    const insertId = (result as any).insertId;
+
     const [newRows] = await pool.query<any[]>(
       `SELECT id, client_code, name, contact_person, contact_phone, contact_email,
               address, region, level, remark, created_at, updated_at
        FROM clients WHERE id = ?`,
-      [result.insertId]
+      [insertId]
     );
 
     return NextResponse.json({ success: true, data: newRows[0] }, { status: 201 });
