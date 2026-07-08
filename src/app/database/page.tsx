@@ -324,69 +324,74 @@ export default function QuotaLibraryPage() {
   const renderEditForm = () => {
     if (!editingItem) return null;
 
+    // 辅助函数：确保值不为 null
+    const safeValue = (val: any, defaultVal: string = ''): string => {
+      return val === null || val === undefined ? defaultVal : String(val);
+    };
+
     switch (activeTab) {
       case 'device_quotas':
         return (
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>设备类别</Label>
-              <Input value={editingItem.category} onChange={(e) => updateEditingItem('category', e.target.value)} />
+              <Input value={safeValue(editingItem.category)} onChange={(e) => updateEditingItem('category', e.target.value)} />
             </div>
             <div className="space-y-2">
               <Label>设备名称</Label>
-              <Input value={editingItem.name} onChange={(e) => updateEditingItem('name', e.target.value)} />
+              <Input value={safeValue(editingItem.name)} onChange={(e) => updateEditingItem('name', e.target.value)} />
             </div>
             <div className="space-y-2">
               <Label>品牌</Label>
-              <Input value={editingItem.brand} onChange={(e) => updateEditingItem('brand', e.target.value)} />
+              <Input value={safeValue(editingItem.brand)} onChange={(e) => updateEditingItem('brand', e.target.value)} />
             </div>
             <div className="space-y-2">
               <Label>型号</Label>
-              <Input value={editingItem.model} onChange={(e) => updateEditingItem('model', e.target.value)} />
+              <Input value={safeValue(editingItem.model)} onChange={(e) => updateEditingItem('model', e.target.value)} />
             </div>
             <div className="space-y-2 col-span-2">
               <Label>规格</Label>
-              <Input value={editingItem.specification} onChange={(e) => updateEditingItem('specification', e.target.value)} />
+              <Input value={safeValue(editingItem.specification)} onChange={(e) => updateEditingItem('specification', e.target.value)} />
             </div>
             <div className="space-y-2">
               <Label>维保档次</Label>
-              <Input value={editingItem.maintenance_tier} onChange={(e) => updateEditingItem('maintenance_tier', e.target.value)} />
+              <Input value={safeValue(editingItem.maintenance_tier, 'C档')} onChange={(e) => updateEditingItem('maintenance_tier', e.target.value)} />
             </div>
             <div className="space-y-2">
               <Label>年故障次数</Label>
-              <Input type="number" value={editingItem.annual_fault_count} onChange={(e) => updateEditingItem('annual_fault_count', parseFloat(e.target.value))} />
+              <Input type="number" value={editingItem.annual_fault_count || 0} onChange={(e) => updateEditingItem('annual_fault_count', parseFloat(e.target.value))} />
             </div>
             <div className="space-y-2">
               <Label>A档故障次数</Label>
-              <Input type="number" value={editingItem.a_gear_fault_count} onChange={(e) => updateEditingItem('a_gear_fault_count', parseFloat(e.target.value))} />
+              <Input type="number" value={editingItem.a_gear_fault_count || 0} onChange={(e) => updateEditingItem('a_gear_fault_count', parseFloat(e.target.value))} />
             </div>
             <div className="space-y-2">
               <Label>B档故障次数</Label>
-              <Input type="number" value={editingItem.b_gear_fault_count} onChange={(e) => updateEditingItem('b_gear_fault_count', parseFloat(e.target.value))} />
+              <Input type="number" value={editingItem.b_gear_fault_count || 0} onChange={(e) => updateEditingItem('b_gear_fault_count', parseFloat(e.target.value))} />
             </div>
             <div className="space-y-2">
               <Label>C档故障次数</Label>
-              <Input type="number" value={editingItem.c_gear_fault_count} onChange={(e) => updateEditingItem('c_gear_fault_count', parseFloat(e.target.value))} />
+              <Input type="number" value={editingItem.c_gear_fault_count || 0} onChange={(e) => updateEditingItem('c_gear_fault_count', parseFloat(e.target.value))} />
             </div>
             <div className="space-y-2">
               <Label>D档故障次数</Label>
-              <Input type="number" value={editingItem.d_gear_fault_count} onChange={(e) => updateEditingItem('d_gear_fault_count', parseFloat(e.target.value))} />
+              <Input type="number" value={editingItem.d_gear_fault_count || 0} onChange={(e) => updateEditingItem('d_gear_fault_count', parseFloat(e.target.value))} />
             </div>
             <div className="space-y-2">
               <Label>E档故障次数</Label>
-              <Input type="number" value={editingItem.e_gear_fault_count} onChange={(e) => updateEditingItem('e_gear_fault_count', parseFloat(e.target.value))} />
+              <Input type="number" value={editingItem.e_gear_fault_count || 0} onChange={(e) => updateEditingItem('e_gear_fault_count', parseFloat(e.target.value))} />
             </div>
             <div className="space-y-2">
               <Label>故障处理天数</Label>
-              <Input type="number" value={editingItem.fault_processing_days} onChange={(e) => updateEditingItem('fault_processing_days', parseFloat(e.target.value))} />
+              <Input type="number" value={editingItem.fault_processing_days || 0} onChange={(e) => updateEditingItem('fault_processing_days', parseFloat(e.target.value))} />
             </div>
             <div className="space-y-2">
               <Label>巡检天数</Label>
-              <Input type="number" value={editingItem.inspection_days} onChange={(e) => updateEditingItem('inspection_days', parseFloat(e.target.value))} />
+              <Input type="number" value={editingItem.inspection_days || 0} onChange={(e) => updateEditingItem('inspection_days', parseFloat(e.target.value))} />
             </div>
             <div className="space-y-2">
               <Label>到场次数</Label>
-              <Input type="number" value={editingItem.on_site_count} onChange={(e) => updateEditingItem('on_site_count', parseInt(e.target.value))} />
+              <Input type="number" value={editingItem.on_site_count || 0} onChange={(e) => updateEditingItem('on_site_count', parseInt(e.target.value))} />
             </div>
           </div>
         );
@@ -396,35 +401,35 @@ export default function QuotaLibraryPage() {
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>工序ID</Label>
-              <Input value={editingItem.id} onChange={(e) => updateEditingItem('id', e.target.value)} disabled={!isAdding} />
+              <Input value={safeValue(editingItem.id)} onChange={(e) => updateEditingItem('id', e.target.value)} disabled={!isAdding} />
             </div>
             <div className="space-y-2">
               <Label>类别</Label>
-              <Input value={editingItem.category} onChange={(e) => updateEditingItem('category', e.target.value)} />
+              <Input value={safeValue(editingItem.category)} onChange={(e) => updateEditingItem('category', e.target.value)} />
             </div>
             <div className="space-y-2">
               <Label>工序名称</Label>
-              <Input value={editingItem.name} onChange={(e) => updateEditingItem('name', e.target.value)} />
+              <Input value={safeValue(editingItem.name)} onChange={(e) => updateEditingItem('name', e.target.value)} />
             </div>
             <div className="space-y-2">
               <Label>单位</Label>
-              <Input value={editingItem.unit} onChange={(e) => updateEditingItem('unit', e.target.value)} />
+              <Input value={safeValue(editingItem.unit)} onChange={(e) => updateEditingItem('unit', e.target.value)} />
             </div>
             <div className="space-y-2">
               <Label>数量</Label>
-              <Input type="number" value={editingItem.quantity} onChange={(e) => updateEditingItem('quantity', parseFloat(e.target.value))} />
+              <Input type="number" value={editingItem.quantity || 0} onChange={(e) => updateEditingItem('quantity', parseFloat(e.target.value))} />
             </div>
             <div className="space-y-2">
               <Label>单价</Label>
-              <Input type="number" value={editingItem.price} onChange={(e) => updateEditingItem('price', parseFloat(e.target.value))} />
+              <Input type="number" value={editingItem.price || 0} onChange={(e) => updateEditingItem('price', parseFloat(e.target.value))} />
             </div>
             <div className="space-y-2">
               <Label>排序</Label>
-              <Input type="number" value={editingItem.sort_order} onChange={(e) => updateEditingItem('sort_order', parseInt(e.target.value))} />
+              <Input type="number" value={editingItem.sort_order || 0} onChange={(e) => updateEditingItem('sort_order', parseInt(e.target.value))} />
             </div>
             <div className="space-y-2 col-span-2">
               <Label>备注</Label>
-              <Input value={editingItem.remark} onChange={(e) => updateEditingItem('remark', e.target.value)} />
+              <Input value={safeValue(editingItem.remark)} onChange={(e) => updateEditingItem('remark', e.target.value)} />
             </div>
           </div>
         );
@@ -434,47 +439,47 @@ export default function QuotaLibraryPage() {
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>项目ID</Label>
-              <Input value={editingItem.id} onChange={(e) => updateEditingItem('id', e.target.value)} disabled={!isAdding} />
+              <Input value={safeValue(editingItem.id)} onChange={(e) => updateEditingItem('id', e.target.value)} disabled={!isAdding} />
             </div>
             <div className="space-y-2">
               <Label>序号</Label>
-              <Input type="number" value={editingItem.serial_number} onChange={(e) => updateEditingItem('serial_number', parseInt(e.target.value))} />
+              <Input type="number" value={editingItem.serial_number || 0} onChange={(e) => updateEditingItem('serial_number', parseInt(e.target.value))} />
             </div>
             <div className="space-y-2">
               <Label>类别</Label>
-              <Input value={editingItem.category} onChange={(e) => updateEditingItem('category', e.target.value)} />
+              <Input value={safeValue(editingItem.category)} onChange={(e) => updateEditingItem('category', e.target.value)} />
             </div>
             <div className="space-y-2">
               <Label>项目名称</Label>
-              <Input value={editingItem.name} onChange={(e) => updateEditingItem('name', e.target.value)} />
+              <Input value={safeValue(editingItem.name)} onChange={(e) => updateEditingItem('name', e.target.value)} />
             </div>
             <div className="space-y-2">
               <Label>品牌型号</Label>
-              <Input value={editingItem.brand_model} onChange={(e) => updateEditingItem('brand_model', e.target.value)} />
+              <Input value={safeValue(editingItem.brand_model)} onChange={(e) => updateEditingItem('brand_model', e.target.value)} />
             </div>
             <div className="space-y-2">
               <Label>单位</Label>
-              <Input value={editingItem.unit} onChange={(e) => updateEditingItem('unit', e.target.value)} />
+              <Input value={safeValue(editingItem.unit)} onChange={(e) => updateEditingItem('unit', e.target.value)} />
             </div>
             <div className="space-y-2">
               <Label>单价</Label>
-              <Input type="number" value={editingItem.price} onChange={(e) => updateEditingItem('price', parseFloat(e.target.value))} />
+              <Input type="number" value={editingItem.price || 0} onChange={(e) => updateEditingItem('price', parseFloat(e.target.value))} />
             </div>
             <div className="space-y-2">
               <Label>可抵扣税率(%)</Label>
-              <Input type="number" value={editingItem.deductible_tax_rate} onChange={(e) => updateEditingItem('deductible_tax_rate', parseFloat(e.target.value))} />
+              <Input type="number" value={editingItem.deductible_tax_rate || 0} onChange={(e) => updateEditingItem('deductible_tax_rate', parseFloat(e.target.value))} />
             </div>
             <div className="space-y-2">
               <Label>排序</Label>
-              <Input type="number" value={editingItem.sort_order} onChange={(e) => updateEditingItem('sort_order', parseInt(e.target.value))} />
+              <Input type="number" value={editingItem.sort_order || 0} onChange={(e) => updateEditingItem('sort_order', parseInt(e.target.value))} />
             </div>
             <div className="space-y-2 col-span-2">
               <Label>描述</Label>
-              <Input value={editingItem.description} onChange={(e) => updateEditingItem('description', e.target.value)} />
+              <Input value={safeValue(editingItem.description)} onChange={(e) => updateEditingItem('description', e.target.value)} />
             </div>
             <div className="space-y-2 col-span-2">
               <Label>备注</Label>
-              <Input value={editingItem.remark} onChange={(e) => updateEditingItem('remark', e.target.value)} />
+              <Input value={safeValue(editingItem.remark)} onChange={(e) => updateEditingItem('remark', e.target.value)} />
             </div>
           </div>
         );
@@ -484,25 +489,25 @@ export default function QuotaLibraryPage() {
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>等级</Label>
-              <Input value={editingItem.level} onChange={(e) => updateEditingItem('level', e.target.value)} />
+              <Input value={safeValue(editingItem.level)} onChange={(e) => updateEditingItem('level', e.target.value)} />
             </div>
             <div className="space-y-2">
               <Label>单价</Label>
-              <Input type="number" value={editingItem.unit_price} onChange={(e) => updateEditingItem('unit_price', parseFloat(e.target.value))} />
+              <Input type="number" value={editingItem.unit_price || 0} onChange={(e) => updateEditingItem('unit_price', parseFloat(e.target.value))} />
             </div>
             <div className="space-y-2">
               <Label>单位</Label>
-              <Input value={editingItem.unit} onChange={(e) => updateEditingItem('unit', e.target.value)} />
+              <Input value={safeValue(editingItem.unit)} onChange={(e) => updateEditingItem('unit', e.target.value)} />
             </div>
             <div className="space-y-2">
               <Label>排序</Label>
-              <Input type="number" value={editingItem.sort_order} onChange={(e) => updateEditingItem('sort_order', parseInt(e.target.value))} />
+              <Input type="number" value={editingItem.sort_order || 0} onChange={(e) => updateEditingItem('sort_order', parseInt(e.target.value))} />
             </div>
             <div className="space-y-2">
               <Label>是否启用</Label>
               <select 
                 className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                value={editingItem.is_active} 
+                value={editingItem.is_active ?? 1} 
                 onChange={(e) => updateEditingItem('is_active', parseInt(e.target.value))}
               >
                 <option value={1}>启用</option>
@@ -511,7 +516,7 @@ export default function QuotaLibraryPage() {
             </div>
             <div className="space-y-2 col-span-2">
               <Label>描述</Label>
-              <Input value={editingItem.description} onChange={(e) => updateEditingItem('description', e.target.value)} />
+              <Input value={safeValue(editingItem.description)} onChange={(e) => updateEditingItem('description', e.target.value)} />
             </div>
           </div>
         );
