@@ -484,6 +484,7 @@ export default function MaintenanceQuotePage() {
   const [clientName, setClientName] = useState('');
   const [projectName, setProjectName] = useState('');
   const [contractYears, setContractYears] = useState<string>('1');
+  const [needSpareParts, setNeedSpareParts] = useState<boolean>(false);
   const [region, setRegion] = useState<RegionType>('城区');
   const [contactPerson, setContactPerson] = useState('');
   const [contactPhone, setContactPhone] = useState('');
@@ -989,7 +990,7 @@ export default function MaintenanceQuotePage() {
         deviceGrade: (item as any).deviceGrade || 'A',
         depreciationGrade: (item as any).depreciationGrade || '1',
         inWarranty: item.inWarranty,
-        needSparePart: item.needSparePart,
+        needSparePart: needSpareParts, // 使用全局的备件选项
         contractYears: item.contractYears,
       }));
       
@@ -1752,6 +1753,22 @@ export default function MaintenanceQuotePage() {
                       <SelectItem value="农村">农村 (系数2.0)</SelectItem>
                     </SelectContent>
                   </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>备件选项</Label>
+                  <div className="flex items-center space-x-2 rounded-md border border-slate-200 p-3">
+                    <Switch
+                      id="needSpareParts"
+                      checked={needSpareParts}
+                      onCheckedChange={setNeedSpareParts}
+                    />
+                    <Label htmlFor="needSpareParts" className="cursor-pointer flex-1">
+                      需要备件
+                      <span className="block text-xs text-slate-500 font-normal mt-0.5">
+                        勾选后将计入备件风险准备金
+                      </span>
+                    </Label>
+                  </div>
                 </div>
               </CardContent>
             </Card>
