@@ -1126,6 +1126,31 @@ export default function DatabaseManagementPage() {
                 })}
               </TableBody>
             </Table>
+            {/* 分页控件 */}
+            <div className="flex items-center justify-between p-4 border-t border-slate-200">
+              <div className="text-sm text-slate-500">
+                共 {total} 条，第 {currentPage}/{totalPages} 页
+              </div>
+              <div className="flex items-center gap-2">
+                <select
+                  className="text-sm border border-slate-200 rounded px-2 py-1"
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                >
+                  <option value={10}>10条/页</option>
+                  <option value={20}>20条/页</option>
+                  <option value={50}>50条/页</option>
+                  <option value={100}>100条/页</option>
+                </select>
+                <Button variant="outline" size="sm" disabled={currentPage === 1} onClick={() => setCurrentPage(1)}>首页</Button>
+                <Button variant="outline" size="sm" disabled={currentPage === 1} onClick={() => setCurrentPage(currentPage - 1)}>上一页</Button>
+                <Button variant="outline" size="sm" disabled={currentPage === totalPages} onClick={() => setCurrentPage(currentPage + 1)}>下一页</Button>
+                <Button variant="outline" size="sm" disabled={currentPage === totalPages} onClick={() => setCurrentPage(totalPages)}>末页</Button>
+              </div>
+            </div>
           </>
         );
 
