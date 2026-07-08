@@ -155,8 +155,8 @@ export function calculateFullDeviceQuote(
     // 需要备件：使用完整的 cityPrice（包含备件风险准备金）
     baseCityPrice = quota.cityPrice;
   } else {
-    // 不需要备件：从 cityPrice 中减去备件风险准备金
-    baseCityPrice = quota.cityPrice - sparePartReserve;
+    // 不需要备件：从 cityPrice 中减去备件风险准备金，但不能为负数
+    baseCityPrice = Math.max(0, quota.cityPrice - sparePartReserve);
   }
   
   // 使用Excel中已经预计算好的价格，并乘以SLA系数、折旧系数和是否在保系数
