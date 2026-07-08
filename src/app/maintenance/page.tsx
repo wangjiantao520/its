@@ -3381,7 +3381,15 @@ export default function MaintenanceQuotePage() {
                         value={completionDraft.arrivalTime || ''} 
                         onValueChange={(val) => {
                           const newDraft = { ...completionDraft };
+<<<<<<< HEAD
                           newDraft.arrivalTime = val as '2小时内' | '8小时内' | '4小时' | '24小时';
+=======
+<<<<<<< HEAD
+                          newDraft.arrivalTime = val as any;
+=======
+                          newDraft.arrivalTime = val as '2小时内' | '8小时内';
+>>>>>>> dev-0602-zwj
+>>>>>>> bde36429f3f891b8547edd102e5452f260447f1d
                           setCompletionDraft(newDraft);
                         }}
                       >
@@ -3401,7 +3409,15 @@ export default function MaintenanceQuotePage() {
                         value={completionDraft.responseTime || ''} 
                         onValueChange={(val) => {
                           const newDraft = { ...completionDraft };
+<<<<<<< HEAD
                           newDraft.responseTime = val as '10分钟内' | '30分钟内' | '1小时内' | '15分钟内';
+=======
+<<<<<<< HEAD
+                          newDraft.responseTime = val as any;
+=======
+                          newDraft.responseTime = val as '10分钟内' | '30分钟内' | '1小时内';
+>>>>>>> dev-0602-zwj
+>>>>>>> bde36429f3f891b8547edd102e5452f260447f1d
                           setCompletionDraft(newDraft);
                         }}
                       >
@@ -3421,7 +3437,15 @@ export default function MaintenanceQuotePage() {
                         value={completionDraft.serviceTime || ''} 
                         onValueChange={(val) => {
                           const newDraft = { ...completionDraft };
+<<<<<<< HEAD
                           newDraft.serviceTime = val as '5x8' | '7x8' | '7x24';
+=======
+<<<<<<< HEAD
+                          newDraft.serviceTime = val as any;
+=======
+                          newDraft.serviceTime = val as '5x8' | '7x8' | '7x24';
+>>>>>>> dev-0602-zwj
+>>>>>>> bde36429f3f891b8547edd102e5452f260447f1d
                           setCompletionDraft(newDraft);
                         }}
                       >

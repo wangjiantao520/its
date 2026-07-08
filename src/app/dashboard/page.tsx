@@ -257,6 +257,37 @@ export default function DashboardPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+            {expiringItems.length > 0 ? (
+              <div className="space-y-4">
+                {expiringItems.map((item) => (
+                  <div
+                    key={item.id}
+                    className="flex items-center justify-between border-b pb-3 last:border-0 last:pb-0"
+                  >
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium leading-none">
+                        {item.name}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {item.client}
+                      </p>
+                      <div className="flex items-center gap-2 pt-1">
+                        <Badge
+                          variant="outline"
+                          className={
+                            item.daysLeft <= 14
+                              ? 'border-orange-500 text-orange-600'
+                              : 'border-yellow-500 text-yellow-600'
+                          }
+                        >
+                          剩余 {item.daysLeft} 天
+                        </Badge>
+                      </div>
+=======
+>>>>>>> bde36429f3f891b8547edd102e5452f260447f1d
             <div className="space-y-4">
               {expiringItems.map((item) => (
                 <div
@@ -282,6 +313,10 @@ export default function DashboardPage() {
                       >
                         剩余 {item.daysLeft} 天
                       </Badge>
+<<<<<<< HEAD
+=======
+>>>>>>> dev-0602-zwj
+>>>>>>> bde36429f3f891b8547edd102e5452f260447f1d
                     </div>
                   </div>
                   <Button variant="ghost" size="sm">
@@ -305,6 +340,34 @@ export default function DashboardPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+            {recentActivity.length > 0 ? (
+              <div className="space-y-4">
+                {recentActivity.map((activity) => (
+                  <div
+                    key={activity.id}
+                    className="flex items-center justify-between border-b pb-3 last:border-0 last:pb-0"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted">
+                        {getActivityIcon(activity.type)}
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium leading-none">
+                          {activity.action}
+                        </p>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-muted-foreground">
+                            {activity.quote}
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            {activity.client}
+                          </span>
+                        </div>
+=======
+>>>>>>> bde36429f3f891b8547edd102e5452f260447f1d
             <div className="space-y-4">
               {recentActivity.map((activity) => (
                 <div
@@ -327,6 +390,10 @@ export default function DashboardPage() {
                         <span className="text-xs text-muted-foreground">
                           {activity.client}
                         </span>
+<<<<<<< HEAD
+=======
+>>>>>>> dev-0602-zwj
+>>>>>>> bde36429f3f891b8547edd102e5452f260447f1d
                       </div>
                     </div>
                   </div>

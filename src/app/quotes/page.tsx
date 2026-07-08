@@ -500,8 +500,17 @@ export default function QuotesPage() {
       {
         label: '删除',
         icon: Trash2,
+<<<<<<< HEAD
         onClick: () => handleDeleteQuote(quote),
         variant: 'destructive',
+=======
+<<<<<<< HEAD
+        onClick: () => console.log('删除:', quote.id),
+=======
+        onClick: () => handleDeleteQuote(quote),
+        variant: 'destructive',
+>>>>>>> dev-0602-zwj
+>>>>>>> bde36429f3f891b8547edd102e5452f260447f1d
         disabled: quote.status === 'sent',
       } as any
     );
@@ -791,6 +800,13 @@ export default function QuotesPage() {
                                       key={index}
                                       onClick={item.onClick}
                                       disabled={item.disabled}
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+=======
+                                      
+>>>>>>> dev-0602-zwj
+>>>>>>> bde36429f3f891b8547edd102e5452f260447f1d
                                     >
                                       {item.icon && <item.icon className="h-4 w-4 mr-2" />}
                                       {item.label}
