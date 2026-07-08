@@ -14,7 +14,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { 
   Plus, Edit, Trash2, Save, X, Search, Download, Upload,
   Cpu, Wrench, Building2, Users, AlertCircle, CheckCircle2, Loader2,
-  ChevronDown, ChevronRight, CheckSquare, Settings, FileText
+  ChevronDown, ChevronRight, CheckSquare, Settings, FileText, Database
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useUser } from '@/contexts/user-context';
@@ -1093,21 +1093,27 @@ export default function DatabaseManagementPage() {
 
   return (
     <div className="p-6 space-y-6">
+      {/* 页面头部 */}
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">基础数据管理</h1>
-          <p className="text-slate-600 mt-1">管理设备定额、人工单价、设备清单审核和系统配置</p>
+        <div className="flex items-center gap-4">
+          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center shadow-lg shadow-blue-500/20">
+            <Database className="w-6 h-6 text-white" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900">基础数据管理</h1>
+            <p className="text-sm text-slate-500 mt-0.5">管理设备定额、人工单价、设备清单审核和系统配置</p>
+          </div>
         </div>
         <div className="flex gap-2">
-          <Button onClick={() => setImportDialogOpen(true)} variant="outline" className="border-purple-600 text-purple-600 hover:bg-purple-50">
+          <Button onClick={() => setImportDialogOpen(true)} variant="outline" className="border-slate-200 hover:bg-slate-50 text-slate-700">
             <Upload className="w-4 h-4 mr-2" />
-            从Excel导入
+            Excel导入
           </Button>
-          <Button onClick={handleSeedData} variant="outline" className="border-green-600 text-green-600 hover:bg-green-50">
+          <Button onClick={handleSeedData} variant="outline" className="border-slate-200 hover:bg-slate-50 text-slate-700">
             <Download className="w-4 h-4 mr-2" />
-            导入定额库数据
+            初始化数据
           </Button>
-          <Button onClick={handleAdd} className="bg-blue-600 hover:bg-blue-700">
+          <Button onClick={handleAdd} className="bg-blue-600 hover:bg-blue-700 text-white shadow-sm">
             <Plus className="w-4 h-4 mr-2" />
             新增
           </Button>
@@ -1124,50 +1130,68 @@ export default function DatabaseManagementPage() {
       )}
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid grid-cols-4 w-full">
-          <TabsTrigger value="device_quotas">
+        <TabsList className="h-auto w-full flex flex-wrap gap-2 bg-transparent p-0">
+          <TabsTrigger 
+            value="device_quotas" 
+            className="data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700 data-[state=active]:border-blue-200 data-[state=active]:shadow-sm border border-transparent px-4 py-2.5 transition-all"
+          >
             <Cpu className="w-4 h-4 mr-2" />
             设备定额
           </TabsTrigger>
-          <TabsTrigger value="self_construction_quotas">
+          <TabsTrigger 
+            value="self_construction_quotas" 
+            className="data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700 data-[state=active]:border-blue-200 data-[state=active]:shadow-sm border border-transparent px-4 py-2.5 transition-all"
+          >
             <Wrench className="w-4 h-4 mr-2" />
             自施工工序
           </TabsTrigger>
-          <TabsTrigger value="intelligent_project_quotas">
+          <TabsTrigger 
+            value="intelligent_project_quotas" 
+            className="data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700 data-[state=active]:border-blue-200 data-[state=active]:shadow-sm border border-transparent px-4 py-2.5 transition-all"
+          >
             <Building2 className="w-4 h-4 mr-2" />
             智能化项目
           </TabsTrigger>
-          <TabsTrigger value="labor_price_config">
+          <TabsTrigger 
+            value="labor_price_config" 
+            className="data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700 data-[state=active]:border-blue-200 data-[state=active]:shadow-sm border border-transparent px-4 py-2.5 transition-all"
+          >
             <Users className="w-4 h-4 mr-2" />
             人工单价
           </TabsTrigger>
-          <TabsTrigger value="device_review">
+          <TabsTrigger 
+            value="device_review" 
+            className="data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700 data-[state=active]:border-blue-200 data-[state=active]:shadow-sm border border-transparent px-4 py-2.5 transition-all"
+          >
             <CheckSquare className="w-4 h-4 mr-2" />
             设备清单审核
           </TabsTrigger>
-          <TabsTrigger value="system_settings">
+          <TabsTrigger 
+            value="system_settings" 
+            className="data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700 data-[state=active]:border-blue-200 data-[state=active]:shadow-sm border border-transparent px-4 py-2.5 transition-all"
+          >
             <Settings className="w-4 h-4 mr-2" />
             系统参数
           </TabsTrigger>
         </TabsList>
 
-        <div className="mt-4">
+        <div className="mt-6">
           {activeTab !== 'device_review' && activeTab !== 'system_settings' && (
-          <div className="flex items-center gap-4 mb-4">
+          <div className="flex items-center gap-3 mb-4 p-4 bg-slate-50 rounded-xl border border-slate-100">
             <div className="relative flex-1 max-w-sm">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
               <Input
-                placeholder="搜索..."
+                placeholder="搜索名称、品牌、型号..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-9"
+                className="pl-9 bg-white border-slate-200"
               />
             </div>
             {activeTab !== 'labor_price_config' && (
               <select
                 value={selectedCategory}
                 onChange={(e) => setSelectedCategory(e.target.value)}
-                className="h-9 px-3 py-1 text-sm border border-slate-200 rounded-md bg-white hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="h-9 px-3 py-1 text-sm border border-slate-200 rounded-lg bg-white hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <option value="all">全部分类</option>
                 {getCategories().map(cat => (
@@ -1175,13 +1199,15 @@ export default function DatabaseManagementPage() {
                 ))}
               </select>
             )}
-            <span className="text-sm text-slate-500">
-              共 {getCurrentData().total} 条记录
-            </span>
+            <div className="flex items-center gap-2 ml-auto">
+              <span className="text-sm text-slate-500 bg-white px-3 py-1.5 rounded-lg border border-slate-200">
+                共 <span className="font-semibold text-slate-700">{getCurrentData().total}</span> 条记录
+              </span>
+            </div>
           </div>
           )}
 
-          <Card>
+          <Card className="border-slate-200 shadow-sm overflow-hidden">
             <CardContent className="p-0">
               {renderTable()}
             </CardContent>
