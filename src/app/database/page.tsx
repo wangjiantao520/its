@@ -35,6 +35,20 @@ interface DeviceQuota {
   fault_processing_days: number;
   inspection_days: number;
   on_site_count: number;
+  // 金额相关字段
+  inspection_labor_fee: number;
+  on_site_fee_annual: number;
+  traffic_fee: number;
+  on_site_connection_labor_fee: number;
+  spare_part_reserve: number;
+  city_price: number;
+  fault_handling_fee_total: number;
+  year1_total_price: number;
+  year2_total_price: number;
+  year3_total_price: number;
+  urban_price: number;
+  town_price: number;
+  rural_price: number;
 }
 
 // 自施工工序定额
@@ -103,11 +117,16 @@ export default function QuotaLibraryPage() {
   
   // 展开行状态
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
+  
+  // 分页状态
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
 
-  // 切换标签页时重置分类筛选
+  // 切换标签页时重置分类筛选和分页
   useEffect(() => {
     setSelectedCategory('all');
     setExpandedRows(new Set());
+    setCurrentPage(1);
   }, [activeTab]);
 
   // 加载数据
@@ -513,20 +532,30 @@ export default function QuotaLibraryPage() {
     setExpandedRows(newExpanded);
   };
 
-  // 获取当前数据
-  const getCurrentData = () => {
+  // 获取当前数据（支持分页）
+  const getCurrentData = (): { data: any[]; total: number; totalPages: number } => {
+    let allData: any[] = [];
     switch (activeTab) {
-      case 'device_quotas': return filterData(deviceQuotas);
-      case 'self_construction_quotas': return filterData(selfConstructionQuotas);
-      case 'intelligent_project_quotas': return filterData(intelligentProjectQuotas);
-      case 'labor_price_config': return filterData(laborPriceConfigs);
-      default: return [];
+      case 'device_quotas': allData = filterData(deviceQuotas); break;
+      case 'self_construction_quotas': allData = filterData(selfConstructionQuotas); break;
+      case 'intelligent_project_quotas': allData = filterData(intelligentProjectQuotas); break;
+      case 'labor_price_config': allData = filterData(laborPriceConfigs); break;
+      default: return { data: [], total: 0, totalPages: 0 };
     }
+    
+    // 分页处理
+    const startIndex = (currentPage - 1) * pageSize;
+    const endIndex = startIndex + pageSize;
+    return {
+      data: allData.slice(startIndex, endIndex),
+      total: allData.length,
+      totalPages: Math.ceil(allData.length / pageSize)
+    };
   };
 
   // 渲染表格
   const renderTable = () => {
-    const data = getCurrentData();
+    const { data, total, totalPages } = getCurrentData();
 
     if (loading) {
       return (
@@ -537,228 +566,401 @@ export default function QuotaLibraryPage() {
       );
     }
 
-    if (data.length === 0) {
+    if (total === 0) {
       return (
         <div className="text-center py-12 text-slate-500">
-          {searchTerm ? '没有找到匹配的数据' : '暂无数据，点击"新增"按钮添加'}
+          {searchTerm || selectedCategory !== 'all' ? '没有找到匹配的数据' : '暂无数据，点击"新增"按钮添加'}
         </div>
       );
     }
 
+    // 计算当前页的起始序号
+    const startSerial = (currentPage - 1) * pageSize;
+
     switch (activeTab) {
       case 'device_quotas':
         return (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-12"></TableHead>
-                <TableHead>类别</TableHead>
-                <TableHead>名称</TableHead>
-                <TableHead>品牌</TableHead>
-                <TableHead>型号</TableHead>
-                <TableHead>维保档次</TableHead>
-                <TableHead className="text-right">年故障次数</TableHead>
-                <TableHead className="text-right">操作</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {(data as DeviceQuota[]).map((item) => {
-                const isExpanded = expandedRows.has(item.id);
-                return (
-                  <React.Fragment key={item.id}>
-                    <TableRow className="cursor-pointer hover:bg-slate-50" onClick={() => toggleRow(item.id)}>
-                      <TableCell>
-                        {isExpanded ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
-                      </TableCell>
-                      <TableCell>{item.category}</TableCell>
-                      <TableCell className="font-medium">{item.name}</TableCell>
-                      <TableCell>{item.brand}</TableCell>
-                      <TableCell>{item.model}</TableCell>
-                      <TableCell>{item.maintenance_tier}</TableCell>
-                      <TableCell className="text-right">{item.annual_fault_count}</TableCell>
-                      <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                        <Button variant="ghost" size="sm" onClick={() => handleEdit(item)}>
-                          <Edit className="w-4 h-4" />
-                        </Button>
-                        <Button variant="ghost" size="sm" onClick={() => handleDelete(item.id)}>
-                          <Trash2 className="w-4 h-4 text-red-600" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                    {isExpanded && (
-                      <TableRow>
-                        <TableCell colSpan={8} className="bg-slate-50">
-                          <div className="p-4">
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                              <div className="space-y-1">
-                                <span className="text-xs text-slate-500">工程师等级</span>
-                                <p className="text-sm font-medium">{item.level || '-'}</p>
-                              </div>
-                              <div className="space-y-1">
-                                <span className="text-xs text-slate-500">工程师级别</span>
-                                <p className="text-sm font-medium">{item.engineer_level || '-'}</p>
-                              </div>
-                              <div className="space-y-1">
-                                <span className="text-xs text-slate-500">规格</span>
-                                <p className="text-sm font-medium">{item.specification || '-'}</p>
-                              </div>
-                              <div className="space-y-1">
-                                <span className="text-xs text-slate-500">故障处理天数</span>
-                                <p className="text-sm font-medium">{item.fault_processing_days || 0}</p>
-                              </div>
-                              <div className="space-y-1">
-                                <span className="text-xs text-slate-500">巡检天数</span>
-                                <p className="text-sm font-medium">{item.inspection_days || 0}</p>
-                              </div>
-                              <div className="space-y-1">
-                                <span className="text-xs text-slate-500">到场次数</span>
-                                <p className="text-sm font-medium">{item.on_site_count || 0}</p>
-                              </div>
-                              <div className="space-y-1">
-                                <span className="text-xs text-slate-500">A档故障次数</span>
-                                <p className="text-sm font-medium">{item.a_gear_fault_count || 0}</p>
-                              </div>
-                              <div className="space-y-1">
-                                <span className="text-xs text-slate-500">B档故障次数</span>
-                                <p className="text-sm font-medium">{item.b_gear_fault_count || 0}</p>
-                              </div>
-                              <div className="space-y-1">
-                                <span className="text-xs text-slate-500">C档故障次数</span>
-                                <p className="text-sm font-medium">{item.c_gear_fault_count || 0}</p>
-                              </div>
-                              <div className="space-y-1">
-                                <span className="text-xs text-slate-500">D档故障次数</span>
-                                <p className="text-sm font-medium">{item.d_gear_fault_count || 0}</p>
-                              </div>
-                              <div className="space-y-1">
-                                <span className="text-xs text-slate-500">E档故障次数</span>
-                                <p className="text-sm font-medium">{item.e_gear_fault_count || 0}</p>
-                              </div>
-                            </div>
-                          </div>
+          <>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-16 text-center">序号</TableHead>
+                  <TableHead className="w-12"></TableHead>
+                  <TableHead>类别</TableHead>
+                  <TableHead>名称</TableHead>
+                  <TableHead>品牌</TableHead>
+                  <TableHead>型号</TableHead>
+                  <TableHead>维保档次</TableHead>
+                  <TableHead className="text-right">年故障次数</TableHead>
+                  <TableHead className="text-right">年费用(元)</TableHead>
+                  <TableHead className="text-right">操作</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(data as DeviceQuota[]).map((item, index) => {
+                  const isExpanded = expandedRows.has(item.id);
+                  const serialNumber = startSerial + index + 1;
+                  // 使用 city_price 作为默认显示金额（城市维保单价）
+                  const annualFee = item.city_price || item.year1_total_price || 0;
+                  return (
+                    <React.Fragment key={item.id}>
+                      <TableRow className="cursor-pointer hover:bg-slate-50" onClick={() => toggleRow(item.id)}>
+                        <TableCell className="text-center text-slate-500 font-mono text-sm">{serialNumber}</TableCell>
+                        <TableCell>
+                          {isExpanded ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
+                        </TableCell>
+                        <TableCell>{item.category}</TableCell>
+                        <TableCell className="font-medium">{item.name}</TableCell>
+                        <TableCell>{item.brand || '-'}</TableCell>
+                        <TableCell>{item.model}</TableCell>
+                        <TableCell>{item.maintenance_tier}</TableCell>
+                        <TableCell className="text-right">{item.annual_fault_count}</TableCell>
+                        <TableCell className="text-right font-mono text-blue-600 font-medium">
+                          {annualFee > 0 ? `¥${annualFee.toFixed(2)}` : '-'}
+                        </TableCell>
+                        <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                          <Button variant="ghost" size="sm" onClick={() => handleEdit(item)}>
+                            <Edit className="w-4 h-4" />
+                          </Button>
+                          <Button variant="ghost" size="sm" onClick={() => handleDelete(item.id)}>
+                            <Trash2 className="w-4 h-4 text-red-600" />
+                          </Button>
                         </TableCell>
                       </TableRow>
-                    )}
-                  </React.Fragment>
-                );
-              })}
-            </TableBody>
-          </Table>
+                      {isExpanded && (
+                        <TableRow>
+                          <TableCell colSpan={10} className="bg-slate-50">
+                            <div className="p-4">
+                              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                <div className="space-y-1">
+                                  <span className="text-xs text-slate-500">工程师等级</span>
+                                  <p className="text-sm font-medium">{item.level || '-'}</p>
+                                </div>
+                                <div className="space-y-1">
+                                  <span className="text-xs text-slate-500">工程师级别</span>
+                                  <p className="text-sm font-medium">{item.engineer_level || '-'}</p>
+                                </div>
+                                <div className="space-y-1">
+                                  <span className="text-xs text-slate-500">规格</span>
+                                  <p className="text-sm font-medium">{item.specification || '-'}</p>
+                                </div>
+                                <div className="space-y-1">
+                                  <span className="text-xs text-slate-500">故障处理天数</span>
+                                  <p className="text-sm font-medium">{item.fault_processing_days || 0}</p>
+                                </div>
+                                <div className="space-y-1">
+                                  <span className="text-xs text-slate-500">巡检天数</span>
+                                  <p className="text-sm font-medium">{item.inspection_days || 0}</p>
+                                </div>
+                                <div className="space-y-1">
+                                  <span className="text-xs text-slate-500">到场次数</span>
+                                  <p className="text-sm font-medium">{item.on_site_count || 0}</p>
+                                </div>
+                                <div className="space-y-1">
+                                  <span className="text-xs text-slate-500">A档故障次数</span>
+                                  <p className="text-sm font-medium">{item.a_gear_fault_count || 0}</p>
+                                </div>
+                                <div className="space-y-1">
+                                  <span className="text-xs text-slate-500">B档故障次数</span>
+                                  <p className="text-sm font-medium">{item.b_gear_fault_count || 0}</p>
+                                </div>
+                                {/* 金额明细 */}
+                                <div className="space-y-1">
+                                  <span className="text-xs text-slate-500">巡检人工费</span>
+                                  <p className="text-sm font-medium font-mono">{item.inspection_labor_fee ? `¥${item.inspection_labor_fee.toFixed(2)}` : '-'}</p>
+                                </div>
+                                <div className="space-y-1">
+                                  <span className="text-xs text-slate-500">到场服务费</span>
+                                  <p className="text-sm font-medium font-mono">{item.on_site_fee_annual ? `¥${item.on_site_fee_annual.toFixed(2)}` : '-'}</p>
+                                </div>
+                                <div className="space-y-1">
+                                  <span className="text-xs text-slate-500">交通费</span>
+                                  <p className="text-sm font-medium font-mono">{item.traffic_fee ? `¥${item.traffic_fee.toFixed(2)}` : '-'}</p>
+                                </div>
+                                <div className="space-y-1">
+                                  <span className="text-xs text-slate-500">备件费</span>
+                                  <p className="text-sm font-medium font-mono">{item.spare_part_reserve ? `¥${item.spare_part_reserve.toFixed(2)}` : '-'}</p>
+                                </div>
+                                <div className="space-y-1">
+                                  <span className="text-xs text-slate-500">第1年总价</span>
+                                  <p className="text-sm font-medium font-mono text-blue-600">{item.year1_total_price ? `¥${item.year1_total_price.toFixed(2)}` : '-'}</p>
+                                </div>
+                                <div className="space-y-1">
+                                  <span className="text-xs text-slate-500">第2年总价</span>
+                                  <p className="text-sm font-medium font-mono text-blue-600">{item.year2_total_price ? `¥${item.year2_total_price.toFixed(2)}` : '-'}</p>
+                                </div>
+                                <div className="space-y-1">
+                                  <span className="text-xs text-slate-500">第3年总价</span>
+                                  <p className="text-sm font-medium font-mono text-blue-600">{item.year3_total_price ? `¥${item.year3_total_price.toFixed(2)}` : '-'}</p>
+                                </div>
+                                <div className="space-y-1">
+                                  <span className="text-xs text-slate-500">城区价格</span>
+                                  <p className="text-sm font-medium font-mono">{item.urban_price ? `¥${item.urban_price.toFixed(2)}` : '-'}</p>
+                                </div>
+                                <div className="space-y-1">
+                                  <span className="text-xs text-slate-500">镇区价格</span>
+                                  <p className="text-sm font-medium font-mono">{item.town_price ? `¥${item.town_price.toFixed(2)}` : '-'}</p>
+                                </div>
+                                <div className="space-y-1">
+                                  <span className="text-xs text-slate-500">乡村价格</span>
+                                  <p className="text-sm font-medium font-mono">{item.rural_price ? `¥${item.rural_price.toFixed(2)}` : '-'}</p>
+                                </div>
+                              </div>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </TableBody>
+            </Table>
+            {/* 分页控件 */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between px-4 py-3 border-t">
+                <div className="text-sm text-slate-500">
+                  共 {total} 条，第 {currentPage}/{totalPages} 页
+                </div>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={pageSize}
+                    onChange={(e) => { setPageSize(Number(e.target.value)); setCurrentPage(1); }}
+                    className="h-8 px-2 text-sm border border-slate-200 rounded-md"
+                  >
+                    <option value={10}>10条/页</option>
+                    <option value={20}>20条/页</option>
+                    <option value={50}>50条/页</option>
+                    <option value={100}>100条/页</option>
+                  </select>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={currentPage === 1}
+                    onClick={() => setCurrentPage(1)}
+                  >
+                    首页
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={currentPage === 1}
+                    onClick={() => setCurrentPage(currentPage - 1)}
+                  >
+                    上一页
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={currentPage === totalPages}
+                    onClick={() => setCurrentPage(currentPage + 1)}
+                  >
+                    下一页
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={currentPage === totalPages}
+                    onClick={() => setCurrentPage(totalPages)}
+                  >
+                    末页
+                  </Button>
+                </div>
+              </div>
+            )}
+          </>
         );
 
       case 'self_construction_quotas':
         return (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>ID</TableHead>
-                <TableHead>类别</TableHead>
-                <TableHead>工序名称</TableHead>
-                <TableHead>单位</TableHead>
-                <TableHead className="text-right">数量</TableHead>
-                <TableHead className="text-right">单价</TableHead>
-                <TableHead className="text-right">操作</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {(data as SelfConstructionQuota[]).map((item) => (
-                <TableRow key={item.id}>
-                  <TableCell className="font-mono text-xs">{item.id}</TableCell>
-                  <TableCell>{item.category}</TableCell>
-                  <TableCell className="font-medium">{item.name}</TableCell>
-                  <TableCell>{item.unit}</TableCell>
-                  <TableCell className="text-right">{item.quantity}</TableCell>
-                  <TableCell className="text-right">¥{item.price.toFixed(2)}</TableCell>
-                  <TableCell className="text-right">
-                    <Button variant="ghost" size="sm" onClick={() => handleEdit(item)}>
-                      <Edit className="w-4 h-4" />
-                    </Button>
-                    <Button variant="ghost" size="sm" onClick={() => handleDelete(item.id)}>
-                      <Trash2 className="w-4 h-4 text-red-600" />
-                    </Button>
-                  </TableCell>
+          <>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-16 text-center">序号</TableHead>
+                  <TableHead>类别</TableHead>
+                  <TableHead>工序名称</TableHead>
+                  <TableHead>单位</TableHead>
+                  <TableHead className="text-right">数量</TableHead>
+                  <TableHead className="text-right">单价(元)</TableHead>
+                  <TableHead className="text-right">操作</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {(data as SelfConstructionQuota[]).map((item, index) => (
+                  <TableRow key={item.id}>
+                    <TableCell className="text-center text-slate-500 font-mono text-sm">{startSerial + index + 1}</TableCell>
+                    <TableCell>{item.category}</TableCell>
+                    <TableCell className="font-medium">{item.name}</TableCell>
+                    <TableCell>{item.unit}</TableCell>
+                    <TableCell className="text-right">{item.quantity}</TableCell>
+                    <TableCell className="text-right font-mono text-blue-600">¥{item.price.toFixed(2)}</TableCell>
+                    <TableCell className="text-right">
+                      <Button variant="ghost" size="sm" onClick={() => handleEdit(item)}>
+                        <Edit className="w-4 h-4" />
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => handleDelete(item.id)}>
+                        <Trash2 className="w-4 h-4 text-red-600" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            {/* 分页控件 */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between px-4 py-3 border-t">
+                <div className="text-sm text-slate-500">
+                  共 {total} 条，第 {currentPage}/{totalPages} 页
+                </div>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={pageSize}
+                    onChange={(e) => { setPageSize(Number(e.target.value)); setCurrentPage(1); }}
+                    className="h-8 px-2 text-sm border border-slate-200 rounded-md"
+                  >
+                    <option value={10}>10条/页</option>
+                    <option value={20}>20条/页</option>
+                    <option value={50}>50条/页</option>
+                    <option value={100}>100条/页</option>
+                  </select>
+                  <Button variant="outline" size="sm" disabled={currentPage === 1} onClick={() => setCurrentPage(1)}>首页</Button>
+                  <Button variant="outline" size="sm" disabled={currentPage === 1} onClick={() => setCurrentPage(currentPage - 1)}>上一页</Button>
+                  <Button variant="outline" size="sm" disabled={currentPage === totalPages} onClick={() => setCurrentPage(currentPage + 1)}>下一页</Button>
+                  <Button variant="outline" size="sm" disabled={currentPage === totalPages} onClick={() => setCurrentPage(totalPages)}>末页</Button>
+                </div>
+              </div>
+            )}
+          </>
         );
 
       case 'intelligent_project_quotas':
         return (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>ID</TableHead>
-                <TableHead>序号</TableHead>
-                <TableHead>类别</TableHead>
-                <TableHead>项目名称</TableHead>
-                <TableHead>品牌型号</TableHead>
-                <TableHead>单位</TableHead>
-                <TableHead className="text-right">单价</TableHead>
-                <TableHead className="text-right">操作</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {(data as IntelligentProjectQuota[]).map((item) => (
-                <TableRow key={item.id}>
-                  <TableCell className="font-mono text-xs">{item.id}</TableCell>
-                  <TableCell>{item.serial_number}</TableCell>
-                  <TableCell>{item.category}</TableCell>
-                  <TableCell className="font-medium">{item.name}</TableCell>
-                  <TableCell>{item.brand_model}</TableCell>
-                  <TableCell>{item.unit}</TableCell>
-                  <TableCell className="text-right">¥{item.price.toFixed(2)}</TableCell>
-                  <TableCell className="text-right">
-                    <Button variant="ghost" size="sm" onClick={() => handleEdit(item)}>
-                      <Edit className="w-4 h-4" />
-                    </Button>
-                    <Button variant="ghost" size="sm" onClick={() => handleDelete(item.id)}>
-                      <Trash2 className="w-4 h-4 text-red-600" />
-                    </Button>
-                  </TableCell>
+          <>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-16 text-center">序号</TableHead>
+                  <TableHead>类别</TableHead>
+                  <TableHead>项目名称</TableHead>
+                  <TableHead>品牌型号</TableHead>
+                  <TableHead>单位</TableHead>
+                  <TableHead className="text-right">单价(元)</TableHead>
+                  <TableHead className="text-right">操作</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {(data as IntelligentProjectQuota[]).map((item, index) => (
+                  <TableRow key={item.id}>
+                    <TableCell className="text-center text-slate-500 font-mono text-sm">{startSerial + index + 1}</TableCell>
+                    <TableCell>{item.category}</TableCell>
+                    <TableCell className="font-medium">{item.name}</TableCell>
+                    <TableCell>{item.brand_model}</TableCell>
+                    <TableCell>{item.unit}</TableCell>
+                    <TableCell className="text-right font-mono text-blue-600">¥{item.price.toFixed(2)}</TableCell>
+                    <TableCell className="text-right">
+                      <Button variant="ghost" size="sm" onClick={() => handleEdit(item)}>
+                        <Edit className="w-4 h-4" />
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => handleDelete(item.id)}>
+                        <Trash2 className="w-4 h-4 text-red-600" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            {/* 分页控件 */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between px-4 py-3 border-t">
+                <div className="text-sm text-slate-500">
+                  共 {total} 条，第 {currentPage}/{totalPages} 页
+                </div>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={pageSize}
+                    onChange={(e) => { setPageSize(Number(e.target.value)); setCurrentPage(1); }}
+                    className="h-8 px-2 text-sm border border-slate-200 rounded-md"
+                  >
+                    <option value={10}>10条/页</option>
+                    <option value={20}>20条/页</option>
+                    <option value={50}>50条/页</option>
+                    <option value={100}>100条/页</option>
+                  </select>
+                  <Button variant="outline" size="sm" disabled={currentPage === 1} onClick={() => setCurrentPage(1)}>首页</Button>
+                  <Button variant="outline" size="sm" disabled={currentPage === 1} onClick={() => setCurrentPage(currentPage - 1)}>上一页</Button>
+                  <Button variant="outline" size="sm" disabled={currentPage === totalPages} onClick={() => setCurrentPage(currentPage + 1)}>下一页</Button>
+                  <Button variant="outline" size="sm" disabled={currentPage === totalPages} onClick={() => setCurrentPage(totalPages)}>末页</Button>
+                </div>
+              </div>
+            )}
+          </>
         );
 
       case 'labor_price_config':
         return (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>等级</TableHead>
-                <TableHead>描述</TableHead>
-                <TableHead>单位</TableHead>
-                <TableHead className="text-right">单价</TableHead>
-                <TableHead>状态</TableHead>
-                <TableHead className="text-right">操作</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {(data as LaborPriceConfig[]).map((item) => (
-                <TableRow key={item.id}>
-                  <TableCell className="font-medium">{item.level}</TableCell>
-                  <TableCell>{item.description}</TableCell>
-                  <TableCell>{item.unit}</TableCell>
-                  <TableCell className="text-right">¥{item.unit_price.toFixed(2)}</TableCell>
-                  <TableCell>
-                    <span className={`px-2 py-1 rounded text-xs ${item.is_active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                      {item.is_active ? '启用' : '禁用'}
-                    </span>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <Button variant="ghost" size="sm" onClick={() => handleEdit(item)}>
-                      <Edit className="w-4 h-4" />
-                    </Button>
-                    <Button variant="ghost" size="sm" onClick={() => handleDelete(item.id)}>
-                      <Trash2 className="w-4 h-4 text-red-600" />
-                    </Button>
-                  </TableCell>
+          <>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-16 text-center">序号</TableHead>
+                  <TableHead>等级</TableHead>
+                  <TableHead>描述</TableHead>
+                  <TableHead>单位</TableHead>
+                  <TableHead className="text-right">单价(元)</TableHead>
+                  <TableHead>状态</TableHead>
+                  <TableHead className="text-right">操作</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {(data as LaborPriceConfig[]).map((item, index) => (
+                  <TableRow key={item.id}>
+                    <TableCell className="text-center text-slate-500 font-mono text-sm">{startSerial + index + 1}</TableCell>
+                    <TableCell className="font-medium">{item.level}</TableCell>
+                    <TableCell>{item.description}</TableCell>
+                    <TableCell>{item.unit}</TableCell>
+                    <TableCell className="text-right font-mono text-blue-600">¥{item.unit_price.toFixed(2)}</TableCell>
+                    <TableCell>
+                      <span className={`px-2 py-1 rounded text-xs ${item.is_active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                        {item.is_active ? '启用' : '禁用'}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button variant="ghost" size="sm" onClick={() => handleEdit(item)}>
+                        <Edit className="w-4 h-4" />
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => handleDelete(item.id)}>
+                        <Trash2 className="w-4 h-4 text-red-600" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            {/* 分页控件 */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between px-4 py-3 border-t">
+                <div className="text-sm text-slate-500">
+                  共 {total} 条，第 {currentPage}/{totalPages} 页
+                </div>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={pageSize}
+                    onChange={(e) => { setPageSize(Number(e.target.value)); setCurrentPage(1); }}
+                    className="h-8 px-2 text-sm border border-slate-200 rounded-md"
+                  >
+                    <option value={10}>10条/页</option>
+                    <option value={20}>20条/页</option>
+                    <option value={50}>50条/页</option>
+                    <option value={100}>100条/页</option>
+                  </select>
+                  <Button variant="outline" size="sm" disabled={currentPage === 1} onClick={() => setCurrentPage(1)}>首页</Button>
+                  <Button variant="outline" size="sm" disabled={currentPage === 1} onClick={() => setCurrentPage(currentPage - 1)}>上一页</Button>
+                  <Button variant="outline" size="sm" disabled={currentPage === totalPages} onClick={() => setCurrentPage(currentPage + 1)}>下一页</Button>
+                  <Button variant="outline" size="sm" disabled={currentPage === totalPages} onClick={() => setCurrentPage(totalPages)}>末页</Button>
+                </div>
+              </div>
+            )}
+          </>
         );
 
       default:
@@ -867,7 +1069,7 @@ export default function QuotaLibraryPage() {
               </select>
             )}
             <span className="text-sm text-slate-500">
-              共 {getCurrentData().length} 条记录
+              共 {getCurrentData().total} 条记录
             </span>
           </div>
 
