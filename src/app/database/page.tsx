@@ -96,7 +96,7 @@ interface LaborPriceConfig {
 
 // 云数据中心维保设备定额
 interface MaintenanceDeviceQuota {
-  id: number;
+  id: string | number;
   name: string;
   brand: string;
   model: string;
@@ -104,11 +104,10 @@ interface MaintenanceDeviceQuota {
   category: string;
   unit: string;
   quantity: number;
-  unit_price: number;
-  total_price: number;
+  original_price: number;
   maintenance_rate: number;
-  maintenance_fee: number;
-  sla_level: string;
+  annual_fee: number;
+  network_type: string;
   remark: string;
   sort_order: number;
 }
@@ -652,6 +651,9 @@ export default function DatabaseManagementPage() {
       case 'self_construction_quotas': allData = filterData(selfConstructionQuotas); break;
       case 'intelligent_project_quotas': allData = filterData(intelligentProjectQuotas); break;
       case 'labor_price_config': allData = filterData(laborPriceConfigs); break;
+      case 'maintenance_device_quotas': allData = filterData(maintenanceDeviceQuotas); break;
+      case 'maintenance_rate_config': allData = filterData(maintenanceRateConfigs); break;
+      case 'sla_config': allData = filterData(slaConfigs); break;
       default: return { data: [], total: 0, totalPages: 0 };
     }
     
@@ -1075,6 +1077,142 @@ export default function DatabaseManagementPage() {
           </>
         );
 
+      case 'maintenance_device_quotas':
+        return (
+          <>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-16 text-center">序号</TableHead>
+                  <TableHead>设备名称</TableHead>
+                  <TableHead>品牌</TableHead>
+                  <TableHead>型号</TableHead>
+                  <TableHead>网络类型</TableHead>
+                  <TableHead className="text-right">数量</TableHead>
+                  <TableHead className="text-right">原价(元)</TableHead>
+                  <TableHead className="text-right">维保费率</TableHead>
+                  <TableHead className="text-right">年维保(元)</TableHead>
+                  <TableHead className="text-right">操作</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(data as MaintenanceDeviceQuota[]).map((item, index) => {
+                  const serialNumber = startSerial + index + 1;
+                  return (
+                    <TableRow key={item.id || `m-device-${index}`} className="hover:bg-slate-50">
+                      <TableCell className="text-center text-slate-500 font-mono text-sm">{serialNumber}</TableCell>
+                      <TableCell className="font-medium">{item.name}</TableCell>
+                      <TableCell>{item.brand || '-'}</TableCell>
+                      <TableCell>{item.model || '-'}</TableCell>
+                      <TableCell>
+                        <Badge variant={item.network_type === '内网' ? 'default' : 'secondary'}>
+                          {item.network_type}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">{item.quantity}</TableCell>
+                      <TableCell className="text-right font-mono">{item.original_price?.toFixed(2)}</TableCell>
+                      <TableCell className="text-right font-mono">{(item.maintenance_rate * 100).toFixed(0)}%</TableCell>
+                      <TableCell className="text-right font-mono text-blue-600 font-medium">{item.annual_fee?.toFixed(2)}</TableCell>
+                      <TableCell className="text-right">
+                        <Button variant="ghost" size="sm" onClick={() => handleEdit(item)}>
+                          <Edit className="w-4 h-4" />
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={() => handleDelete(item.id)}>
+                          <Trash2 className="w-4 h-4 text-red-600" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </>
+        );
+
+      case 'maintenance_rate_config':
+        return (
+          <>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-16 text-center">序号</TableHead>
+                  <TableHead>设备类型</TableHead>
+                  <TableHead className="text-right">维保率(%)</TableHead>
+                  <TableHead>说明</TableHead>
+                  <TableHead className="text-right">操作</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(data as MaintenanceRateConfig[]).map((item, index) => {
+                  const serialNumber = startSerial + index + 1;
+                  return (
+                    <TableRow key={item.id || `rate-${index}`} className="hover:bg-slate-50">
+                      <TableCell className="text-center text-slate-500 font-mono text-sm">{serialNumber}</TableCell>
+                      <TableCell className="font-medium">{item.device_type}</TableCell>
+                      <TableCell className="text-right font-mono text-blue-600">{item.rate}%</TableCell>
+                      <TableCell className="text-slate-600">{item.description}</TableCell>
+                      <TableCell className="text-right">
+                        <Button variant="ghost" size="sm" onClick={() => handleEdit(item)}>
+                          <Edit className="w-4 h-4" />
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={() => handleDelete(item.id)}>
+                          <Trash2 className="w-4 h-4 text-red-600" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </>
+        );
+
+      case 'sla_config':
+        return (
+          <>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-16 text-center">序号</TableHead>
+                  <TableHead>服务等级</TableHead>
+                  <TableHead>巡检频率</TableHead>
+                  <TableHead>响应时间</TableHead>
+                  <TableHead>修复时间</TableHead>
+                  <TableHead>到场时间</TableHead>
+                  <TableHead className="text-right">操作</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(data as SlaConfig[]).map((item, index) => {
+                  const serialNumber = startSerial + index + 1;
+                  return (
+                    <TableRow key={item.id || `sla-${index}`} className="hover:bg-slate-50">
+                      <TableCell className="text-center text-slate-500 font-mono text-sm">{serialNumber}</TableCell>
+                      <TableCell className="font-medium">
+                        <Badge variant={item.level_name.includes('金牌') ? 'default' : item.level_name.includes('银牌') ? 'secondary' : 'outline'}>
+                          {item.level_name}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>{item.inspection_frequency}</TableCell>
+                      <TableCell>{item.response_time}</TableCell>
+                      <TableCell>{item.fix_time}</TableCell>
+                      <TableCell>{item.on_site_time}</TableCell>
+                      <TableCell className="text-right">
+                        <Button variant="ghost" size="sm" onClick={() => handleEdit(item)}>
+                          <Edit className="w-4 h-4" />
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={() => handleDelete(item.id)}>
+                          <Trash2 className="w-4 h-4 text-red-600" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </>
+        );
+
       default:
         return null;
     }
@@ -1278,6 +1416,27 @@ export default function DatabaseManagementPage() {
           >
             <Settings className="w-4 h-4 mr-2" />
             系统参数
+          </TabsTrigger>
+          <TabsTrigger 
+            value="maintenance_device_quotas" 
+            className="data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700 data-[state=active]:border-blue-200 data-[state=active]:shadow-sm border border-transparent px-4 py-2.5 transition-all"
+          >
+            <Database className="w-4 h-4 mr-2" />
+            云数据中心定额库
+          </TabsTrigger>
+          <TabsTrigger 
+            value="maintenance_rate_config" 
+            className="data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700 data-[state=active]:border-blue-200 data-[state=active]:shadow-sm border border-transparent px-4 py-2.5 transition-all"
+          >
+            <FileText className="w-4 h-4 mr-2" />
+            维保费率配置
+          </TabsTrigger>
+          <TabsTrigger 
+            value="sla_config" 
+            className="data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700 data-[state=active]:border-blue-200 data-[state=active]:shadow-sm border border-transparent px-4 py-2.5 transition-all"
+          >
+            <CheckCircle2 className="w-4 h-4 mr-2" />
+            SLA配置
           </TabsTrigger>
         </TabsList>
 

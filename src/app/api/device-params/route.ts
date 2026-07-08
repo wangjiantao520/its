@@ -14,8 +14,8 @@ export async function GET(request: NextRequest) {
       const [intelligentProject] = await pool.execute('SELECT * FROM intelligent_project_quotas ORDER BY category, sort_order') as [any[], any];
       const [laborPrice] = await pool.execute('SELECT * FROM labor_price_config ORDER BY sort_order') as [any[], any];
       const [maintenanceDeviceQuotas] = await pool.execute('SELECT * FROM maintenance_device_quotas ORDER BY category, name') as [any[], any];
-      const [maintenanceRates] = await pool.execute('SELECT * FROM maintenance_rates ORDER BY category, name') as [any[], any];
-      const [slaConfigs] = await pool.execute('SELECT * FROM sla_configs ORDER BY category, name') as [any[], any];
+      const [maintenanceRates] = await pool.execute('SELECT * FROM maintenance_rate_config ORDER BY sort_order') as [any[], any];
+      const [slaConfigs] = await pool.execute('SELECT * FROM sla_config ORDER BY sort_order') as [any[], any];
 
       console.log('查询结果:', {
         deviceQuotas: deviceQuotas.length,
@@ -59,10 +59,10 @@ export async function GET(request: NextRequest) {
         query = 'SELECT * FROM maintenance_device_quotas ORDER BY category, name';
         break;
       case 'maintenance_rates':
-        query = 'SELECT * FROM maintenance_rates ORDER BY category, name';
+        query = 'SELECT * FROM maintenance_rate_config ORDER BY sort_order';
         break;
       case 'sla_configs':
-        query = 'SELECT * FROM sla_configs ORDER BY category, name';
+        query = 'SELECT * FROM sla_config ORDER BY sort_order';
         break;
       default:
         return NextResponse.json({ success: false, message: '无效的类型' }, { status: 400 });
