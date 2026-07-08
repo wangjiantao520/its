@@ -19,8 +19,8 @@ export async function GET(request: NextRequest) {
 
     sql += ' ORDER BY category, name';
 
-    const result = await pool.query(sql, params);
-    const devices = (result as any).rows || [];
+    const [result] = await pool.query(sql, params);
+    const devices = result as any[];
 
     // 转换为前端需要的格式
     const formattedDevices = devices.map((d: any) => ({
