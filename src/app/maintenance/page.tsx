@@ -1761,13 +1761,14 @@ export default function MaintenanceQuotePage() {
                 </div>
                 <div className="space-y-2">
                   <Label>备件选项</Label>
-                  <div className="flex items-center space-x-2 rounded-md border border-slate-200 p-3">
+                  <div className="flex items-center space-x-2 rounded-md border border-slate-200 p-3 relative z-10 bg-white pointer-events-auto">
                     <input
                       type="checkbox"
                       id="needSpareParts"
                       checked={needSpareParts}
                       onChange={(e) => { console.log('[needSpareParts] clicked:', e.target.checked); setNeedSpareParts(e.target.checked); }}
-                      className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer relative z-20"
+                      style={{ pointerEvents: 'auto' }}
                     />
                     <Label htmlFor="needSpareParts" className="cursor-pointer flex-1">
                       需要备件
