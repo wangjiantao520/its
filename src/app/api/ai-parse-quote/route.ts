@@ -220,9 +220,10 @@ function calculateEstimatedPrice(devices: any[], region: string, serviceMode: st
 
 // 调用 DeepSeek API
 async function callDeepSeekAPI(messages: Array<{ role: string; content: string }>): Promise<string> {
-  const apiKey = process.env.DEEPSEEK_API_KEY;
+  // 支持多种环境变量名
+  const apiKey = process.env.DEEPSEEK_API_KEY || process.env.AI_API_KEY;
 
-  if (!apiKey || apiKey === 'your-deepseek-api-key-here') {
+  if (!apiKey || apiKey === 'your-deepseek-api-key-here' || apiKey === 'your-api-key-here') {
     throw new Error('DeepSeek API Key 未配置');
   }
 
