@@ -484,12 +484,6 @@ export default function MaintenanceQuotePage() {
   const [clientName, setClientName] = useState('');
   const [projectName, setProjectName] = useState('');
   const [contractYears, setContractYears] = useState<string>('1');
-  const [needSpareParts, setNeedSpareParts] = useState<boolean>(false);
-
-  // 调试：监听 needSpareParts 变化
-  useEffect(() => {
-    console.log('[needSpareParts] changed to:', needSpareParts);
-  }, [needSpareParts]);
   const [region, setRegion] = useState<RegionType>('城区');
   const [contactPerson, setContactPerson] = useState('');
   const [contactPhone, setContactPhone] = useState('');
@@ -995,7 +989,7 @@ export default function MaintenanceQuotePage() {
         deviceGrade: (item as any).deviceGrade || 'A',
         depreciationGrade: (item as any).depreciationGrade || '1',
         inWarranty: item.inWarranty,
-        needSparePart: needSpareParts, // 使用全局的备件选项
+        needSparePart: item.needSparePart,
         contractYears: item.contractYears,
       }));
       
@@ -1026,12 +1020,12 @@ export default function MaintenanceQuotePage() {
     }
   };
 
-  // 监听合同年限、设备、备件选项变化，自动重新计算报价
+  // 监听合同年限或设备变化，自动重新计算报价
   useEffect(() => {
     if (selectedDevices.length > 0 && (quoteResult || fullQuoteResult)) {
       handleCalculate();
     }
-  }, [contractYears, selectedDevices, needSpareParts]);
+  }, [contractYears, selectedDevices]);
 
   // 导出报价单 - 简化版本（导出Word）
   const handleExportQuote = () => {
@@ -1758,25 +1752,6 @@ export default function MaintenanceQuotePage() {
                       <SelectItem value="农村">农村 (系数2.0)</SelectItem>
                     </SelectContent>
                   </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label>备件选项</Label>
-                  <div className="flex items-center space-x-2 rounded-md border border-slate-200 p-3 relative z-10 bg-white pointer-events-auto">
-                    <input
-                      type="checkbox"
-                      id="needSpareParts"
-                      checked={needSpareParts}
-                      onChange={(e) => { console.log('[needSpareParts] clicked:', e.target.checked); setNeedSpareParts(e.target.checked); }}
-                      className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer relative z-20"
-                      style={{ pointerEvents: 'auto' }}
-                    />
-                    <Label htmlFor="needSpareParts" className="cursor-pointer flex-1">
-                      需要备件
-                      <span className="block text-xs text-slate-500 font-normal mt-0.5">
-                        勾选后将计入备件风险准备金
-                      </span>
-                    </Label>
-                  </div>
                 </div>
               </CardContent>
             </Card>
