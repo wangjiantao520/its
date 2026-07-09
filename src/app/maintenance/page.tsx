@@ -555,10 +555,17 @@ export default function MaintenanceQuotePage() {
             year1TotalPrice: item.year1_total_price || 0,
             year2TotalPrice: item.year2_total_price || 0,
             year3TotalPrice: item.year3_total_price || 0,
-            cityPrice: item.city_price || 0,
-            urbanPrice: item.urban_price || 0,
-            townPrice: item.town_price || 0,
-            ruralPrice: item.rural_price || 0,
+            cityPrice: item.city_price || item.original_price || 0,
+            urbanPrice: item.urban_price || item.original_price || 0,
+            townPrice: item.town_price || item.original_price || 0,
+            ruralPrice: item.rural_price || item.original_price || 0,
+            // 云数据中心设备字段
+            originalPrice: item.original_price || 0,
+            quantity: item.quantity || 1,
+            annualFee: item.annual_fee || 0,
+            maintenanceRate: item.maintenance_rate || 0,
+            unit: item.unit || '台',
+            networkType: item.network_type || '',
           }));
           setDbDeviceQuotas(convertedData);
         }
@@ -881,9 +888,11 @@ export default function MaintenanceQuotePage() {
           : d
       ));
     } else {
+      // 使用数据库中的原始数量作为默认值（云数据中心设备）
+      const defaultQuantity = quota.quantity || 1;
       const newDevice: SelectedDevice = {
         quota,
-        quantity: 1,
+        quantity: defaultQuantity,
         useYears: 1,
         depreciationLevel: '1',
         inWarranty: false,
