@@ -50,6 +50,11 @@ const itsMemberNavItems = [
     icon: Home,
   },
   {
+    title: '工程报价',
+    url: '/engineering',
+    icon: Calculator,
+  },
+  {
     title: '维保报价',
     url: '/maintenance',
     icon: Wrench,
