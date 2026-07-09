@@ -1830,31 +1830,41 @@ export default function MaintenanceQuotePage() {
                         </div>
                       </div>
                       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
-                        {getDynamicDeviceCategories().map((category) => (
-                          <label 
-                            key={category} 
-                            className="flex items-center gap-2 p-2 border rounded-md hover:bg-slate-50 cursor-pointer"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={selectedCategories.includes(category)}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  setSelectedCategories([...selectedCategories, category]);
-                                } else {
-                                  setSelectedCategories(selectedCategories.filter(c => c !== category));
-                                }
-                              }}
-                              className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-600"
-                            />
-                            <span className="text-sm">
-                              {category}
-                              <span className="text-xs text-slate-500 ml-1">
-                                ({getDevicesByCategory(category).length})
+                        {getDynamicDeviceCategories().map((category) => {
+                          // 计算该分类下的设备数量（包括云数据中心设备）
+                          const categoryCount = dbDeviceQuotas.filter((d: any) => {
+                            if (d.network_type) {
+                              return d.network_type === category;
+                            }
+                            return d.category === category;
+                          }).length;
+                          
+                          return (
+                            <label 
+                              key={category} 
+                              className="flex items-center gap-2 p-2 border rounded-md hover:bg-slate-50 cursor-pointer"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={selectedCategories.includes(category)}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setSelectedCategories([...selectedCategories, category]);
+                                  } else {
+                                    setSelectedCategories(selectedCategories.filter(c => c !== category));
+                                  }
+                                }}
+                                className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-600"
+                              />
+                              <span className="text-sm">
+                                {category}
+                                <span className="text-xs text-slate-500 ml-1">
+                                  ({categoryCount})
+                                </span>
                               </span>
-                            </span>
-                          </label>
-                        ))}
+                            </label>
+                          );
+                        })}
                       </div>
                     </div>
                   )}
@@ -1865,7 +1875,14 @@ export default function MaintenanceQuotePage() {
                       (() => {
                         const filteredDevices = selectedCategories.length === 0 
                           ? (dbDataLoading ? [] : dbDeviceQuotas)
-                          : (dbDataLoading ? [] : dbDeviceQuotas).filter((d: any) => selectedCategories.includes(d.category));
+                          : (dbDataLoading ? [] : dbDeviceQuotas).filter((d: any) => {
+                              // 对于云数据中心设备，使用 network_type 作为分类
+                              if (d.network_type) {
+                                return selectedCategories.includes(d.network_type);
+                              }
+                              // 否则使用原有分类
+                              return selectedCategories.includes(d.category);
+                            });
                         
                         return (
                           <>
