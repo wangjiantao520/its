@@ -1140,19 +1140,18 @@ export default function MaintenanceQuotePage() {
     const userId = user?.id ? parseInt(user.id.toString()) : 1; // 默认使用管理员ID
 
     // 计算总金额
-    const totalAmount = fullQuoteResult?.totalAmount || quoteResult?.totalAmount || 0;
+    const totalAmount = fullQuoteResult?.finalTotal || quoteResult?.total || 0;
 
     // 准备设备明细数据
     const devices = selectedDevices.map(item => ({
       device_name: item.quota.name,
-      brand: item.quota.brand || '',
       model: item.quota.model || '',
       category: item.quota.category || '',
       quantity: item.quantity,
-      unit_price: item.quota.cityPrice || item.quota.originalPrice || 0,
-      total_price: (item.quota.cityPrice || item.quota.originalPrice || 0) * item.quantity,
-      maintenance_rate: item.quota.maintenanceRate || 0,
-      maintenance_fee: item.quota.maintenanceRate ? (item.quota.cityPrice || item.quota.originalPrice || 0) * item.quantity * item.quota.maintenanceRate / 100 : 0
+      unit_price: (item.quota as FullDeviceQuota).cityPrice || (item.quota as FullDeviceQuota).originalPrice || 0,
+      total_price: ((item.quota as FullDeviceQuota).cityPrice || (item.quota as FullDeviceQuota).originalPrice || 0) * item.quantity,
+      maintenance_rate: (item.quota as FullDeviceQuota).maintenanceRate || 0,
+      maintenance_fee: (item.quota as FullDeviceQuota).maintenanceRate ? ((item.quota as FullDeviceQuota).cityPrice || (item.quota as FullDeviceQuota).originalPrice || 0) * item.quantity * (item.quota as FullDeviceQuota).maintenanceRate! / 100 : 0
     }));
 
     try {
@@ -1162,7 +1161,7 @@ export default function MaintenanceQuotePage() {
         body: JSON.stringify({
           user_id: userId,
           client_name: clientName || '未命名客户',
-          client_region: selectedRegion,
+          client_region: '城区',
           project_name: projectName,
           quote_type: useFullData ? 'full' : 'simple',
           total_amount: totalAmount,

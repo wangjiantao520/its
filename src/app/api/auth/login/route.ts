@@ -13,7 +13,7 @@ export async function POST(request: NextRequest) {
 
     // 查询用户
     const [users] = await pool.execute(
-      'SELECT id, username, real_name, phone, email, role, is_active FROM users WHERE username = ? AND password = ? AND is_active = 1',
+      'SELECT id, username, name, role, is_active FROM users WHERE username = ? AND password_hash = ? AND is_active = 1',
       [username, password]
     );
 
@@ -30,9 +30,7 @@ export async function POST(request: NextRequest) {
       user: {
         id: user.id,
         username: user.username,
-        real_name: user.real_name,
-        phone: user.phone,
-        email: user.email,
+        name: user.name,
         role: user.role
       }
     });

@@ -2,13 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db';
 
 // GET /api/quotations/[id] - 获取报价记录详情
-export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const { id } = params;
+    const { id } = await params;
 
     // 获取报价记录
     const [records] = await pool.execute(
-      'SELECT q.*, u.real_name, u.username FROM quotation_records q LEFT JOIN users u ON q.user_id = u.id WHERE q.id = ?',
+      'SELECT q.*, u.name, u.username FROM quotation_records q LEFT JOIN users u ON q.user_id = u.id WHERE q.id = ?',
       [id]
     );
 
@@ -47,9 +47,9 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
 }
 
 // DELETE /api/quotations/[id] - 删除报价记录
-export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const { id } = params;
+    const { id } = await params;
 
     // 先删除设备明细
     await pool.execute('DELETE FROM quotation_devices WHERE quotation_id = ?', [id]);

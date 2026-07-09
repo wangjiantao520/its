@@ -5,7 +5,7 @@ import { pool } from '@/lib/db';
 export async function GET(request: NextRequest) {
   try {
     const [users] = await pool.execute(
-      'SELECT id, username, real_name, phone, email, role, is_active, created_at, updated_at FROM users ORDER BY created_at DESC'
+      'SELECT id, username, name, role, is_active, created_at FROM users ORDER BY created_at DESC'
     );
     return NextResponse.json(users);
   } catch (error) {
@@ -18,10 +18,10 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { username, password, real_name, phone, email, role } = body;
+    const { username, password, name, role } = body;
 
-    if (!username || !password || !real_name) {
-      return NextResponse.json({ error: '用户名、密码和真实姓名不能为空' }, { status: 400 });
+    if (!username || !password || !name) {
+      return NextResponse.json({ error: '用户名、密码和姓名不能为空' }, { status: 400 });
     }
 
     // 检查用户名是否已存在
@@ -36,8 +36,8 @@ export async function POST(request: NextRequest) {
 
     // 创建用户
     await pool.execute(
-      'INSERT INTO users (username, password, real_name, phone, email, role) VALUES (?, ?, ?, ?, ?, ?)',
-      [username, password, real_name, phone || null, email || null, role || 'member']
+      'INSERT INTO users (username, password_hash, name, role) VALUES (?, ?, ?, ?)',
+      [username, password, name, role || 'its']
     );
 
     return NextResponse.json({ message: '用户创建成功' }, { status: 201 });

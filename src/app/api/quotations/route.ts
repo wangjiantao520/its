@@ -10,7 +10,7 @@ export async function GET(request: NextRequest) {
     const pageSize = parseInt(searchParams.get('page_size') || '20');
     const offset = (page - 1) * pageSize;
 
-    let query = 'SELECT q.*, u.real_name, u.username FROM quotation_records q LEFT JOIN users u ON q.user_id = u.id';
+    let query = 'SELECT q.*, u.name, u.username FROM quotation_records q LEFT JOIN users u ON q.user_id = u.id';
     const params: any[] = [];
 
     if (userId) {
