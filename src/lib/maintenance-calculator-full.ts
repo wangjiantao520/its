@@ -163,6 +163,11 @@ export function calculateFullDeviceQuote(
     baseCityPrice = quota.cityPrice;
   }
   
+  // 对于云数据中心设备，如果cityPrice为0，使用originalPrice（中标单价）
+  if (baseCityPrice === 0 && quota.originalPrice && quota.originalPrice > 0) {
+    baseCityPrice = quota.originalPrice;
+  }
+  
   // 使用Excel中已经预计算好的价格，并乘以SLA系数、折旧系数和是否在保系数
   const cityPrice = baseCityPrice * slaTotalFactor * depreciationFactor * inWarrantyFactor;
   // 所有地区价格都从城区价格出发，只通过REGION_FACTORS调整，避免乘两次两倍

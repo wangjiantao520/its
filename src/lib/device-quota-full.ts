@@ -129,6 +129,13 @@ export interface FullDeviceQuota {
   isActive?: boolean; // 是否启用（补充字段）
   lastUpdated?: string; // 最后更新时间（补充字段）
   dataSource?: string; // 数据来源（补充字段）
+  
+  // ===== 云数据中心设备专用字段 =====
+  originalPrice?: number; // 中标单价（云数据中心设备使用此字段）
+  quantity?: number; // 设备数量（云数据中心设备）
+  annualFee?: number; // 年维保费（云数据中心设备）
+  maintenanceRate?: number; // 维保率（云数据中心设备）
+  networkType?: string; // 网络类型（内网/外网）
 }
 
 // 维保档次配置（完整）
