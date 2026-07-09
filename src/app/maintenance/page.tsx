@@ -1136,8 +1136,13 @@ export default function MaintenanceQuotePage() {
     const timestamp = Date.now();
     const newQuoteNumber = `WB${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}${String(new Date().getDate()).padStart(2, '0')}${String(timestamp % 1000).padStart(3, '0')}`;
 
-    // 获取当前用户ID
-    const userId = user?.id ? parseInt(user.id.toString()) : 1; // 默认使用管理员ID
+    // 获取当前用户ID（从localStorage读取）
+    const storedUserId = typeof window !== 'undefined' ? localStorage.getItem('itsUserId') : null;
+    if (!storedUserId) {
+      alert('请先登录后再保存报价！');
+      return;
+    }
+    const userId = parseInt(storedUserId);
 
     // 计算总金额
     const totalAmount = fullQuoteResult?.finalTotal || quoteResult?.total || 0;

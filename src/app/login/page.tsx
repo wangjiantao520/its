@@ -86,12 +86,15 @@ export default function LoginPage() {
         return;
       }
 
-      // 存储登录信息（包括姓名）
+      // 存储登录信息（包括姓名和用户ID）
       localStorage.setItem('authToken', data.data.token);
       localStorage.setItem('userRole', 'its_member');
       localStorage.setItem('itsUsername', itsUsername);
       if (data.data.name) {
         localStorage.setItem('itsName', data.data.name);
+      }
+      if (data.data.userId) {
+        localStorage.setItem('itsUserId', data.data.userId.toString());
       }
       if (itsRemember) {
         localStorage.setItem('rememberLogin', 'true');
