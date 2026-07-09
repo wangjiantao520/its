@@ -499,11 +499,29 @@ export default function MaintenanceQuotePage() {
     const loadDeviceData = async () => {
       try {
         setDbDataLoading(true);
-        const response = await fetch('/api/device-params?type=device_quotas');
-        const result = await response.json();
-        if (result.success && Array.isArray(result.data)) {
+        // 加载两种设备数据：政企设备定额 + 云数据中心设备
+        const [response1, response2] = await Promise.all([
+          fetch('/api/device-params?type=device_quotas'),
+          fetch('/api/device-params?type=maintenance_device_quotas')
+        ]);
+        const result1 = await response1.json();
+        const result2 = await response2.json();
+        
+        const allData = [];
+        
+        // 添加政企设备定额
+        if (result1.success && Array.isArray(result1.data)) {
+          allData.push(...result1.data);
+        }
+        
+        // 添加云数据中心设备
+        if (result2.success && Array.isArray(result2.data)) {
+          allData.push(...result2.data);
+        }
+        
+        if (allData.length > 0) {
           // 将数据库数据转换为 FullDeviceQuota 格式
-          const convertedData = result.data.map((item: any) => ({
+          const convertedData = allData.map((item: any) => ({
             id: item.id || item.item_id,
             category: item.category || '',
             name: item.name || '',
