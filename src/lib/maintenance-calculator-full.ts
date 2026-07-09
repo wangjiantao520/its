@@ -125,6 +125,57 @@ export function calculateFullDeviceQuote(
   slaConfig: SLAConfig = DEFAULT_SLA_CONFIG,
   customInWarrantyFactor?: number
 ): FullDeviceQuoteItemResult {
+  // 对于云数据中心设备（内网/外网），使用简化的计算规则
+  // 硬件维保费 = 设备原值 × 维保率 × 不驻场调整系数
+  // 软件维保费 = 软件原值 × 软件维保费率
+  const isCloudDataCenterDevice = quota.networkType === '内网' || quota.networkType === '外网';
+  
+  if (isCloudDataCenterDevice) {
+    // 云数据中心设备使用简化的计算规则
+    const basePrice = quota.originalPrice || quota.cityPrice || 0;
+    const maintenanceRate = quota.maintenanceRate || 0;
+    
+    // 不驻场调整系数：内网1.0，外网0.9（外网巡检频率低）
+    const offSiteFactor = quota.networkType === '内网' ? 1.0 : 0.9;
+    
+    // 计算年维保费用
+    const annualMaintenanceFee = basePrice * maintenanceRate * offSiteFactor;
+    
+    // 计算总费用（考虑合同年限）
+    const totalFee = annualMaintenanceFee * contractYears;
+    
+    return {
+      quota,
+      quantity,
+      depreciationLevel,
+      deviceGrade,
+      depreciationGrade,
+      inWarranty,
+      needSparePart,
+      contractYears,
+      slaConfig,
+      slaTotalFactor: 1.0,
+      yearDiscountFactor: 1.0,
+      inspectionDuration: quota.networkType === '内网' ? 120 : 60, // 内网2周1次，外网4周1次
+      inspectionFee: 0,
+      onSiteFee: 0,
+      faultHandlingFee: 0,
+      toolAmortization: 0,
+      consumableFee: 0,
+      sparePartReserve: 0,
+      cityPrice: annualMaintenanceFee,
+      urbanPrice: annualMaintenanceFee * REGION_FACTORS['市区县城郊区'],
+      townPrice: annualMaintenanceFee * REGION_FACTORS['乡镇'],
+      ruralPrice: annualMaintenanceFee * REGION_FACTORS['农村'],
+      subtotalBeforeSLA: basePrice,
+      subtotalAfterSLA: annualMaintenanceFee,
+      bulkDiscountFactor: 1.0,
+      totalBeforeDiscount: totalFee,
+      totalAfterDiscount: totalFee,
+    };
+  }
+  
+  // 政企设备使用原有的复杂计算规则
   const slaTotalFactor = calculateSLATotalFactor(slaConfig);
   const depreciationFactor = getDepreciationFactor(deviceGrade, depreciationGrade);
   const inWarrantyFactor = customInWarrantyFactor !== undefined 
