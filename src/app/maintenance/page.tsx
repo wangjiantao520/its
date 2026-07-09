@@ -599,7 +599,15 @@ export default function MaintenanceQuotePage() {
   // 从动态数据获取设备分类
   const getDynamicDeviceCategories = () => {
     if (dbDeviceQuotas.length === 0) return getDeviceCategories();
-    const categories = [...new Set(dbDeviceQuotas.map((d: any) => d.category).filter(Boolean))];
+    // 对于云数据中心设备，只按内网/外网分类
+    const categories = [...new Set(dbDeviceQuotas.map((d: any) => {
+      // 如果有 network_type 字段，使用它作为分类（内网/外网）
+      if (d.network_type) {
+        return d.network_type;
+      }
+      // 否则使用原有分类
+      return d.category;
+    }).filter(Boolean))];
     return categories;
   };
 
