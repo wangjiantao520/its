@@ -70,7 +70,7 @@ const adminNavItems = [
   },
   {
     title: '数据看板',
-    url: '/dashboard',
+    url: '/admin/dashboard',
     icon: LayoutDashboard,
   },
   {
@@ -95,7 +95,7 @@ const adminNavItems = [
   },
   {
     title: 'ITS成员管理',
-    url: '/admin/users',
+    url: '/admin/members',
     icon: UserCheck,
   },
   {
@@ -137,7 +137,6 @@ export function AppSidebar() {
           </div>
           <div className="flex-1">
             <h1 className="text-lg font-semibold">ITS报价系统</h1>
-            <p className="text-xs text-muted-foreground">宁德移动ICT项目</p>
           </div>
           <Button
             variant="ghost"

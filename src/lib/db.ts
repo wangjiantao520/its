@@ -410,6 +410,60 @@ export async function initDatabase() {
       )
     `);
 
+    // 创建用户表（ITS成员）
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT UNIQUE NOT NULL,
+        password TEXT NOT NULL,
+        real_name TEXT NOT NULL,
+        phone TEXT,
+        email TEXT,
+        role TEXT DEFAULT 'member',
+        is_active INTEGER DEFAULT 1,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // 创建报价记录表
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS quotation_records (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        client_name TEXT NOT NULL,
+        client_region TEXT,
+        project_name TEXT,
+        quote_type TEXT DEFAULT 'full',
+        total_amount REAL DEFAULT 0,
+        device_count INTEGER DEFAULT 0,
+        quote_data TEXT,
+        status TEXT DEFAULT 'draft',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id)
+      )
+    `);
+
+    // 创建报价设备明细表
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS quotation_devices (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        quotation_id INTEGER NOT NULL,
+        device_name TEXT NOT NULL,
+        brand TEXT,
+        model TEXT,
+        category TEXT,
+        quantity INTEGER DEFAULT 1,
+        unit_price REAL DEFAULT 0,
+        total_price REAL DEFAULT 0,
+        maintenance_rate REAL DEFAULT 0,
+        maintenance_fee REAL DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (quotation_id) REFERENCES quotation_records(id)
+      )
+    `);
+
     console.log('✅ SQLite 数据库表初始化完成');
     return true;
   } catch (error) {

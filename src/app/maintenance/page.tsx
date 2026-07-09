@@ -7,6 +7,7 @@
 
 import { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx-js-style';
+import { useUser } from '@/contexts/user-context';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -49,7 +50,6 @@ import {
   Filter,
   CheckSquare,
   Square,
-  Users,
   FileDown,
   FileUp,
   Copy,
@@ -137,6 +137,7 @@ import {
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 export default function MaintenanceQuotePage() {
+  const { user } = useUser();
   // 动态设备数据（从数据库加载）
   const [dbDeviceQuotas, setDbDeviceQuotas] = useState<any[]>([]);
   const [dbDataLoading, setDbDataLoading] = useState(true);
@@ -678,9 +679,9 @@ export default function MaintenanceQuotePage() {
   const [batchQuantity, setBatchQuantity] = useState<string>('');
   const [batchYears, setBatchYears] = useState<string>('1');
 
-  // 客户选择器
-  const [clientSelectorOpen, setClientSelectorOpen] = useState(false);
-  const [clients, setClients] = useState<any[]>([]);
+  // 客户选择器（已废弃）
+  // const [clientSelectorOpen, setClientSelectorOpen] = useState(false);
+  // const [clients, setClients] = useState<any[]>([]);
   const [clientSearch, setClientSearch] = useState('');
 
   // 分享链接
@@ -816,24 +817,6 @@ export default function MaintenanceQuotePage() {
     setExportFormat(format);
     alert(`正在导出 ${format === 'standard' ? '标准格式' : format === 'detailed' ? '详细格式' : '汇总格式'} 报表...`);
     setShowProfessionalExportDialog(false);
-  };
-
-  // 客户端选择
-  const handleSelectClient = (client: any) => {
-    setCustomerName(client.name);
-    setClientName(client.name);
-    setClientSelectorOpen(false);
-  };
-
-  const handleOpenClientSelector = () => {
-    setClientSelectorOpen(true);
-    setClients([
-      { id: 1, name: '宁德市政府办公室', region: '蕉城' },
-      { id: 2, name: '福安市人民医院', region: '福安' },
-      { id: 3, name: '蕉城区教育局', region: '蕉城' },
-      { id: 4, name: '福鼎市人民法院', region: '福鼎' },
-      { id: 5, name: '霞浦县公安局', region: '霞浦' },
-    ]);
   };
 
   // SLA配置状态
@@ -1144,7 +1127,7 @@ export default function MaintenanceQuotePage() {
   };
 
   // 保存报价
-  const handleSaveQuote = () => {
+  const handleSaveQuote = async () => {
     if ((!quoteResult && !fullQuoteResult) || selectedDevices.length === 0) {
       alert('请先添加设备并点击"计算报价"按钮后再保存！');
       return;
@@ -1153,8 +1136,57 @@ export default function MaintenanceQuotePage() {
     const timestamp = Date.now();
     const newQuoteNumber = `WB${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}${String(new Date().getDate()).padStart(2, '0')}${String(timestamp % 1000).padStart(3, '0')}`;
 
-    alert(`报价单 ${newQuoteNumber} 已保存！（当前保存到本地存储演示）`);
-    console.log('保存报价单:', { newQuoteNumber, projectName, clientName, quoteResult, fullQuoteResult, selectedDevices });
+    // 获取当前用户ID
+    const userId = user?.id ? parseInt(user.id.toString()) : 1; // 默认使用管理员ID
+
+    // 计算总金额
+    const totalAmount = fullQuoteResult?.totalAmount || quoteResult?.totalAmount || 0;
+
+    // 准备设备明细数据
+    const devices = selectedDevices.map(item => ({
+      device_name: item.quota.name,
+      brand: item.quota.brand || '',
+      model: item.quota.model || '',
+      category: item.quota.category || '',
+      quantity: item.quantity,
+      unit_price: item.quota.cityPrice || item.quota.originalPrice || 0,
+      total_price: (item.quota.cityPrice || item.quota.originalPrice || 0) * item.quantity,
+      maintenance_rate: item.quota.maintenanceRate || 0,
+      maintenance_fee: item.quota.maintenanceRate ? (item.quota.cityPrice || item.quota.originalPrice || 0) * item.quantity * item.quota.maintenanceRate / 100 : 0
+    }));
+
+    try {
+      const response = await fetch('/api/quotations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: userId,
+          client_name: clientName || '未命名客户',
+          client_region: selectedRegion,
+          project_name: projectName,
+          quote_type: useFullData ? 'full' : 'simple',
+          total_amount: totalAmount,
+          device_count: selectedDevices.length,
+          quote_data: {
+            quoteNumber: newQuoteNumber,
+            result: fullQuoteResult || quoteResult,
+            devices: selectedDevices
+          },
+          devices
+        })
+      });
+
+      if (response.ok) {
+        alert(`报价单 ${newQuoteNumber} 已保存！`);
+        console.log('保存报价单成功:', newQuoteNumber);
+      } else {
+        const error = await response.json();
+        alert(`保存失败: ${error.error}`);
+      }
+    } catch (error) {
+      console.error('保存报价单失败:', error);
+      alert('保存失败，请重试');
+    }
   };
 
   // 导出Excel
@@ -1514,11 +1546,6 @@ export default function MaintenanceQuotePage() {
               {useFullData ? "新版 (完整65列)" : "旧版 (兼容)"}
             </Badge>
           </div>
-          {useFullData && (
-            <div className="text-sm text-slate-500">
-              支持4个地区报价 · 完全复刻Excel公式
-            </div>
-          )}
         </div>
 
         {/* 新建报价 */}
@@ -1729,20 +1756,6 @@ export default function MaintenanceQuotePage() {
                     onChange={(e) => setQuoteDate(e.target.value)}
                   />
                 </div>
-                  <div className="space-y-2">
-                    <Label>选择客户</Label>
-                    <div className="flex gap-2">
-                      <Button variant="outline" size="sm" onClick={handleOpenClientSelector} className="flex items-center gap-1">
-                        <Users className="h-4 w-4" />
-                        选择已有客户
-                      </Button>
-                      {customerName && (
-                        <Badge variant="secondary" className="self-center">
-                          当前: {customerName}
-                        </Badge>
-                      )}
-                    </div>
-                  </div>
                 <div className="space-y-2">
                   <Label htmlFor="customerName">客户名称</Label>
                   <Input
