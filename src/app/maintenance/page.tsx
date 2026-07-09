@@ -1857,9 +1857,9 @@ export default function MaintenanceQuotePage() {
                                 {selectedCategories.length === 0 ? '请选择设备分类' : '所选分类下暂无设备'}
                               </div>
                             )}
-                            {filteredDevices.map((quota) => (
+                            {filteredDevices.map((quota, idx) => (
                               <Button
-                                key={quota.id}
+                                key={quota.id || `device-${idx}`}
                                 variant="outline"
                                 className="justify-start text-left h-auto py-2 px-3"
                                 onClick={() => handleAddFullDevice(quota as FullDeviceQuota)}
@@ -1883,9 +1883,9 @@ export default function MaintenanceQuotePage() {
                       })()
                     ) : (
                       // 旧版：保持向后兼容
-                      MOCK_DEVICE_QUOTAS.map((quota) => (
+                      MOCK_DEVICE_QUOTAS.map((quota, idx) => (
                         <Button
-                          key={quota.id}
+                          key={quota.id || `mock-${idx}`}
                           variant="outline"
                           className="justify-start text-left h-auto py-2 px-3"
                           onClick={() => handleAddDevice(quota)}
@@ -1938,7 +1938,7 @@ export default function MaintenanceQuotePage() {
                         </TableHeader>
                         <TableBody>
                           {selectedDevices.map((item, index) => (
-                            <TableRow key={item.quota.id}>
+                            <TableRow key={item.quota.id || index}>
                               <TableCell className="font-medium">{item.quota.name}</TableCell>
                               <TableCell className="text-slate-500">{item.quota.model}</TableCell>
                               <TableCell>
@@ -2795,7 +2795,7 @@ export default function MaintenanceQuotePage() {
                         {useFullData ? (
                           // 新版：使用完整设备数据
                           currentPageData.map((quota, index) => (
-                            <TableRow key={quota.id}>
+                            <TableRow key={quota.id || `row-${index}`}>
                               <TableCell className="text-center text-slate-500">
                                 {startIndex + index + 1}
                               </TableCell>
@@ -2847,7 +2847,7 @@ export default function MaintenanceQuotePage() {
                         ) : (
                           // 旧版：保持向后兼容
                           currentPageData.map((quota, index) => (
-                            <TableRow key={quota.id}>
+                            <TableRow key={quota.id || `old-row-${index}`}>
                               <TableCell className="text-center text-slate-500">
                                 {startIndex + index + 1}
                               </TableCell>
@@ -3475,8 +3475,8 @@ export default function MaintenanceQuotePage() {
                                 <SelectValue placeholder="选择设备" />
                               </SelectTrigger>
                               <SelectContent className="max-h-80">
-                                {completionDraft.quotaList.map((quota: any) => (
-                                  <SelectItem key={quota.id} value={quota.id}>
+                                {completionDraft.quotaList.map((quota: any, idx: number) => (
+                                  <SelectItem key={quota.id || `select-${idx}`} value={quota.id}>
                                     {quota.category} - {quota.name}
                                   </SelectItem>
                                 ))}
