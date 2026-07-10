@@ -21,6 +21,7 @@ interface Agent {
   id: number;
   name: string;
   description: string;
+  enabled: number;
 }
 
 export default function AssistantPage() {
