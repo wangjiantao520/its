@@ -464,6 +464,68 @@ export async function initDatabase() {
       )
     `);
 
+    // 智能体配置表
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS agent_configs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        description TEXT,
+        system_prompt TEXT NOT NULL,
+        model TEXT DEFAULT 'doubao-seed-1-8-251228',
+        temperature REAL DEFAULT 0.7,
+        enabled INTEGER DEFAULT 1,
+        created_by INTEGER,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (created_by) REFERENCES users(id)
+      )
+    `);
+
+    // 智能体技能表
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS agent_skills (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        agent_id INTEGER NOT NULL,
+        skill_name TEXT NOT NULL,
+        skill_type TEXT NOT NULL,
+        config_json TEXT,
+        enabled INTEGER DEFAULT 1,
+        priority INTEGER DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (agent_id) REFERENCES agent_configs(id)
+      )
+    `);
+
+    // 智能体对话日志表
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS agent_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        agent_id INTEGER,
+        session_id TEXT,
+        user_message TEXT NOT NULL,
+        agent_response TEXT NOT NULL,
+        actions_executed TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id),
+        FOREIGN KEY (agent_id) REFERENCES agent_configs(id)
+      )
+    `);
+
+    // 智能体知识库表
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS agent_knowledge_base (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        agent_id INTEGER,
+        title TEXT NOT NULL,
+        content TEXT NOT NULL,
+        category TEXT,
+        tags TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (agent_id) REFERENCES agent_configs(id)
+      )
+    `);
+
     console.log('✅ SQLite 数据库表初始化完成');
     return true;
   } catch (error) {

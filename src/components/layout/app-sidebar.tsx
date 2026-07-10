@@ -18,6 +18,7 @@ import {
   Users,
   LayoutDashboard,
   BarChart3,
+  Bot,
   FileSpreadsheet,
   Copy,
   UserCheck,
@@ -63,6 +64,11 @@ const itsMemberNavItems = [
     title: '设备清单导入',
     url: '/device-import',
     icon: Upload,
+  },
+  {
+    title: '智能助手',
+    url: '/assistant',
+    icon: Bot,
   },
 ];
 
