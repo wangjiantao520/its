@@ -93,6 +93,10 @@ const PROVIDER_PRESETS: Record<string, { endpoint: string; models: string[] }> =
     endpoint: 'https://open.bigmodel.cn/api/paas/v4',
     models: ['glm-4', 'glm-4-flash', 'glm-5-0-260211'],
   },
+  minimax: {
+    endpoint: 'https://api.minimax.chat/v1',
+    models: ['MiniMax-M1', 'abab6.5s-chat', 'abab6.5-chat', 'abab6-chat'],
+  },
 };
 
 export default function AIConfigPage() {
@@ -701,6 +705,7 @@ export default function AIConfigPage() {
                   <SelectItem value="qwen">通义千问 (阿里)</SelectItem>
                   <SelectItem value="moonshot">Kimi (月之暗面)</SelectItem>
                   <SelectItem value="zhipu">智谱AI</SelectItem>
+                  <SelectItem value="minimax">MiniMax</SelectItem>
                 </SelectContent>
               </Select>
             </div>

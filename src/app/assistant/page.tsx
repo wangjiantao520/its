@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
-import { Bot, User, Send, Paperclip, Loader2, MessageSquare } from 'lucide-react';
+import { Bot, User, Send, Paperclip, Loader2, MessageSquare, Calculator, FileText, Wrench, ClipboardList } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 interface Message {
@@ -165,8 +165,38 @@ export default function AssistantPage() {
   const quickActions = [
     { label: '帮我识别设备清单', icon: '📋' },
     { label: '计算维保报价', icon: '💰' },
+    { label: '计算工程报价', icon: '🏗️' },
     { label: '查询设备定额', icon: '📊' },
     { label: '解释报价公式', icon: '📝' },
+    { label: '生成报价报告', icon: '📄' },
+  ];
+
+  // 辅助报价功能
+  const assistActions = [
+    { 
+      label: '工程报价', 
+      icon: Calculator,
+      description: '辅助创建工程报价单',
+      prompt: '帮我创建一个工程报价单，我需要报价一个ICT项目'
+    },
+    { 
+      label: '维保报价', 
+      icon: Wrench,
+      description: '辅助创建维保报价单',
+      prompt: '帮我创建一个维保报价单，需要计算维保费用'
+    },
+    { 
+      label: '设备识别', 
+      icon: ClipboardList,
+      description: '识别设备清单中的设备',
+      prompt: '帮我识别设备清单中的设备，我会上传设备清单图片'
+    },
+    { 
+      label: '定额查询', 
+      icon: FileText,
+      description: '查询设备定额信息',
+      prompt: '帮我查询一下设备的定额信息'
+    },
   ];
 
   return (
@@ -191,23 +221,52 @@ export default function AssistantPage() {
         <ScrollArea className="flex-1 p-6" ref={scrollRef}>
           <div className="space-y-4">
             {messages.length === 0 && (
-              <div className="text-center py-12">
-                <MessageSquare className="h-12 w-12 mx-auto mb-4 text-muted-foreground/50" />
-                <h3 className="text-lg font-medium mb-2">开始对话</h3>
-                <p className="text-muted-foreground mb-6">
-                  您可以问我关于报价系统的任何问题，或者尝试以下快捷操作：
-                </p>
-                <div className="flex flex-wrap justify-center gap-2">
-                  {quickActions.map((action) => (
-                    <Button
-                      key={action.label}
-                      variant="outline"
-                      onClick={() => setInput(action.label)}
-                    >
-                      <span className="mr-2">{action.icon}</span>
-                      {action.label}
-                    </Button>
-                  ))}
+              <div className="space-y-8">
+                {/* 辅助报价功能区 */}
+                <div>
+                  <h3 className="text-lg font-medium mb-4 text-center">辅助报价功能</h3>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    {assistActions.map((action) => (
+                      <Card 
+                        key={action.label} 
+                        className="cursor-pointer hover:border-primary/50 hover:shadow-md transition-all"
+                        onClick={() => setInput(action.prompt)}
+                      >
+                        <CardContent className="pt-4 pb-4">
+                          <div className="flex flex-col items-center text-center gap-2">
+                            <div className="p-3 bg-primary/10 rounded-full">
+                              <action.icon className="h-6 w-6 text-primary" />
+                            </div>
+                            <div>
+                              <p className="font-medium">{action.label}</p>
+                              <p className="text-xs text-muted-foreground mt-1">{action.description}</p>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 快捷对话区 */}
+                <div className="text-center py-6">
+                  <MessageSquare className="h-12 w-12 mx-auto mb-4 text-muted-foreground/50" />
+                  <h3 className="text-lg font-medium mb-2">快捷对话</h3>
+                  <p className="text-muted-foreground mb-4">
+                    或者尝试以下快捷操作：
+                  </p>
+                  <div className="flex flex-wrap justify-center gap-2">
+                    {quickActions.map((action) => (
+                      <Button
+                        key={action.label}
+                        variant="outline"
+                        onClick={() => setInput(action.label)}
+                      >
+                        <span className="mr-2">{action.icon}</span>
+                        {action.label}
+                      </Button>
+                    ))}
+                  </div>
                 </div>
               </div>
             )}
