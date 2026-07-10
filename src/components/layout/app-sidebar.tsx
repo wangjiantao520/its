@@ -109,14 +109,14 @@ const adminNavItems = [
     icon: UserCheck,
   },
   {
+    title: 'AI配置中心',
+    url: '/admin/ai-config',
+    icon: Bot,
+  },
+  {
     title: '基础数据管理',
     url: '/database',
     icon: Database,
-  },
-  {
-    title: 'AI模型配置',
-    url: '/settings/ai-models',
-    icon: Bot,
   },
 ];
 

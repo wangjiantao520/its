@@ -526,6 +526,23 @@ export async function initDatabase() {
       )
     `);
 
+    // AI模型配置表
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS ai_model_configs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        model_name TEXT NOT NULL,
+        display_name TEXT,
+        provider TEXT,
+        api_key TEXT,
+        base_url TEXT,
+        temperature REAL DEFAULT 0.7,
+        max_tokens INTEGER DEFAULT 4000,
+        enabled INTEGER DEFAULT 1,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
     console.log('✅ SQLite 数据库表初始化完成');
     return true;
   } catch (error) {
