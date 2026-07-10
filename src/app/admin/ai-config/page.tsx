@@ -148,7 +148,8 @@ export default function AIConfigPage() {
       const res = await fetch('/api/ai-models');
       if (res.ok) {
         const data = await res.json();
-        setModels(data);
+        // API返回的是 {success, data, presets} 格式
+        setModels(data.data || []);
       }
     } catch (error) {
       console.error('加载AI模型列表失败:', error);
@@ -619,7 +620,14 @@ export default function AIConfigPage() {
               <Label>技能</Label>
               <Select 
                 value={editingSkill.skill_name || ''} 
-                onValueChange={value => setEditingSkill({ ...editingSkill, skill_name: value })}
+                onValueChange={value => {
+                  const skillInfo = AVAILABLE_SKILLS.find(s => s.value === value);
+                  setEditingSkill({ 
+                    ...editingSkill, 
+                    skill_name: value,
+                    skill_type: skillInfo?.type || 'general'
+                  });
+                }}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="选择技能" />
@@ -647,14 +655,16 @@ export default function AIConfigPage() {
             <Button onClick={async () => {
               try {
                 const method = editingSkill.id ? 'PUT' : 'POST';
-                const url = editingSkill.id 
-                  ? `/api/agents/${editingSkill.agent_id}/skills/${editingSkill.id}` 
-                  : `/api/agents/${editingSkill.agent_id}/skills`;
+                const url = `/api/agents/${editingSkill.agent_id}/skills`;
+                
+                const body = editingSkill.id 
+                  ? { ...editingSkill, skill_id: editingSkill.id }
+                  : editingSkill;
                 
                 const res = await fetch(url, {
                   method,
                   headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify(editingSkill),
+                  body: JSON.stringify(body),
                 });
                 
                 if (res.ok) {
