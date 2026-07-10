@@ -22,7 +22,6 @@ import {
   FileSpreadsheet,
   Copy,
   UserCheck,
-  Bot,
 } from 'lucide-react';
 import { usePathname, useRouter } from 'next/navigation';
 import {
