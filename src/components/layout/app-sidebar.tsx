@@ -139,7 +139,7 @@ export function AppSidebar() {
   };
 
   return (
-    <Sidebar variant="inset" className="border-r">
+    <Sidebar variant="inset" className="border-r sidebar-fabric">
       <SidebarHeader className="border-b px-6 py-4">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground">
