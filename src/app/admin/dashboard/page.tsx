@@ -20,6 +20,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { TiltCard } from '@/components/ui/tilt-card';
+import { TiltIcon } from '@/components/ui/tilt-icon';
 import { 
   BarChart3, Users, FileText, DollarSign, TrendingUp, Building2, Wrench, Clock, Eye } from 'lucide-react';
 
@@ -204,14 +206,14 @@ export default function DashboardPage() {
 
       {/* 总览统计卡片 */}
       <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
-        <div className="fabric-card p-4 relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-16 h-16 bg-primary/5 rounded-full -mr-6 -mt-6" />
+        <TiltCard className="p-4 relative overflow-hidden h-full" max={8} perspective={1000}>
+          <div className="absolute top-0 right-0 w-16 h-16 bg-primary/5 rounded-full -mr-6 -mt-6 pointer-events-none" />
           <div className="relative">
             <div className="flex items-center justify-between mb-3">
               <span className="text-sm text-muted-foreground">报价总数</span>
-              <span className="icon-3d icon-3d-sm">
+              <TiltIcon max={15} className="icon-3d icon-3d-sm">
                 <FileText className="h-4 w-4" />
-              </span>
+              </TiltIcon>
             </div>
             <div className="text-2xl font-bold text-foreground font-serif">{stats.overview.totalCount}</div>
             <div className="flex items-center justify-between mt-3 text-xs text-muted-foreground">
@@ -225,16 +227,16 @@ export default function DashboardPage() {
               </span>
             </div>
           </div>
-        </div>
+        </TiltCard>
 
-        <div className="fabric-card p-3.5 relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-16 h-16 bg-primary/5 rounded-full -mr-6 -mt-6" />
+        <TiltCard className="p-4 relative overflow-hidden h-full" max={8} perspective={1000}>
+          <div className="absolute top-0 right-0 w-16 h-16 bg-primary/5 rounded-full -mr-6 -mt-6 pointer-events-none" />
           <div className="relative">
             <div className="flex items-center justify-between mb-3">
               <span className="text-sm text-muted-foreground">报价总额</span>
-              <span className="icon-3d icon-3d-sm">
+              <TiltIcon max={15} className="icon-3d icon-3d-sm">
                 <DollarSign className="h-4 w-4" />
-              </span>
+              </TiltIcon>
             </div>
             <div className="text-2xl font-bold text-foreground font-serif">
               {formatCurrency(stats.overview.totalAmount)}
@@ -244,16 +246,16 @@ export default function DashboardPage() {
               <span>维保 {formatNumber(stats.overview.maintenanceAmount)}</span>
             </div>
           </div>
-        </div>
+        </TiltCard>
 
-        <div className="fabric-card p-3.5 relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-16 h-16 bg-primary/5 rounded-full -mr-6 -mt-6" />
+        <TiltCard className="p-4 relative overflow-hidden h-full" max={8} perspective={1000}>
+          <div className="absolute top-0 right-0 w-16 h-16 bg-primary/5 rounded-full -mr-6 -mt-6 pointer-events-none" />
           <div className="relative">
             <div className="flex items-center justify-between mb-3">
               <span className="text-sm text-muted-foreground">平均报价</span>
-              <span className="icon-3d icon-3d-sm">
+              <TiltIcon max={15} className="icon-3d icon-3d-sm">
                 <TrendingUp className="h-4 w-4" />
-              </span>
+              </TiltIcon>
             </div>
             <div className="text-2xl font-bold text-foreground font-serif">
               {formatCurrency(stats.overview.avgAmount)}
@@ -262,23 +264,23 @@ export default function DashboardPage() {
               单次报价平均金额
             </p>
           </div>
-        </div>
+        </TiltCard>
 
-        <div className="fabric-card p-3.5 relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-16 h-16 bg-primary/5 rounded-full -mr-6 -mt-6" />
+        <TiltCard className="p-4 relative overflow-hidden h-full" max={8} perspective={1000}>
+          <div className="absolute top-0 right-0 w-16 h-16 bg-primary/5 rounded-full -mr-6 -mt-6 pointer-events-none" />
           <div className="relative">
             <div className="flex items-center justify-between mb-3">
               <span className="text-sm text-muted-foreground">活跃成员</span>
-              <span className="icon-3d icon-3d-sm">
+              <TiltIcon max={15} className="icon-3d icon-3d-sm">
                 <Users className="h-4 w-4" />
-              </span>
+              </TiltIcon>
             </div>
             <div className="text-2xl font-bold text-foreground font-serif">{stats.topUsers.length}</div>
             <p className="text-xs text-muted-foreground mt-3">
               有报价记录的成员数
             </p>
           </div>
-        </div>
+        </TiltCard>
       </div>
 
       {/* 月度趋势和成员统计 */}
