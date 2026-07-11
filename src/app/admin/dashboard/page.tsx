@@ -203,15 +203,15 @@ export default function DashboardPage() {
       </div>
 
       {/* 总览统计卡片 */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <div className="fabric-card p-6 relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-20 h-20 bg-primary/5 rounded-full -mr-8 -mt-8" />
+      <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-4">
+        <div className="fabric-card p-5 relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-24 h-24 bg-primary/5 rounded-full -mr-10 -mt-10" />
           <div className="relative">
             <div className="flex items-center justify-between mb-3">
               <span className="text-sm text-muted-foreground">报价总数</span>
-              <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                <FileText className="h-5 w-5 text-primary" />
-              </div>
+              <span className="icon-3d icon-3d-sm">
+                <FileText className="h-4 w-4" />
+              </span>
             </div>
             <div className="text-2xl font-bold text-foreground font-serif">{stats.overview.totalCount}</div>
             <div className="flex items-center justify-between mt-3 text-xs text-muted-foreground">
@@ -227,14 +227,14 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <div className="fabric-card p-6 relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-20 h-20 bg-moss/10 rounded-full -mr-8 -mt-8" />
+        <div className="fabric-card p-5 relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-24 h-24 bg-primary/5 rounded-full -mr-10 -mt-10" />
           <div className="relative">
             <div className="flex items-center justify-between mb-3">
               <span className="text-sm text-muted-foreground">报价总额</span>
-              <div className="w-10 h-10 rounded-lg bg-moss/15 flex items-center justify-center">
-                <DollarSign className="h-5 w-5 text-moss" />
-              </div>
+              <span className="icon-3d icon-3d-sm">
+                <DollarSign className="h-4 w-4" />
+              </span>
             </div>
             <div className="text-2xl font-bold text-foreground font-serif">
               {formatCurrency(stats.overview.totalAmount)}
@@ -246,14 +246,14 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <div className="fabric-card p-6 relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-20 h-20 bg-terracotta/10 rounded-full -mr-8 -mt-8" />
+        <div className="fabric-card p-5 relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-24 h-24 bg-primary/5 rounded-full -mr-10 -mt-10" />
           <div className="relative">
             <div className="flex items-center justify-between mb-3">
               <span className="text-sm text-muted-foreground">平均报价</span>
-              <div className="w-10 h-10 rounded-lg bg-terracotta/15 flex items-center justify-center">
-                <TrendingUp className="h-5 w-5 text-terracotta" />
-              </div>
+              <span className="icon-3d icon-3d-sm">
+                <TrendingUp className="h-4 w-4" />
+              </span>
             </div>
             <div className="text-2xl font-bold text-foreground font-serif">
               {formatCurrency(stats.overview.avgAmount)}
@@ -264,14 +264,14 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <div className="fabric-card p-6 relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-20 h-20 bg-clay/10 rounded-full -mr-8 -mt-8" />
+        <div className="fabric-card p-5 relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-24 h-24 bg-primary/5 rounded-full -mr-10 -mt-10" />
           <div className="relative">
             <div className="flex items-center justify-between mb-3">
               <span className="text-sm text-muted-foreground">活跃成员</span>
-              <div className="w-10 h-10 rounded-lg bg-clay/15 flex items-center justify-center">
-                <Users className="h-5 w-5 text-clay" />
-              </div>
+              <span className="icon-3d icon-3d-sm">
+                <Users className="h-4 w-4" />
+              </span>
             </div>
             <div className="text-2xl font-bold text-foreground font-serif">{stats.topUsers.length}</div>
             <p className="text-xs text-muted-foreground mt-3">
@@ -282,7 +282,7 @@ export default function DashboardPage() {
       </div>
 
       {/* 月度趋势和成员统计 */}
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="grid gap-5 lg:grid-cols-3">
         {/* 月度趋势 */}
         <Card className="lg:col-span-2">
           <CardHeader>

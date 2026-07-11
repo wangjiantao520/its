@@ -171,7 +171,9 @@ export function AppSidebar() {
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton asChild isActive={pathname === item.url}>
                     <Link href={item.url} className="flex items-center gap-3">
-                      <item.icon className="h-4 w-4" />
+                      <span className="icon-3d icon-3d-sm">
+                        <item.icon className="h-4 w-4" />
+                      </span>
                       <span>{item.title}</span>
                     </Link>
                   </SidebarMenuButton>
