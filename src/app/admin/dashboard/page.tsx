@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { 
@@ -19,321 +19,528 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { BarChart3, Users, FileText, DollarSign, TrendingUp, Eye, Trash2 } from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { 
+  BarChart3, Users, FileText, DollarSign, TrendingUp, Building2, Wrench, Clock, Eye } from 'lucide-react';
 
-interface QuotationRecord {
-  id: number;
-  user_id: number;
-  client_name: string;
-  client_region?: string;
-  project_name?: string;
-  quote_type: string;
-  total_amount: number;
-  device_count: number;
-  status: string;
-  created_at: string;
-  real_name?: string;
-  username?: string;
+interface DashboardStats {
+  overview: {
+    totalCount: number;
+    totalAmount: number;
+    avgAmount: number;
+    engineeringCount: number;
+    engineeringAmount: number;
+    maintenanceCount: number;
+    maintenanceAmount: number;
+  };
+  topUsers: Array<{
+    userId: string;
+    userName: string;
+    engineeringCount: number;
+    engineeringAmount: number;
+    maintenanceCount: number;
+    maintenanceAmount: number;
+    totalCount: number;
+    totalAmount: number;
+  }>;
+  monthlyStats: Array<{
+    month: string;
+    engineeringCount: number;
+    engineeringAmount: number;
+    maintenanceCount: number;
+    maintenanceAmount: number;
+    totalCount: number;
+    totalAmount: number;
+  }>;
+  byStatus: Array<{
+    status: string;
+    count: number;
+    amount: number;
+  }>;
+  recentQuotes: Array<{
+    id: number;
+    quote_number: string;
+    project_name: string;
+    client_name: string;
+    total: number;
+    status: string;
+    type: string;
+    created_by: string;
+    created_by_name: string;
+    created_at: string;
+  }>;
 }
 
-interface UserStats {
-  user_id: number;
-  real_name: string;
-  username: string;
-  total_quotes: number;
-  total_amount: number;
-  avg_amount: number;
-}
+const formatCurrency = (amount: number): string => {
+  return new Intl.NumberFormat('zh-CN', {
+    style: 'currency',
+    currency: 'CNY',
+    minimumFractionDigits: 2
+  }).format(amount);
+};
 
-interface User {
-  id: number;
-  username: string;
-  real_name: string;
-}
+const formatNumber = (num: number): string => {
+  if (num >= 100000000) {
+    return (num / 100000000).toFixed(2) + '亿';
+  }
+  if (num >= 10000) {
+    return (num / 10000).toFixed(2) + '万';
+  }
+  return num.toFixed(2);
+};
+
+const getStatusBadge = (status: string) => {
+  const statusMap: Record<string, { label: string; className: string }> = {
+    draft: { label: '草稿', className: 'bg-gray-100 text-gray-800' },
+    submitted: { label: '已提交', className: 'bg-blue-100 text-blue-800' },
+    approved: { label: '已审核', className: 'bg-green-100 text-green-800' },
+    rejected: { label: '已拒绝', className: 'bg-red-100 text-red-800' },
+    completed: { label: '已完成', className: 'bg-emerald-100 text-emerald-800' },
+  };
+  const s = statusMap[status] || { label: status, className: 'bg-gray-100 text-gray-800' };
+  return <Badge className={s.className}>{s.label}</Badge>;
+};
 
 export default function DashboardPage() {
-  const [records, setRecords] = useState<QuotationRecord[]>([]);
-  const [userStats, setUserStats] = useState<UserStats[]>([]);
-  const [users, setUsers] = useState<User[]>([]);
-  const [selectedUserId, setSelectedUserId] = useState<string>('all');
+  const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState({
-    totalQuotes: 0,
-    totalAmount: 0,
-    avgAmount: 0,
-    activeUsers: 0
-  });
+  const [selectedUserId, setSelectedUserId] = useState<string>('all');
+  const [timeRange, setTimeRange] = useState<string>('all');
 
   useEffect(() => {
-    fetchUsers();
-    fetchRecords();
-  }, [selectedUserId]);
+    fetchStats();
+  }, [selectedUserId, timeRange]);
 
-  const fetchUsers = async () => {
-    try {
-      const response = await fetch('/api/users');
-      if (response.ok) {
-        const data = await response.json();
-        setUsers(data);
-      }
-    } catch (error) {
-      console.error('获取用户列表失败:', error);
-    }
-  };
-
-  const fetchRecords = async () => {
+  const fetchStats = async () => {
     setLoading(true);
     try {
-      const url = selectedUserId === 'all' 
-        ? '/api/quotations?page_size=100'
-        : `/api/quotations?user_id=${selectedUserId}&page_size=100`;
+      const params = new URLSearchParams();
+      if (selectedUserId !== 'all') {
+        params.set('user_id', selectedUserId);
+      }
+      if (timeRange !== 'all') {
+        params.set('time_range', timeRange);
+      }
       
-      const response = await fetch(url);
+      const response = await fetch(`/api/dashboard/stats?${params.toString()}`);
       if (response.ok) {
         const data = await response.json();
-        setRecords(data.records || []);
-        
-        // 计算统计数据
-        const records = data.records || [];
-        const totalQuotes = records.length;
-        const totalAmount = records.reduce((sum: number, r: QuotationRecord) => sum + r.total_amount, 0);
-        const avgAmount = totalQuotes > 0 ? totalAmount / totalQuotes : 0;
-        
-        setStats({
-          totalQuotes,
-          totalAmount,
-          avgAmount,
-          activeUsers: new Set(records.map((r: QuotationRecord) => r.user_id)).size
-        });
-
-        // 计算每个用户的统计
-        const userStatsMap = new Map<number, UserStats>();
-        records.forEach((r: QuotationRecord) => {
-          if (!userStatsMap.has(r.user_id)) {
-            userStatsMap.set(r.user_id, {
-              user_id: r.user_id,
-              real_name: r.real_name || '',
-              username: r.username || '',
-              total_quotes: 0,
-              total_amount: 0,
-              avg_amount: 0
-            });
-          }
-          const stat = userStatsMap.get(r.user_id)!;
-          stat.total_quotes++;
-          stat.total_amount += r.total_amount;
-        });
-        
-        const userStatsArray = Array.from(userStatsMap.values()).map(s => ({
-          ...s,
-          avg_amount: s.total_quotes > 0 ? s.total_amount / s.total_quotes : 0
-        }));
-        setUserStats(userStatsArray);
+        if (data.success) {
+          setStats(data.data);
+        }
       }
     } catch (error) {
-      console.error('获取报价记录失败:', error);
+      console.error('获取统计数据失败:', error);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleViewDetail = async (id: number) => {
-    try {
-      const response = await fetch(`/api/quotations/${id}`);
-      if (response.ok) {
-        const data = await response.json();
-        alert(JSON.stringify(data, null, 2));
-      }
-    } catch (error) {
-      console.error('获取详情失败:', error);
+  const handleViewDetail = (type: string, id: number) => {
+    if (type === 'engineering') {
+      window.open(`/engineering?id=${id}`, '_blank');
+    } else {
+      window.open(`/maintenance?id=${id}`, '_blank');
     }
   };
 
-  const handleDeleteRecord = async (id: number) => {
-    if (!confirm('确定要删除这条报价记录吗？')) return;
-    
-    try {
-      const response = await fetch(`/api/quotations/${id}`, {
-        method: 'DELETE'
-      });
-      if (response.ok) {
-        fetchRecords();
-      }
-    } catch (error) {
-      console.error('删除失败:', error);
-    }
-  };
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-muted-foreground">加载中...</div>
+      </div>
+    );
+  }
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('zh-CN', {
-      style: 'currency',
-      currency: 'CNY',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0
-    }).format(amount);
-  };
+  if (!stats) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-muted-foreground">暂无数据</div>
+      </div>
+    );
+  }
+
+  // 计算柱状图最大值（简易实现）
+  const maxMonthlyAmount = Math.max(...stats.monthlyStats.map(m => m.totalAmount), 1);
 
   return (
-    <div className="container mx-auto py-6 px-4 md:px-6">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold">数据看板</h1>
-        <p className="text-muted-foreground">查看ITS成员的报价数据和统计</p>
+    <div className="space-y-6">
+      {/* 页面标题和筛选器 */}
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">数据看板</h1>
+          <p className="text-muted-foreground text-sm mt-1">ITS成员报价数据统计与分析</p>
+        </div>
+        <div className="flex gap-3">
+          <Select value={timeRange} onValueChange={setTimeRange}>
+            <SelectTrigger className="w-[140px]">
+              <SelectValue placeholder="时间范围" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">全部时间</SelectItem>
+              <SelectItem value="today">今日</SelectItem>
+              <SelectItem value="week">近7天</SelectItem>
+              <SelectItem value="month">本月</SelectItem>
+              <SelectItem value="year">本年</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={selectedUserId} onValueChange={setSelectedUserId}>
+            <SelectTrigger className="w-[140px]">
+              <SelectValue placeholder="选择成员" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">全部成员</SelectItem>
+              {stats.topUsers.map((user) => (
+                <SelectItem key={user.userId} value={user.userId}>
+                  {user.userName}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
-      {/* 筛选器 */}
-      <div className="flex items-center gap-4 mb-6">
-        <Select value={selectedUserId} onValueChange={setSelectedUserId}>
-          <SelectTrigger className="w-[200px]">
-            <SelectValue placeholder="选择成员" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">全部成员</SelectItem>
-            {users.map((user) => (
-              <SelectItem key={user.id} value={user.id.toString()}>
-                {user.real_name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+      {/* 总览统计卡片 */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <Card className="border-l-4 border-l-primary">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">报价总数</CardTitle>
+            <FileText className="h-5 w-5 text-primary" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-foreground">{stats.overview.totalCount}</div>
+            <div className="flex items-center justify-between mt-2 text-xs text-muted-foreground">
+              <span className="flex items-center gap-1">
+                <Building2 className="h-3 w-3" />
+                工程 {stats.overview.engineeringCount}
+              </span>
+              <span className="flex items-center gap-1">
+                <Wrench className="h-3 w-3" />
+                维保 {stats.overview.maintenanceCount}
+              </span>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-l-4 border-l-emerald-500">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">报价总额</CardTitle>
+            <DollarSign className="h-5 w-5 text-emerald-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-foreground">
+              {formatCurrency(stats.overview.totalAmount)}
+            </div>
+            <div className="flex items-center justify-between mt-2 text-xs text-muted-foreground">
+              <span>工程 {formatNumber(stats.overview.engineeringAmount)}</span>
+              <span>维保 {formatNumber(stats.overview.maintenanceAmount)}</span>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-l-4 border-l-amber-500">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">平均报价</CardTitle>
+            <TrendingUp className="h-5 w-5 text-amber-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-foreground">
+              {formatCurrency(stats.overview.avgAmount)}
+            </div>
+            <p className="text-xs text-muted-foreground mt-2">
+              单次报价平均金额
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className="border-l-4 border-l-violet-500">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">活跃成员</CardTitle>
+            <Users className="h-5 w-5 text-violet-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-foreground">{stats.topUsers.length}</div>
+            <p className="text-xs text-muted-foreground mt-2">
+              有报价记录的成员数
+            </p>
+          </CardContent>
+        </Card>
       </div>
 
-      {/* 统计卡片 */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-6">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">报价总数</CardTitle>
-            <FileText className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.totalQuotes}</div>
-            <p className="text-xs text-muted-foreground">累计报价次数</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">报价总额</CardTitle>
-            <DollarSign className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(stats.totalAmount)}</div>
-            <p className="text-xs text-muted-foreground">累计报价金额</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">平均报价</CardTitle>
-            <TrendingUp className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(stats.avgAmount)}</div>
-            <p className="text-xs text-muted-foreground">单次报价平均金额</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">活跃用户</CardTitle>
-            <Users className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.activeUsers}</div>
-            <p className="text-xs text-muted-foreground">有报价记录的用户数</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* 用户统计 */}
-      {userStats.length > 0 && (
-        <Card className="mb-6">
+      {/* 月度趋势和成员统计 */}
+      <div className="grid gap-6 lg:grid-cols-3">
+        {/* 月度趋势 */}
+        <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <BarChart3 className="h-5 w-5" />
-              成员报价统计
+              月度报价趋势
+            </CardTitle>
+            <CardDescription>近12个月报价数量和金额趋势</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="h-[300px] flex items-end justify-between gap-2 pt-4">
+              {stats.monthlyStats.map((month) => (
+                <div key={month.month} className="flex flex-col items-center flex-1 gap-2">
+                  <div className="flex items-end gap-1 h-[220px] w-full justify-center">
+                    {/* 工程报价柱 */}
+                    <div
+                      className="bg-primary/80 w-3 rounded-t-sm transition-all hover:bg-primary"
+                      style={{
+                        height: `${(month.engineeringAmount / maxMonthlyAmount) * 100}%`,
+                        minHeight: month.engineeringAmount > 0 ? '4px' : '0'
+                      }}
+                      title={`工程: ${formatCurrency(month.engineeringAmount)}`}
+                    />
+                    {/* 维保报价柱 */}
+                    <div
+                      className="bg-emerald-500/80 w-3 rounded-t-sm transition-all hover:bg-emerald-500"
+                      style={{
+                        height: `${(month.maintenanceAmount / maxMonthlyAmount) * 100}%`,
+                        minHeight: month.maintenanceAmount > 0 ? '4px' : '0'
+                      }}
+                      title={`维保: ${formatCurrency(month.maintenanceAmount)}`}
+                    />
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {month.month.slice(5)}月
+                  </div>
+                  <div className="text-xs font-medium">
+                    {month.totalCount}单
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center justify-center gap-6 mt-4 pt-4 border-t">
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 bg-primary rounded-sm" />
+                <span className="text-sm text-muted-foreground">工程报价</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 bg-emerald-500 rounded-sm" />
+                <span className="text-sm text-muted-foreground">维保报价</span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* 成员报价排行 */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Users className="h-5 w-5" />
+              成员报价排行
+            </CardTitle>
+            <CardDescription>按报价总额排名</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {stats.topUsers.slice(0, 10).map((user, index) => (
+                <div key={user.userId} className="flex items-center gap-3">
+                  <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
+                    index === 0 ? 'bg-amber-100 text-amber-700' :
+                    index === 1 ? 'bg-gray-100 text-gray-600' :
+                    index === 2 ? 'bg-orange-100 text-orange-700' :
+                    'bg-muted text-muted-foreground'
+                  }`}>
+                    {index + 1}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium text-sm truncate">{user.userName}</span>
+                      <span className="text-sm font-semibold">{formatNumber(user.totalAmount)}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
+                      <span className="flex items-center gap-1">
+                        <Building2 className="h-3 w-3" />
+                        {user.engineeringCount}
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <Wrench className="h-3 w-3" />
+                        {user.maintenanceCount}
+                      </span>
+                      <span>{user.totalCount}单</span>
+                    </div>
+                    {/* 进度条 */}
+                    <div className="h-1.5 bg-muted rounded-full mt-2 overflow-hidden">
+                      <div
+                        className="h-full bg-primary/60 rounded-full"
+                        style={{
+                          width: `${(user.totalAmount / (stats.topUsers[0]?.totalAmount || 1)) * 100}%`
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))}
+              {stats.topUsers.length === 0 && (
+                <div className="text-center text-muted-foreground text-sm py-8">
+                  暂无成员数据
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* 状态分布和最近报价 */}
+      <div className="grid gap-6 lg:grid-cols-3">
+        {/* 按状态分布 */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <FileText className="h-5 w-5" />
+              状态分布
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {stats.byStatus.map((item) => (
+                <div key={item.status} className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    {getStatusBadge(item.status)}
+                    <span className="text-sm text-muted-foreground">{item.count} 单</span>
+                  </div>
+                  <span className="font-semibold">{formatNumber(item.amount)}</span>
+                </div>
+              ))}
+              {stats.byStatus.length === 0 && (
+                <div className="text-center text-muted-foreground text-sm py-4">
+                  暂无数据
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* 最近报价记录 */}
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Clock className="h-5 w-5" />
+              最近报价
             </CardTitle>
           </CardHeader>
           <CardContent>
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>姓名</TableHead>
-                  <TableHead>用户名</TableHead>
-                  <TableHead className="text-right">报价次数</TableHead>
-                  <TableHead className="text-right">报价总额</TableHead>
-                  <TableHead className="text-right">平均报价</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {userStats.map((stat) => (
-                  <TableRow key={stat.user_id}>
-                    <TableCell className="font-medium">{stat.real_name}</TableCell>
-                    <TableCell>{stat.username}</TableCell>
-                    <TableCell className="text-right">{stat.total_quotes}</TableCell>
-                    <TableCell className="text-right">{formatCurrency(stat.total_amount)}</TableCell>
-                    <TableCell className="text-right">{formatCurrency(stat.avg_amount)}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* 报价记录列表 */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <FileText className="h-5 w-5" />
-            报价记录
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {loading ? (
-            <div className="text-center py-8 text-muted-foreground">加载中...</div>
-          ) : records.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">暂无报价记录</div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>客户名称</TableHead>
-                  <TableHead>报价人</TableHead>
-                  <TableHead>项目类型</TableHead>
-                  <TableHead className="text-right">设备数量</TableHead>
-                  <TableHead className="text-right">报价金额</TableHead>
-                  <TableHead>报价时间</TableHead>
+                  <TableHead>报价编号</TableHead>
+                  <TableHead>项目名称</TableHead>
+                  <TableHead>创建人</TableHead>
+                  <TableHead>类型</TableHead>
+                  <TableHead>金额</TableHead>
+                  <TableHead>状态</TableHead>
                   <TableHead className="text-right">操作</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {records.map((record) => (
-                  <TableRow key={record.id}>
-                    <TableCell className="font-medium">{record.client_name}</TableCell>
-                    <TableCell>{record.real_name || record.username}</TableCell>
+                {stats.recentQuotes.slice(0, 10).map((quote) => (
+                  <TableRow key={`${quote.type}-${quote.id}`}>
+                    <TableCell className="font-medium font-mono text-sm">
+                      {quote.quote_number}
+                    </TableCell>
+                    <TableCell className="max-w-[150px] truncate" title={quote.project_name}>
+                      {quote.project_name}
+                    </TableCell>
+                    <TableCell>{quote.created_by_name || '-'} </TableCell>
                     <TableCell>
-                      <Badge variant="outline">
-                        {record.quote_type === 'full' ? '完整版' : '简版'}
+                      <Badge variant="outline" className={
+                        quote.type === 'engineering' 
+                          ? 'bg-primary/10 text-primary border-primary/20'
+                          : 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20'
+                      }>
+                        {quote.type === 'engineering' ? '工程' : '维保'}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-right">{record.device_count}</TableCell>
-                    <TableCell className="text-right font-medium">
-                      {formatCurrency(record.total_amount)}
-                    </TableCell>
-                    <TableCell>{new Date(record.created_at).toLocaleString()}</TableCell>
+                    <TableCell className="font-semibold">{formatCurrency(quote.total)}</TableCell>
+                    <TableCell>{getStatusBadge(quote.status)}</TableCell>
                     <TableCell className="text-right">
-                      <Button variant="ghost" size="sm" onClick={() => handleViewDetail(record.id)}>
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                      <Button variant="ghost" size="sm" onClick={() => handleDeleteRecord(record.id)}>
-                        <Trash2 className="h-4 w-4 text-destructive" />
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 px-2"
+                        onClick={() => handleViewDetail(quote.type, quote.id)}
+                      >
+                        <Eye className="h-4 w-4 mr-1" />
+                        查看
                       </Button>
                     </TableCell>
                   </TableRow>
                 ))}
+                {stats.recentQuotes.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                      暂无报价记录
+                    </TableCell>
+                  </TableRow>
+                )}
               </TableBody>
             </Table>
-          )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* 成员详细统计表格 */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Users className="h-5 w-5" />
+            成员报价详情
+          </CardTitle>
+          <CardDescription>各成员报价数据明细</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>排名</TableHead>
+                <TableHead>姓名</TableHead>
+                <TableHead className="text-right">工程报价数</TableHead>
+                <TableHead className="text-right">工程报价额</TableHead>
+                <TableHead className="text-right">维保报价数</TableHead>
+                <TableHead className="text-right">维保报价额</TableHead>
+                <TableHead className="text-right">总报价数</TableHead>
+                <TableHead className="text-right">总报价额</TableHead>
+                <TableHead className="text-right">平均报价</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {stats.topUsers.map((user, index) => (
+                <TableRow key={user.userId}>
+                  <TableCell>
+                    <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold ${
+                      index === 0 ? 'bg-amber-100 text-amber-700' :
+                      index === 1 ? 'bg-gray-100 text-gray-600' :
+                      index === 2 ? 'bg-orange-100 text-orange-700' :
+                      'bg-muted text-muted-foreground'
+                    }`}>
+                      {index + 1}
+                    </span>
+                  </TableCell>
+                  <TableCell className="font-medium">{user.userName}</TableCell>
+                  <TableCell className="text-right">{user.engineeringCount}</TableCell>
+                  <TableCell className="text-right">{formatCurrency(user.engineeringAmount)}</TableCell>
+                  <TableCell className="text-right">{user.maintenanceCount}</TableCell>
+                  <TableCell className="text-right">{formatCurrency(user.maintenanceAmount)}</TableCell>
+                  <TableCell className="text-right font-semibold">{user.totalCount}</TableCell>
+                  <TableCell className="text-right font-semibold text-primary">
+                    {formatCurrency(user.totalAmount)}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {formatCurrency(user.totalCount > 0 ? user.totalAmount / user.totalCount : 0)}
+                  </TableCell>
+                </TableRow>
+              ))}
+              {stats.topUsers.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
+                    暂无成员数据
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
         </CardContent>
       </Card>
     </div>

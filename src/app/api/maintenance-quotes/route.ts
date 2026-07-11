@@ -98,8 +98,9 @@ export async function POST(request: NextRequest) {
         region, service_years, engineer_level, sla_config,
         subtotal_before_discount, sla_adjustment, region_adjustment,
         subtotal_after_coefficients, years_discount, bulk_discount,
-        years_discount_amount, bulk_discount_amount, tax, total, devices)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        years_discount_amount, bulk_discount_amount, tax, total, devices,
+        created_by, created_by_name)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         body.quoteNumber,
         body.projectName,
@@ -120,7 +121,9 @@ export async function POST(request: NextRequest) {
         body.bulkDiscountAmount || 0,
         body.tax || 0,
         body.total || 0,
-        JSON.stringify(body.devices || [])
+        JSON.stringify(body.devices || []),
+        body.createdBy || null,
+        body.createdByName || null
       ]
     );
 

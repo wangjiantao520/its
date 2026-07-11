@@ -150,6 +150,33 @@ export async function initDatabase() {
       console.warn('[DB Migration] Migration check failed:', migrationError);
     }
 
+    // 数据库迁移：为报价表添加创建人字段
+    try {
+      // 工程报价表
+      const engColumns = db.prepare("PRAGMA table_info(engineering_quotes)").all().map((col: any) => col.name);
+      if (!engColumns.includes('created_by')) {
+        db.exec("ALTER TABLE engineering_quotes ADD COLUMN created_by TEXT");
+        console.log('[DB Migration] Added column: engineering_quotes.created_by');
+      }
+      if (!engColumns.includes('created_by_name')) {
+        db.exec("ALTER TABLE engineering_quotes ADD COLUMN created_by_name TEXT");
+        console.log('[DB Migration] Added column: engineering_quotes.created_by_name');
+      }
+
+      // 维保报价表
+      const maintColumns = db.prepare("PRAGMA table_info(maintenance_quotes)").all().map((col: any) => col.name);
+      if (!maintColumns.includes('created_by')) {
+        db.exec("ALTER TABLE maintenance_quotes ADD COLUMN created_by TEXT");
+        console.log('[DB Migration] Added column: maintenance_quotes.created_by');
+      }
+      if (!maintColumns.includes('created_by_name')) {
+        db.exec("ALTER TABLE maintenance_quotes ADD COLUMN created_by_name TEXT");
+        console.log('[DB Migration] Added column: maintenance_quotes.created_by_name');
+      }
+    } catch (migrationError) {
+      console.warn('[DB Migration] Quote migration check failed:', migrationError);
+    }
+
     // 创建工程报价表
     db.exec(`
       CREATE TABLE IF NOT EXISTS engineering_quotes (
@@ -178,6 +205,8 @@ export async function initDatabase() {
         total REAL DEFAULT 0,
         status TEXT DEFAULT 'draft',
         items TEXT,
+        created_by TEXT,
+        created_by_name TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
       )
@@ -222,6 +251,8 @@ export async function initDatabase() {
         total REAL DEFAULT 0,
         devices TEXT,
         status TEXT DEFAULT 'draft',
+        created_by TEXT,
+        created_by_name TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
       )

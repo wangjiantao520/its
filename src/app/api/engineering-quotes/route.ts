@@ -1,5 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import pool, { initDatabase } from '@/lib/db';
+import { verifySession } from '@/lib/auth';
+
+// 从会话中获取当前用户信息
+function getCurrentUser(request: NextRequest) {
+  const session = verifySession(request);
+  if (!session) return { userId: null, username: null, name: null, role: null };
+  return {
+    userId: session.userId,
+    username: session.username,
+    name: session.name,
+    role: session.role
+  };
+}
 
 // 初始化数据库
 export async function GET(request: NextRequest) {
@@ -70,6 +83,9 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    // 从会话中获取用户信息
+    const user = getCurrentUser(request);
+    
     const body = await request.json();
     const {
       quoteNumber,
@@ -95,8 +111,9 @@ export async function POST(request: NextRequest) {
       `INSERT INTO engineering_quotes 
        (quote_number, project_name, client_name, contact_person, contact_phone, 
         construction_area, management_rate, profit_rate, regulatory_rate, tax_rate,
-        subtotal, management_fee, profit, regulatory_fee, tax, total, items)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        subtotal, management_fee, profit, regulatory_fee, tax, total, items, 
+        created_by, created_by_name)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         quoteNumber,
         projectName,
@@ -114,7 +131,9 @@ export async function POST(request: NextRequest) {
         regulatoryFee,
         tax,
         total,
-        JSON.stringify(items)
+        JSON.stringify(items),
+        user.userId || user.username || null,
+        user.name || user.username || null
       ]
     );
 
