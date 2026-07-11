@@ -205,78 +205,114 @@ export default function DashboardPage() {
       </div>
 
       {/* 总览统计卡片 */}
-      <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
-        <TiltCard className="p-4 relative overflow-hidden h-full" max={8} perspective={1000}>
-          <div className="absolute top-0 right-0 w-16 h-16 bg-primary/5 rounded-full -mr-6 -mt-6 pointer-events-none" />
-          <div className="relative">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-sm text-muted-foreground">报价总数</span>
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <TiltCard 
+          className="p-5 relative overflow-hidden h-full rounded-2xl" 
+          max={8} 
+          perspective={1000}
+          glareOpacity={0.15}
+        >
+          <div className="absolute inset-0 bg-gradient-to-br from-white via-[#fdfcf9] to-[#f8f3ea] pointer-events-none" />
+          <div className="absolute top-0 right-0 w-20 h-20 bg-gradient-to-br from-primary/8 to-primary/3 rounded-full -mr-8 -mt-8 blur-sm pointer-events-none" />
+          <div className="absolute bottom-0 left-0 w-16 h-16 bg-gradient-to-tr from-warm/5 to-transparent rounded-full -ml-6 -mb-6 pointer-events-none" />
+          <div className="relative z-10">
+            <div className="flex items-center justify-between mb-4">
+              <span className="text-sm text-foreground/70 font-medium">报价总数</span>
               <TiltIcon max={15} className="icon-3d icon-3d-sm">
                 <FileText className="h-4 w-4" />
               </TiltIcon>
             </div>
-            <div className="text-2xl font-bold text-foreground font-serif">{stats.overview.totalCount}</div>
-            <div className="flex items-center justify-between mt-3 text-xs text-muted-foreground">
-              <span className="flex items-center gap-1">
-                <Building2 className="h-3 w-3" />
-                工程 {stats.overview.engineeringCount}
+            <div className="text-3xl font-bold text-foreground font-serif tracking-tight">{stats.overview.totalCount}</div>
+            <div className="flex items-center justify-between mt-4 text-xs text-foreground/60 pt-3 border-t border-border/50">
+              <span className="flex items-center gap-1.5 bg-primary/5 px-2 py-1 rounded-full">
+                <Building2 className="h-3 w-3 text-primary" />
+                <span className="font-medium">工程 {stats.overview.engineeringCount}</span>
               </span>
-              <span className="flex items-center gap-1">
-                <Wrench className="h-3 w-3" />
-                维保 {stats.overview.maintenanceCount}
+              <span className="flex items-center gap-1.5 bg-moss/10 px-2 py-1 rounded-full">
+                <Wrench className="h-3 w-3 text-moss" />
+                <span className="font-medium">维保 {stats.overview.maintenanceCount}</span>
               </span>
             </div>
           </div>
         </TiltCard>
 
-        <TiltCard className="p-4 relative overflow-hidden h-full" max={8} perspective={1000}>
-          <div className="absolute top-0 right-0 w-16 h-16 bg-primary/5 rounded-full -mr-6 -mt-6 pointer-events-none" />
-          <div className="relative">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-sm text-muted-foreground">报价总额</span>
+        <TiltCard 
+          className="p-5 relative overflow-hidden h-full rounded-2xl" 
+          max={8} 
+          perspective={1000}
+          glareOpacity={0.15}
+        >
+          <div className="absolute inset-0 bg-gradient-to-br from-white via-[#fdfcf9] to-[#f8f3ea] pointer-events-none" />
+          <div className="absolute top-0 right-0 w-20 h-20 bg-gradient-to-br from-terracotta/8 to-terracotta/3 rounded-full -mr-8 -mt-8 blur-sm pointer-events-none" />
+          <div className="absolute bottom-0 left-0 w-16 h-16 bg-gradient-to-tr from-warm/5 to-transparent rounded-full -ml-6 -mb-6 pointer-events-none" />
+          <div className="relative z-10">
+            <div className="flex items-center justify-between mb-4">
+              <span className="text-sm text-foreground/70 font-medium">报价总额</span>
               <TiltIcon max={15} className="icon-3d icon-3d-sm">
                 <DollarSign className="h-4 w-4" />
               </TiltIcon>
             </div>
-            <div className="text-2xl font-bold text-foreground font-serif">
+            <div className="text-3xl font-bold text-foreground font-serif tracking-tight">
               {formatCurrency(stats.overview.totalAmount)}
             </div>
-            <div className="flex items-center justify-between mt-3 text-xs text-muted-foreground">
-              <span>工程 {formatNumber(stats.overview.engineeringAmount)}</span>
-              <span>维保 {formatNumber(stats.overview.maintenanceAmount)}</span>
+            <div className="flex items-center justify-between mt-4 text-xs text-foreground/60 pt-3 border-t border-border/50">
+              <span className="flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-primary/60" />
+                工程 {formatNumber(stats.overview.engineeringAmount)}
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-moss/60" />
+                维保 {formatNumber(stats.overview.maintenanceAmount)}
+              </span>
             </div>
           </div>
         </TiltCard>
 
-        <TiltCard className="p-4 relative overflow-hidden h-full" max={8} perspective={1000}>
-          <div className="absolute top-0 right-0 w-16 h-16 bg-primary/5 rounded-full -mr-6 -mt-6 pointer-events-none" />
-          <div className="relative">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-sm text-muted-foreground">平均报价</span>
+        <TiltCard 
+          className="p-5 relative overflow-hidden h-full rounded-2xl" 
+          max={8} 
+          perspective={1000}
+          glareOpacity={0.15}
+        >
+          <div className="absolute inset-0 bg-gradient-to-br from-white via-[#fdfcf9] to-[#f8f3ea] pointer-events-none" />
+          <div className="absolute top-0 right-0 w-20 h-20 bg-gradient-to-br from-moss/8 to-moss/3 rounded-full -mr-8 -mt-8 blur-sm pointer-events-none" />
+          <div className="absolute bottom-0 left-0 w-16 h-16 bg-gradient-to-tr from-warm/5 to-transparent rounded-full -ml-6 -mb-6 pointer-events-none" />
+          <div className="relative z-10">
+            <div className="flex items-center justify-between mb-4">
+              <span className="text-sm text-foreground/70 font-medium">平均报价</span>
               <TiltIcon max={15} className="icon-3d icon-3d-sm">
                 <TrendingUp className="h-4 w-4" />
               </TiltIcon>
             </div>
-            <div className="text-2xl font-bold text-foreground font-serif">
+            <div className="text-3xl font-bold text-foreground font-serif tracking-tight">
               {formatCurrency(stats.overview.avgAmount)}
             </div>
-            <p className="text-xs text-muted-foreground mt-3">
+            <p className="text-xs text-foreground/60 mt-4 pt-3 border-t border-border/50 flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-moss" />
               单次报价平均金额
             </p>
           </div>
         </TiltCard>
 
-        <TiltCard className="p-4 relative overflow-hidden h-full" max={8} perspective={1000}>
-          <div className="absolute top-0 right-0 w-16 h-16 bg-primary/5 rounded-full -mr-6 -mt-6 pointer-events-none" />
-          <div className="relative">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-sm text-muted-foreground">活跃成员</span>
+        <TiltCard 
+          className="p-5 relative overflow-hidden h-full rounded-2xl" 
+          max={8} 
+          perspective={1000}
+          glareOpacity={0.15}
+        >
+          <div className="absolute inset-0 bg-gradient-to-br from-white via-[#fdfcf9] to-[#f8f3ea] pointer-events-none" />
+          <div className="absolute top-0 right-0 w-20 h-20 bg-gradient-to-br from-clay/8 to-clay/3 rounded-full -mr-8 -mt-8 blur-sm pointer-events-none" />
+          <div className="absolute bottom-0 left-0 w-16 h-16 bg-gradient-to-tr from-warm/5 to-transparent rounded-full -ml-6 -mb-6 pointer-events-none" />
+          <div className="relative z-10">
+            <div className="flex items-center justify-between mb-4">
+              <span className="text-sm text-foreground/70 font-medium">活跃成员</span>
               <TiltIcon max={15} className="icon-3d icon-3d-sm">
                 <Users className="h-4 w-4" />
               </TiltIcon>
             </div>
-            <div className="text-2xl font-bold text-foreground font-serif">{stats.topUsers.length}</div>
-            <p className="text-xs text-muted-foreground mt-3">
+            <div className="text-3xl font-bold text-foreground font-serif tracking-tight">{stats.topUsers.length}</div>
+            <p className="text-xs text-foreground/60 mt-4 pt-3 border-t border-border/50 flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-clay" />
               有报价记录的成员数
             </p>
           </div>
