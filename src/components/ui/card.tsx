@@ -8,9 +8,9 @@ function Card({ className, ...props }: React.ComponentProps<"div">) {
       data-slot="card"
       className={cn(
         "bg-card text-card-foreground flex flex-col gap-6 rounded-xl border border-border transition-all duration-200",
-        "shadow-[0_1px_2px_rgba(61,44,30,0.06),0_4px_12px_rgba(61,44,30,0.04),inset_0_1px_0_rgba(255,255,255,0.8)]",
-        "hover:shadow-[0_2px_4px_rgba(61,44,30,0.08),0_8px_24px_rgba(61,44,30,0.06),inset_0_1px_0_rgba(255,255,255,0.9)]",
-        "bg-linen-texture",
+        "shadow-[0_1px_2px_rgba(139,108,78,0.06),0_4px_12px_rgba(139,108,78,0.04),inset_0_1px_0_rgba(255,255,255,0.9),inset_0_-1px_0_rgba(139,108,78,0.03)]",
+        "hover:shadow-[0_2px_4px_rgba(139,108,78,0.08),0_12px_32px_rgba(139,108,78,0.08),inset_0_1px_0_rgba(255,255,255,1),inset_0_-1px_0_rgba(139,108,78,0.04)]",
+        "bg-gradient-to-b from-[#fdfcf9] to-[#faf7f2]",
         className
       )}
       {...props}
