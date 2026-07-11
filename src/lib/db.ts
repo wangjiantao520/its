@@ -527,6 +527,24 @@ export async function initDatabase() {
       )
     `);
 
+    // 智能体会话表
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS agent_sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT UNIQUE NOT NULL,
+        user_id INTEGER,
+        agent_id INTEGER,
+        title TEXT DEFAULT '新对话',
+        message_count INTEGER DEFAULT 0,
+        last_message_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        is_deleted INTEGER DEFAULT 0,
+        FOREIGN KEY (user_id) REFERENCES users(id),
+        FOREIGN KEY (agent_id) REFERENCES agent_configs(id)
+      )
+    `);
+
     // 智能体对话日志表
     db.exec(`
       CREATE TABLE IF NOT EXISTS agent_logs (
@@ -539,7 +557,8 @@ export async function initDatabase() {
         actions_executed TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users(id),
-        FOREIGN KEY (agent_id) REFERENCES agent_configs(id)
+        FOREIGN KEY (agent_id) REFERENCES agent_configs(id),
+        FOREIGN KEY (session_id) REFERENCES agent_sessions(session_id)
       )
     `);
 

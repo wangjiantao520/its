@@ -115,10 +115,42 @@ export async function POST(
   try {
     const { id } = await params;
     const body = await request.json();
-    const { message, history = [] } = body;
+    const { message, history = [], session_id } = body;
     
     if (!message) {
       return Response.json({ error: '消息不能为空' }, { status: 400 });
+    }
+    
+    // 从cookie获取用户信息
+    const cookieHeader = request.headers.get('cookie') || '';
+    const sessionMatch = cookieHeader.match(/session=([^;]+)/);
+    let userId = 1;
+    let userName = '用户';
+    if (sessionMatch) {
+      try {
+        const sessionData = JSON.parse(decodeURIComponent(sessionMatch[1]));
+        userId = sessionData.userId || 1;
+        userName = sessionData.name || '用户';
+      } catch {}
+    }
+    
+    // 处理会话：如果有session_id则更新，没有则创建
+    const finalSessionId = session_id || `sess_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const firstLine = message.slice(0, 30);
+    
+    if (session_id) {
+      // 更新已有会话：更新最后消息时间和消息计数
+      await pool.execute(
+        `UPDATE agent_sessions SET last_message = ?, updated_at = datetime('now'), message_count = message_count + 1 WHERE session_id = ?`,
+        [firstLine, session_id]
+      );
+    } else {
+      // 创建新会话
+      await pool.execute(
+        `INSERT INTO agent_sessions (session_id, agent_id, user_id, user_name, title, last_message, message_count, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, 1, datetime('now'), datetime('now'))`,
+        [finalSessionId, id, userId, userName, firstLine, firstLine]
+      );
     }
     
     // 获取智能体配置
@@ -160,15 +192,14 @@ export async function POST(
 请告诉我您需要什么帮助？`;
     
     // 记录日志
-    const sessionId = `session_${Date.now()}`;
     await pool.execute(
       `INSERT INTO agent_logs (user_id, agent_id, session_id, log_id, user_message, agent_response, actions_executed) 
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [
-        1, // 临时用户ID
+        userId,
         id,
-        sessionId,
-        `log_${Date.now()}`,
+        finalSessionId,
+        `log_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         message,
         response,
         JSON.stringify(intent ? [intent.skill] : [])
@@ -181,7 +212,7 @@ export async function POST(
       async start(controller) {
         // 发送开始事件
         controller.enqueue(encoder.encode(
-          `data: ${JSON.stringify({ type: 'start', session_id: sessionId })}\n\n`
+          `data: ${JSON.stringify({ type: 'start', session_id: finalSessionId })}\n\n`
         ));
         
         // 发送技能执行结果

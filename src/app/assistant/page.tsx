@@ -1,346 +1,495 @@
-'use client';
+"use client";
 
-import { useState, useEffect, useRef } from 'react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Bot, User, Send, Paperclip, Loader2, MessageSquare, Calculator, FileText, Wrench, ClipboardList } from 'lucide-react';
-import { useToast } from '@/hooks/use-toast';
+import React, { useState, useEffect, useRef, Suspense, useCallback } from "react";
+import {
+  MessageSquare,
+  Send,
+  Plus,
+  Trash2,
+  X,
+  Menu,
+  Calculator,
+  FileText,
+  Bot,
+  Search,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Textarea } from "@/components/ui/textarea";
+import { useRouter, useSearchParams } from "next/navigation";
+import { TiltIcon } from "@/components/ui/tilt-icon";
 
 interface Message {
-  id: string;
-  role: 'user' | 'assistant';
+  role: "user" | "assistant";
   content: string;
-  timestamp: Date;
 }
 
-interface Agent {
-  id: number;
-  name: string;
-  description: string;
-  enabled: number;
+interface Session {
+  session_id: string;
+  title: string;
+  last_message: string;
+  updated_at: string;
 }
 
-export default function AssistantPage() {
+function AssistantContent() {
+  const searchParams = useSearchParams();
   const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState('');
+  const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [agent, setAgent] = useState<Agent | null>(null);
-  const [sessionId, setSessionId] = useState('');
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const { toast } = useToast();
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // 加载会话列表
+  const loadSessions = useCallback(async () => {
+    try {
+      const res = await fetch("/api/agent-sessions");
+      const data = await res.json();
+      if (data.success) {
+        setSessions(data.data.list || []);
+      }
+    } catch (e) {
+      console.error("加载会话失败", e);
+    }
+  }, []);
+
+  // 加载某个会话的消息
+  const loadSession = useCallback(async (sessionId: string) => {
+    try {
+      const res = await fetch(`/api/agent-sessions/${sessionId}`);
+      const data = await res.json();
+      if (data.success) {
+        setMessages(data.data.messages || []);
+        setCurrentSessionId(sessionId);
+      }
+    } catch (e) {
+      console.error("加载会话详情失败", e);
+    }
+  }, []);
 
   useEffect(() => {
-    loadAgent();
-    generateSessionId();
-  }, []);
+    loadSessions();
+    // 检查URL参数
+    const sessionId = searchParams.get("session");
+    if (sessionId) {
+      loadSession(sessionId);
+    }
+  }, [loadSessions, loadSession, searchParams]);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
 
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
 
-  const loadAgent = async () => {
-    try {
-      const res = await fetch('/api/agents');
-      if (res.ok) {
-        const agents = await res.json();
-        const enabledAgent = agents.find((a: Agent) => a.enabled === 1);
-        if (enabledAgent) {
-          setAgent(enabledAgent);
-        }
-      }
-    } catch (error) {
-      console.error('加载智能体失败:', error);
-    }
-  };
-
-  const generateSessionId = () => {
-    const id = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    setSessionId(id);
-  };
-
-  const scrollToBottom = () => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  };
-
   const handleSend = async () => {
-    if (!input.trim() || !agent) return;
+    if (!input.trim() || isLoading) return;
 
-    const userMessage: Message = {
-      id: `msg_${Date.now()}`,
-      role: 'user',
-      content: input,
-      timestamp: new Date(),
-    };
-
-    setMessages((prev) => [...prev, userMessage]);
-    setInput('');
+    const userMessage: Message = { role: "user", content: input.trim() };
+    const newMessages = [...messages, userMessage];
+    setMessages(newMessages);
+    setInput("");
     setIsLoading(true);
 
+    // 自动调整textarea高度
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto";
+    }
+
     try {
-      const res = await fetch(`/api/agents/${agent.id}/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const response = await fetch(`/api/agents/1/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message: input,
-          session_id: sessionId,
-          history: messages.map((m) => ({
-            role: m.role,
-            content: m.content,
-          })),
+          message: input.trim(),
+          sessionId: currentSessionId,
+          history: newMessages.slice(-10),
         }),
       });
 
-      if (!res.ok) {
-        throw new Error('请求失败');
-      }
+      if (!response.ok) throw new Error("请求失败");
 
-      const reader = res.body?.getReader();
+      const reader = response.body?.getReader();
       const decoder = new TextDecoder();
-      let assistantContent = '';
+      let assistantMessage = "";
+      let isFirstChunk = true;
 
-      const assistantMessage: Message = {
-        id: `msg_${Date.now()}_assistant`,
-        role: 'assistant',
-        content: '',
-        timestamp: new Date(),
-      };
-
-      setMessages((prev) => [...prev, assistantMessage]);
+      setMessages(prev => [...prev, { role: "assistant", content: "" }]);
 
       if (reader) {
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
 
-          const chunk = decoder.decode(value);
-          const lines = chunk.split('\n');
+          const text = decoder.decode(value, { stream: true });
+          const lines = text.split("\n");
 
           for (const line of lines) {
-            if (line.startsWith('data: ')) {
+            if (line.startsWith("data: ")) {
               const data = line.slice(6);
-              if (data === '[DONE]') continue;
-
+              if (data === "[DONE]") continue;
               try {
                 const parsed = JSON.parse(data);
-                if (parsed.type === 'chunk' && parsed.content) {
-                  assistantContent += parsed.content;
-                  setMessages((prev) =>
-                    prev.map((m) =>
-                      m.id === assistantMessage.id
-                        ? { ...m, content: assistantContent }
-                        : m
-                    )
-                  );
-                } else if (parsed.type === 'error') {
-                  toast({ title: '错误', description: parsed.error, variant: 'destructive' });
+                if (parsed.type === "content" || parsed.content) {
+                  assistantMessage += parsed.content || parsed.text || parsed.chunk || "";
+                  setMessages(prev => {
+                    const updated = [...prev];
+                    updated[updated.length - 1] = {
+                      role: "assistant",
+                      content: assistantMessage,
+                    };
+                    return updated;
+                  });
                 }
-              } catch {
-                // Ignore parse errors
+                if (parsed.type === "session_start" && parsed.sessionId && isFirstChunk) {
+                  isFirstChunk = false;
+                  setCurrentSessionId(parsed.sessionId);
+                  loadSessions(); // 刷新列表
+                }
+              } catch (e) {
+                // 非JSON数据，可能是纯文本
+                if (data && data !== "[DONE]") {
+                  assistantMessage += data;
+                  setMessages(prev => {
+                    const updated = [...prev];
+                    updated[updated.length - 1] = {
+                      role: "assistant",
+                      content: assistantMessage,
+                    };
+                    return updated;
+                  });
+                }
               }
             }
           }
         }
       }
     } catch (error) {
-      console.error('发送消息失败:', error);
-      toast({ title: '发送失败', description: '请稍后重试', variant: 'destructive' });
+      setMessages(prev => [
+        ...prev,
+        { role: "assistant", content: "抱歉，处理您的请求时出现错误，请稍后重试。" },
+      ]);
     } finally {
       setIsLoading(false);
+      loadSessions(); // 刷新会话列表
     }
   };
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSend();
     }
   };
 
-  const quickActions = [
-    { label: '帮我识别设备清单', icon: '📋' },
-    { label: '计算维保报价', icon: '💰' },
-    { label: '计算工程报价', icon: '🏗️' },
-    { label: '查询设备定额', icon: '📊' },
-    { label: '解释报价公式', icon: '📝' },
-    { label: '生成报价报告', icon: '📄' },
+  const handleNewChat = () => {
+    setMessages([]);
+    setCurrentSessionId(null);
+  };
+
+  const handleDeleteSession = async (sessionId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      const res = await fetch(`/api/agent-sessions/${sessionId}`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSessions(prev => prev.filter(s => s.session_id !== sessionId));
+        if (currentSessionId === sessionId) {
+          setMessages([]);
+          setCurrentSessionId(null);
+        }
+        setShowDeleteConfirm(null);
+      }
+    } catch (e) {
+      console.error("删除会话失败", e);
+    }
+  };
+
+  const handleSelectSession = (sessionId: string) => {
+    loadSession(sessionId);
+  };
+
+  const quickPrompts = [
+    { icon: FileText, label: "帮我识别设备清单", desc: "上传图片识别设备" },
+    { icon: Calculator, label: "计算维保报价", desc: "快速估算维保费用" },
+    { icon: Calculator, label: "计算工程报价", desc: "辅助工程报价计算" },
+    { icon: Search, label: "查询设备定额", desc: "搜索设备定额信息" },
   ];
 
-  // 辅助报价功能
-  const assistActions = [
-    { 
-      label: '工程报价', 
-      icon: Calculator,
-      description: '辅助创建工程报价单',
-      prompt: '帮我创建一个工程报价单，我需要报价一个ICT项目'
-    },
-    { 
-      label: '维保报价', 
-      icon: Wrench,
-      description: '辅助创建维保报价单',
-      prompt: '帮我创建一个维保报价单，需要计算维保费用'
-    },
-    { 
-      label: '设备识别', 
-      icon: ClipboardList,
-      description: '识别设备清单中的设备',
-      prompt: '帮我识别设备清单中的设备，我会上传设备清单图片'
-    },
-    { 
-      label: '定额查询', 
-      icon: FileText,
-      description: '查询设备定额信息',
-      prompt: '帮我查询一下设备的定额信息'
-    },
-  ];
+  const formatTime = (timeStr: string) => {
+    const date = new Date(timeStr);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 1) return "刚刚";
+    if (diffMins < 60) return `${diffMins}分钟前`;
+    if (diffHours < 24) return `${diffHours}小时前`;
+    if (diffDays < 7) return `${diffDays}天前`;
+    return date.toLocaleDateString("zh-CN", { month: "short", day: "numeric" });
+  };
 
   return (
-    <div className="container mx-auto p-6 h-[calc(100vh-2rem)]">
-      <div className="fabric-card h-full flex flex-col bg-canvas-texture overflow-hidden">
-        <div className="p-5 border-b border-border/50 flex-shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#a67c52] to-[#8b5a2b] flex items-center justify-center shadow-[0_2px_4px_rgba(61,44,30,0.15)]">
-              <Bot className="h-6 w-6 text-white" />
+    <div className="flex h-[calc(100vh-100px)] gap-4">
+      {/* 侧边栏 - 会话历史 */}
+      <div
+        className={`flex-shrink-0 transition-all duration-300 ease-out ${
+          sidebarOpen ? "w-64" : "w-0 overflow-hidden"
+        }`}
+      >
+        <Card className="h-full flex flex-col overflow-hidden bg-card/80 backdrop-blur-sm">
+          <CardHeader className="p-3 pb-0 shrink-0">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <div className="icon-3d-sm flex items-center justify-center">
+                  <MessageSquare size={16} className="text-primary" />
+                </div>
+                <span className="font-semibold text-foreground">会话</span>
+              </div>
+              <button
+                onClick={() => setSidebarOpen(false)}
+                className="p-1 rounded-lg hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <X size={16} />
+              </button>
             </div>
-            <div>
-              <h2 className="text-lg font-semibold font-serif">{agent?.name || 'ITS智能助手'}</h2>
-              <p className="text-sm text-muted-foreground">
-                {agent?.description || '我可以帮助您进行设备识别、报价计算、定额查询等操作'}
-              </p>
-            </div>
-          </div>
-        </div>
+            <Button
+              onClick={handleNewChat}
+              className="w-full gap-2 bg-gradient-to-b from-primary/90 to-primary/80 hover:from-primary hover:to-primary/90 text-white shadow-sm hover:shadow-md transition-all"
+              size="sm"
+            >
+              <Plus size={16} />
+              新建对话
+            </Button>
+          </CardHeader>
+          <CardContent className="flex-1 overflow-hidden p-2">
+            <ScrollArea className="h-full pr-1">
+              {sessions.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 text-center px-4">
+                  <div className="w-12 h-12 rounded-full bg-muted/50 flex items-center justify-center mb-3">
+                    <MessageSquare size={20} className="text-muted-foreground/50" />
+                  </div>
+                  <p className="text-sm text-muted-foreground/70">暂无会话记录</p>
+                  <p className="text-xs text-muted-foreground/50 mt-1">
+                    开始新对话后自动保存
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  {sessions.map(session => (
+                    <div
+                      key={session.session_id}
+                      onClick={() => handleSelectSession(session.session_id)}
+                      className={`group relative p-3 rounded-xl cursor-pointer transition-all duration-200 ${
+                        currentSessionId === session.session_id
+                          ? "bg-primary/10 border border-primary/20"
+                          : "hover:bg-muted/50 border border-transparent"
+                      }`}
+                    >
+                      <div className="flex items-start gap-2">
+                        <div className="mt-0.5 flex-shrink-0">
+                          <Bot
+                            size={14}
+                            className={
+                              currentSessionId === session.session_id
+                                ? "text-primary"
+                                : "text-muted-foreground/60"
+                            }
+                          />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <h3
+                            className={`text-sm font-medium truncate ${
+                              currentSessionId === session.session_id
+                                ? "text-foreground"
+                                : "text-foreground/80"
+                            }`}
+                          >
+                            {session.title}
+                          </h3>
+                          <p className="text-xs text-muted-foreground/70 truncate mt-0.5">
+                            {session.last_message || "暂无消息"}
+                          </p>
+                          <p className="text-xs text-muted-foreground/50 mt-1">
+                            {formatTime(session.updated_at)}
+                          </p>
+                        </div>
+                        <button
+                          onClick={(e) => handleDeleteSession(session.session_id, e)}
+                          className="flex-shrink-0 opacity-0 group-hover:opacity-100 p-1 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-all"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </ScrollArea>
+          </CardContent>
+        </Card>
+      </div>
 
-        <ScrollArea className="flex-1 p-6" ref={scrollRef}>
-          <div className="space-y-4">
-            {messages.length === 0 && (
-              <div className="space-y-8">
-                {/* 辅助报价功能区 */}
-                <div>
-                  <h3 className="text-lg font-medium mb-4 text-center font-serif">辅助报价功能</h3>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    {assistActions.map((action) => (
-                      <div 
-                        key={action.label} 
-                        className="fabric-card cursor-pointer p-5 hover:-translate-y-1 hover:shadow-fabric transition-all duration-200 group"
-                        onClick={() => setInput(action.prompt)}
+      {/* 主内容区 */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* 顶部栏 */}
+        <Card className="shrink-0 mb-3 bg-card/80 backdrop-blur-sm">
+          <CardHeader className="py-3 px-4 flex flex-row items-center justify-between">
+            <div className="flex items-center gap-3">
+              {!sidebarOpen && (
+                <button
+                  onClick={() => setSidebarOpen(true)}
+                  className="p-1.5 rounded-lg hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <Menu size={18} />
+                </button>
+              )}
+              <div className="icon-3d flex items-center justify-center">
+                <Bot size={20} className="text-primary" />
+              </div>
+              <div>
+                <CardTitle className="text-lg font-semibold">智能报价助手</CardTitle>
+                <CardDescription className="text-xs">
+                  帮您快速完成设备识别、报价计算、定额查询
+                </CardDescription>
+              </div>
+            </div>
+            {currentSessionId && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleNewChat}
+                className="gap-1.5 hover:bg-primary/5 border-primary/20 text-primary/80 hover:text-primary transition-colors"
+              >
+                <Plus size={14} />
+                新对话
+              </Button>
+            )}
+          </CardHeader>
+        </Card>
+
+        {/* 对话区域 */}
+        <Card className="flex-1 flex flex-col overflow-hidden bg-card/80 backdrop-blur-sm">
+          <CardContent className="flex-1 flex flex-col overflow-hidden p-0">
+            <ScrollArea className="flex-1 px-4 py-4">
+              {messages.length === 0 ? (
+                <div className="h-full flex flex-col items-center justify-center max-w-2xl mx-auto">
+                  <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary/15 to-primary/5 flex items-center justify-center mb-4 shadow-sm">
+                    <Bot size={28} className="text-primary" />
+                  </div>
+                  <h2 className="text-xl font-semibold text-foreground mb-2">
+                    智能报价助手
+                  </h2>
+                  <p className="text-sm text-muted-foreground mb-6 text-center">
+                    您好！我是ITS智能报价助手，可以帮您识别设备清单、计算报价、查询定额。
+                    有什么可以帮您的？
+                  </p>
+
+                  <div className="w-full grid grid-cols-2 gap-3 mb-6">
+                    {quickPrompts.map(({ icon: Icon, label, desc }) => (
+                      <button
+                        key={label}
+                        onClick={() => setInput(label)}
+                        className="p-4 rounded-xl border border-border/50 bg-gradient-to-br from-card to-muted/30 text-left hover:border-primary/30 hover:shadow-sm transition-all duration-200 group"
                       >
-                        <div className="flex flex-col items-center text-center gap-3">
-                          <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-[#f5efe3] to-[#ebe2d3] flex items-center justify-center group-hover:from-[#e8ddd0] group-hover:to-[#d9ccb8] transition-all duration-200 shadow-[inset_0_1px_2px_rgba(61,44,30,0.05)]">
-                            <action.icon className="h-7 w-7 text-primary" />
-                          </div>
-                          <div>
-                            <p className="font-medium text-foreground">{action.label}</p>
-                            <p className="text-xs text-muted-foreground mt-1">{action.description}</p>
-                          </div>
+                        <TiltIcon className="text-primary inline-flex">
+                          <Icon size={20} />
+                        </TiltIcon>
+                        <div className="mt-2 text-sm font-medium text-foreground">
+                          {label}
+                        </div>
+                        <div className="mt-0.5 text-xs text-muted-foreground">{desc}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="max-w-3xl mx-auto space-y-4">
+                  {messages.map((msg, index) => (
+                    <div
+                      key={index}
+                      className={`flex ${
+                        msg.role === "user" ? "justify-end" : "justify-start"
+                      }`}
+                    >
+                      <div
+                        className={`max-w-[80%] px-4 py-3 rounded-2xl ${
+                          msg.role === "user"
+                            ? "bg-gradient-to-br from-primary/95 to-primary/85 text-primary-foreground rounded-br-md shadow-sm"
+                            : "bg-gradient-to-br from-card to-muted/20 text-foreground rounded-bl-md border border-border/50"
+                        }`}
+                      >
+                        <div className="text-sm whitespace-pre-wrap leading-relaxed">
+                          {msg.content || (
+                            <span className="inline-block w-2 h-4 bg-current animate-pulse rounded" />
+                          )}
                         </div>
                       </div>
-                    ))}
-                  </div>
+                    </div>
+                  ))}
+                  <div ref={messagesEndRef} />
                 </div>
+              )}
+            </ScrollArea>
 
-                {/* 快捷对话区 */}
-                <div className="text-center py-6">
-                  <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-muted/50 flex items-center justify-center">
-                    <MessageSquare className="h-8 w-8 text-muted-foreground/60" />
-                  </div>
-                  <h3 className="text-lg font-medium mb-2 font-serif">快捷对话</h3>
-                  <p className="text-muted-foreground mb-4">
-                    或者尝试以下快捷操作：
-                  </p>
-                  <div className="flex flex-wrap justify-center gap-2">
-                    {quickActions.map((action) => (
-                      <Button
-                        key={action.label}
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => setInput(action.label)}
-                      >
-                        <span className="mr-1">{action.icon}</span>
-                        {action.label}
-                      </Button>
-                    ))}
-                  </div>
+            {/* 输入区域 */}
+            <div className="p-4 border-t border-border/40 bg-gradient-to-t from-muted/20 to-transparent">
+              <div className="max-w-3xl mx-auto">
+                <div className="flex items-end gap-3 p-3 rounded-xl bg-muted/30 border border-border/40 focus-within:border-primary/30 focus-within:ring-2 focus-within:ring-primary/10 transition-all">
+                  <Textarea
+                    ref={textareaRef}
+                    value={input}
+                    onChange={e => {
+                      setInput(e.target.value);
+                      e.target.style.height = "auto";
+                      e.target.style.height = Math.min(e.target.scrollHeight, 150) + "px";
+                    }}
+                    onKeyDown={handleKeyDown}
+                    placeholder="输入您的问题，按 Enter 发送..."
+                    className="flex-1 resize-none bg-transparent border-none focus:ring-0 text-sm placeholder:text-muted-foreground/40 min-h-[24px] max-h-[150px] p-0"
+                    rows={1}
+                  />
+                  <Button
+                    onClick={handleSend}
+                    disabled={!input.trim() || isLoading}
+                    size="icon"
+                    className="shrink-0 w-9 h-9 rounded-xl bg-gradient-to-b from-primary/90 to-primary/80 hover:from-primary hover:to-primary/90 text-white shadow-sm disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                  >
+                    <Send size={16} />
+                  </Button>
                 </div>
+                <p className="text-xs text-muted-foreground/50 text-center mt-2">
+                  AI生成内容仅供参考，请结合实际情况核对
+                </p>
               </div>
-            )}
-
-            {messages.map((message) => (
-              <div
-                key={message.id}
-                className={`flex gap-3 ${
-                  message.role === 'user' ? 'justify-end' : 'justify-start'
-                }`}
-              >
-                {message.role === 'assistant' && (
-                  <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#a67c52] to-[#8b5a2b] flex items-center justify-center flex-shrink-0 shadow-[0_2px_4px_rgba(61,44,30,0.15)]">
-                    <Bot className="h-4 w-4 text-white" />
-                  </div>
-                )}
-                <div
-                  className={`rounded-xl px-4 py-3 max-w-[80%] ${
-                    message.role === 'user'
-                      ? 'bg-gradient-to-br from-[#a67c52] to-[#8b5a2b] text-white shadow-[0_2px_4px_rgba(61,44,30,0.15)]'
-                      : 'bg-card border border-border/60 shadow-[0_1px_2px_rgba(61,44,30,0.06)]'
-                  }`}
-                >
-                  <p className="whitespace-pre-wrap text-sm leading-relaxed">{message.content}</p>
-                  <p className={`text-xs mt-1.5 ${
-                    message.role === 'user' ? 'text-white/60' : 'text-muted-foreground'
-                  }`}>
-                    {message.timestamp.toLocaleTimeString()}
-                  </p>
-                </div>
-                {message.role === 'user' && (
-                  <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#f5efe3] to-[#ebe2d3] flex items-center justify-center flex-shrink-0 border border-border/60">
-                    <User className="h-4 w-4 text-primary" />
-                  </div>
-                )}
-              </div>
-            ))}
-
-            {isLoading && (
-              <div className="flex gap-3">
-                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#a67c52] to-[#8b5a2b] flex items-center justify-center flex-shrink-0 shadow-[0_2px_4px_rgba(61,44,30,0.15)]">
-                  <Bot className="h-4 w-4 text-white" />
-                </div>
-                <div className="bg-card border border-border/60 rounded-xl px-4 py-3 shadow-[0_1px_2px_rgba(61,44,30,0.06)]">
-                  <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                </div>
-              </div>
-            )}
-          </div>
-        </ScrollArea>
-
-        <div className="p-4 border-t border-border/50 flex-shrink-0 bg-card/50">
-          <div className="flex gap-2">
-            <Button variant="secondary" size="icon" disabled>
-              <Paperclip className="h-4 w-4" />
-            </Button>
-            <Input
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyPress}
-              placeholder="输入您的问题..."
-              disabled={isLoading || !agent}
-              className="flex-1"
-            />
-            <Button
-              onClick={handleSend}
-              disabled={isLoading || !input.trim() || !agent}
-            >
-              <Send className="h-4 w-4" />
-            </Button>
-          </div>
-          {!agent && (
-            <p className="text-sm text-muted-foreground text-center mt-3">
-              暂无可用的智能体，请联系管理员配置
-            </p>
-          )}
-        </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </div>
+  );
+}
+
+export default function AssistantPage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center h-64 text-muted-foreground">加载中...</div>}>
+      <AssistantContent />
+    </Suspense>
   );
 }
