@@ -2379,7 +2379,7 @@ export default function EngineeringPage() {
                     } else {
                       // 定额库明细行 - 原有逻辑
                       const quotaItem = getItemById(item.itemType, item.itemId);
-                      if (!quotaItem) return null;
+                      if (!quotaItem) return <tr key={`empty-${item.id}`} style={{display: 'none'}} />;
                       const baseFee = quotaItem.price * item.quantity;
                       const subtotal = baseFee * (1 + managementFeeRate / 100 + profitRate / 100 + regulatoryFeeRate / 100);
                       return (
