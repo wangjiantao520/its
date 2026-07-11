@@ -164,17 +164,17 @@ export default function DashboardPage() {
   const maxMonthlyAmount = Math.max(...stats.monthlyStats.map(m => m.totalAmount), 1);
 
   return (
-    <div className="space-y-4 md:space-y-6 max-w-[1600px] mx-auto">
+    <div className="space-y-4 max-w-[1400px] mx-auto">
       {/* 页面标题和筛选器 */}
-      <div className="fabric-card p-4 md:p-6 bg-linen-texture">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+      <div className="fabric-card px-4 py-3">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-bold stamp-text">数据看板</h1>
-            <p className="text-muted-foreground text-sm mt-1">ITS成员报价数据统计与分析</p>
+            <h1 className="text-xl font-semibold stamp-text">数据看板</h1>
+            <p className="text-muted-foreground text-xs mt-0.5">ITS成员报价数据统计与分析</p>
           </div>
-          <div className="flex gap-3">
+          <div className="flex gap-2">
             <Select value={timeRange} onValueChange={setTimeRange}>
-              <SelectTrigger className="w-[140px] input-fabric h-10">
+              <SelectTrigger className="w-[120px] h-9 text-sm">
                 <SelectValue placeholder="时间范围" />
               </SelectTrigger>
               <SelectContent>
@@ -186,7 +186,7 @@ export default function DashboardPage() {
               </SelectContent>
             </Select>
             <Select value={selectedUserId} onValueChange={setSelectedUserId}>
-              <SelectTrigger className="w-[140px] input-fabric h-10">
+              <SelectTrigger className="w-[120px] h-9 text-sm">
                 <SelectValue placeholder="选择成员" />
               </SelectTrigger>
               <SelectContent>
@@ -203,9 +203,9 @@ export default function DashboardPage() {
       </div>
 
       {/* 总览统计卡片 */}
-      <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-4">
-        <div className="fabric-card p-5 relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-24 h-24 bg-primary/5 rounded-full -mr-10 -mt-10" />
+      <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+        <div className="fabric-card p-4 relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-16 h-16 bg-primary/5 rounded-full -mr-6 -mt-6" />
           <div className="relative">
             <div className="flex items-center justify-between mb-3">
               <span className="text-sm text-muted-foreground">报价总数</span>
@@ -227,8 +227,8 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <div className="fabric-card p-5 relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-24 h-24 bg-primary/5 rounded-full -mr-10 -mt-10" />
+        <div className="fabric-card p-3.5 relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-16 h-16 bg-primary/5 rounded-full -mr-6 -mt-6" />
           <div className="relative">
             <div className="flex items-center justify-between mb-3">
               <span className="text-sm text-muted-foreground">报价总额</span>
@@ -246,8 +246,8 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <div className="fabric-card p-5 relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-24 h-24 bg-primary/5 rounded-full -mr-10 -mt-10" />
+        <div className="fabric-card p-3.5 relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-16 h-16 bg-primary/5 rounded-full -mr-6 -mt-6" />
           <div className="relative">
             <div className="flex items-center justify-between mb-3">
               <span className="text-sm text-muted-foreground">平均报价</span>
@@ -264,8 +264,8 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <div className="fabric-card p-5 relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-24 h-24 bg-primary/5 rounded-full -mr-10 -mt-10" />
+        <div className="fabric-card p-3.5 relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-16 h-16 bg-primary/5 rounded-full -mr-6 -mt-6" />
           <div className="relative">
             <div className="flex items-center justify-between mb-3">
               <span className="text-sm text-muted-foreground">活跃成员</span>
