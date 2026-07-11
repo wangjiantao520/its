@@ -12,7 +12,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Edit, Trash2, Bot, MessageSquare, Settings, Brain, Key, TestTube, Loader2, CheckCircle2, XCircle } from 'lucide-react';
+import { Separator } from '@/components/ui/separator';
+import { Plus, Edit, Trash2, Bot, MessageSquare, Settings, Brain, Key, TestTube, Loader2, CheckCircle2, XCircle, RefreshCw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 // 智能体接口
@@ -71,31 +72,106 @@ const AVAILABLE_SKILLS = [
 const PROVIDER_PRESETS: Record<string, { endpoint: string; models: string[] }> = {
   doubao: {
     endpoint: 'https://ark.cn-beijing.volces.com/api/v3',
-    models: ['doubao-seed-2-0-pro-260215', 'doubao-seed-2-0-lite-260215', 'doubao-seed-2-0-mini-260215', 'doubao-seed-1-8-251228'],
+    models: [
+      'doubao-seed-2-0-pro-260215',
+      'doubao-seed-2-0-lite-260215',
+      'doubao-seed-2-0-mini-260215',
+      'doubao-seed-1-8-251228',
+      'doubao-pro-32k',
+      'doubao-pro-128k',
+      'doubao-lite-32k',
+      'doubao-1-5-pro-32k',
+    ],
   },
   deepseek: {
     endpoint: 'https://api.deepseek.com/v1',
-    models: ['deepseek-chat', 'deepseek-v3-2-251201', 'deepseek-reasoner'],
+    models: [
+      'deepseek-chat',
+      'deepseek-v3-2-251201',
+      'deepseek-reasoner',
+      'deepseek-v4-pro',
+      'deepseek-coder',
+      'deepseek-r1',
+    ],
   },
   openai: {
     endpoint: 'https://api.openai.com/v1',
-    models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'],
+    models: [
+      'gpt-4o',
+      'gpt-4o-mini',
+      'gpt-4-turbo',
+      'gpt-4',
+      'gpt-3.5-turbo',
+      'o1',
+      'o1-mini',
+      'o1-preview',
+      'gpt-4.1',
+      'gpt-4.1-mini',
+      'gpt-4.1-nano',
+    ],
   },
   qwen: {
     endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-    models: ['qwen-turbo', 'qwen-plus', 'qwen-max'],
+    models: [
+      'qwen-turbo',
+      'qwen-plus',
+      'qwen-max',
+      'qwen-long',
+      'qwen2.5-72b-instruct',
+      'qwen2.5-32b-instruct',
+      'qwen2.5-14b-instruct',
+      'qwen2.5-7b-instruct',
+      'qwen3-46b',
+      'qwen3-72b',
+      'qwq-32b',
+    ],
   },
   moonshot: {
     endpoint: 'https://api.moonshot.cn/v1',
-    models: ['moonshot-v1-8k', 'moonshot-v1-32k', 'kimi-k2-5-260127'],
+    models: [
+      'moonshot-v1-8k',
+      'moonshot-v1-32k',
+      'moonshot-v1-128k',
+      'kimi-k2-5-260127',
+      'kimi-k2',
+      'moonshot-k2',
+    ],
   },
   zhipu: {
     endpoint: 'https://open.bigmodel.cn/api/paas/v4',
-    models: ['glm-4', 'glm-4-flash', 'glm-5-0-260211'],
+    models: [
+      'glm-4',
+      'glm-4-flash',
+      'glm-4-plus',
+      'glm-4-air',
+      'glm-4-long',
+      'glm-5-0-260211',
+      'glm-4-0520',
+      'glm-3-turbo',
+    ],
   },
   minimax: {
     endpoint: 'https://api.minimax.chat/v1',
-    models: ['MiniMax-M1', 'abab6.5s-chat', 'abab6.5-chat', 'abab6-chat'],
+    models: [
+      'MiniMax-M1',
+      'abab6.5s-chat',
+      'abab6.5-chat',
+      'abab6-chat',
+      'abab5.5-chat',
+      'abab5.5-chat-0324',
+      'abab5-chat',
+      'minimax-text-01',
+    ],
+  },
+  baichuan: {
+    endpoint: 'https://api.baichuan-ai.com/v1',
+    models: [
+      'Baichuan4',
+      'Baichuan3-Turbo',
+      'Baichuan3-Turbo-128k',
+      'Baichuan2',
+      'Baichuan2-Turbo',
+    ],
   },
 };
 
@@ -121,6 +197,8 @@ export default function AIConfigPage() {
   const [selectedProvider, setSelectedProvider] = useState<string>('doubao');
   const [testingModel, setTestingModel] = useState<number | null>(null);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [fetchingModels, setFetchingModels] = useState(false);
+  const [fetchedModels, setFetchedModels] = useState<string[]>([]);
 
   useEffect(() => {
     loadAgents();
@@ -211,6 +289,53 @@ export default function AIConfigPage() {
       }
     } catch (error) {
       toast({ title: '错误', description: '删除失败', variant: 'destructive' });
+    }
+  };
+
+  // 获取可用模型列表
+  const handleFetchModels = async () => {
+    if (!editingModel.api_key) {
+      toast({ title: '提示', description: '请先输入API Key', variant: 'destructive' });
+      return;
+    }
+
+    setFetchingModels(true);
+    setFetchedModels([]);
+    
+    try {
+      const res = await fetch('/api/ai-models/list-models', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: selectedProvider,
+          api_endpoint: editingModel.api_endpoint || PROVIDER_PRESETS[selectedProvider]?.endpoint,
+          api_key: editingModel.api_key,
+        }),
+      });
+
+      const data = await res.json();
+      
+      if (data.success && data.models) {
+        setFetchedModels(data.models);
+        toast({ 
+          title: '成功', 
+          description: `获取到 ${data.models.length} 个可用模型` 
+        });
+      } else {
+        toast({ 
+          title: '失败', 
+          description: data.error || '获取模型列表失败', 
+          variant: 'destructive' 
+        });
+      }
+    } catch (error) {
+      toast({ 
+        title: '错误', 
+        description: '获取模型列表失败', 
+        variant: 'destructive' 
+      });
+    } finally {
+      setFetchingModels(false);
     }
   };
 
@@ -706,6 +831,7 @@ export default function AIConfigPage() {
                   <SelectItem value="moonshot">Kimi (月之暗面)</SelectItem>
                   <SelectItem value="zhipu">智谱AI</SelectItem>
                   <SelectItem value="minimax">MiniMax</SelectItem>
+                  <SelectItem value="baichuan">百川智能</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -726,7 +852,22 @@ export default function AIConfigPage() {
               />
             </div>
             <div>
-              <Label>模型名称</Label>
+              <div className="flex items-center justify-between mb-2">
+                <Label>模型名称</Label>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={handleFetchModels}
+                  disabled={fetchingModels || !editingModel.api_key}
+                >
+                  {fetchingModels ? (
+                    <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-4 w-4 mr-1" />
+                  )}
+                  获取模型列表
+                </Button>
+              </div>
               <Select 
                 value={editingModel.model_name || ''} 
                 onValueChange={value => setEditingModel({ ...editingModel, model_name: value })}
@@ -735,6 +876,22 @@ export default function AIConfigPage() {
                   <SelectValue placeholder="选择模型" />
                 </SelectTrigger>
                 <SelectContent>
+                  {fetchedModels.length > 0 && (
+                    <>
+                      <div className="px-2 py-1 text-xs text-muted-foreground font-medium">
+                        可用模型 ({fetchedModels.length})
+                      </div>
+                      {fetchedModels.map(model => (
+                        <SelectItem key={model} value={model}>
+                          {model}
+                        </SelectItem>
+                      ))}
+                      <Separator />
+                    </>
+                  )}
+                  <div className="px-2 py-1 text-xs text-muted-foreground font-medium">
+                    预设模型
+                  </div>
                   {(PROVIDER_PRESETS[selectedProvider]?.models || []).map(model => (
                     <SelectItem key={model} value={model}>
                       {model}
@@ -742,6 +899,11 @@ export default function AIConfigPage() {
                   ))}
                 </SelectContent>
               </Select>
+              {fetchedModels.length > 0 && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  已从API获取 {fetchedModels.length} 个可用模型
+                </p>
+              )}
             </div>
             <div>
               <Label>API Key</Label>
