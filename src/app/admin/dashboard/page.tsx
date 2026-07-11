@@ -164,9 +164,9 @@ export default function DashboardPage() {
   const maxMonthlyAmount = Math.max(...stats.monthlyStats.map(m => m.totalAmount), 1);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-6 max-w-[1600px] mx-auto">
       {/* 页面标题和筛选器 */}
-      <div className="fabric-card p-6 bg-linen-texture">
+      <div className="fabric-card p-4 md:p-6 bg-linen-texture">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold stamp-text">数据看板</h1>
