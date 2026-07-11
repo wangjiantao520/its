@@ -50,8 +50,10 @@ export function AppLayout({ children }: AppLayoutProps) {
             </BreadcrumbList>
           </Breadcrumb>
         </header>
-        <main className="flex-1 overflow-auto p-3 md:p-6">
-          {children}
+        <main className="flex-1 overflow-auto w-full">
+          <div className="mx-auto w-full max-w-7xl px-3 py-4 md:px-6 md:py-6">
+            {children}
+          </div>
         </main>
       </SidebarInset>
     </SidebarProvider>
