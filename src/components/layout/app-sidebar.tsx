@@ -41,6 +41,7 @@ import { useUser } from '@/contexts/user-context';
 import { useTheme } from '@/contexts/theme-context';
 import { UserRole, Role } from '@/lib/roles';
 import { Button } from '@/components/ui/button';
+import { TiltIcon } from '@/components/ui/tilt-icon';
 
 // ITS成员的导航项
 const itsMemberNavItems = [
@@ -171,9 +172,9 @@ export function AppSidebar() {
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton asChild isActive={pathname === item.url}>
                     <Link href={item.url} className="flex items-center gap-3">
-                      <span className="icon-3d icon-3d-sm">
+                      <TiltIcon className="icon-3d icon-3d-sm" max={15} scale={1.08}>
                         <item.icon className="h-4 w-4" />
-                      </span>
+                      </TiltIcon>
                       <span>{item.title}</span>
                     </Link>
                   </SidebarMenuButton>
