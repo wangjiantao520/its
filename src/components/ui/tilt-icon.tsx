@@ -12,12 +12,13 @@ interface TiltIconProps {
   sizeThresholds?: { minSize: number; maxSize: number; max: number }[]; // 尺寸阈值
 }
 
-// 图标尺寸阈值（图标通常比卡片小，角度更大）
+// 图标尺寸阈值（图标越大，倾斜角度越小）
 const ICON_SIZE_THRESHOLDS = [
-  { minSize: 0, maxSize: 24, max: 8 },     // 小图标（<24px）：倾斜8度
-  { minSize: 24, maxSize: 32, max: 12 },   // 中图标（24-32px）：倾斜12度
-  { minSize: 32, maxSize: 48, max: 15 },   // 大图标（32-48px）：倾斜15度
-  { minSize: 48, maxSize: 9999, max: 18 }, // 超大图标（>48px）：倾斜18度
+  { minSize: 0, maxSize: 20, max: 18 },     // 小图标（<20px）：18度，灵动
+  { minSize: 20, maxSize: 28, max: 14 },    // 中小图标（20-28px）：14度
+  { minSize: 28, maxSize: 36, max: 10 },    // 中等图标（28-36px）：10度
+  { minSize: 36, maxSize: 48, max: 6 },     // 大图标（36-48px）：6度
+  { minSize: 48, maxSize: 9999, max: 3 },   // 超大图标（>48px）：3度，稳重
 ];
 
 function calculateMaxBySize(
@@ -28,10 +29,16 @@ function calculateMaxBySize(
   const dominantSize = Math.max(width, height);
   for (const threshold of thresholds) {
     if (dominantSize >= threshold.minSize && dominantSize < threshold.maxSize) {
+      // 找到下一个阈值的角度，线性插值平滑过渡
+      const nextThreshold = thresholds.find(t => t.minSize === threshold.maxSize);
+      if (nextThreshold) {
+        const ratio = (dominantSize - threshold.minSize) / (threshold.maxSize - threshold.minSize);
+        return threshold.max - ratio * (threshold.max - nextThreshold.max);
+      }
       return threshold.max;
     }
   }
-  return 12;
+  return 10;
 }
 
 export function TiltIcon({

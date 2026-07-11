@@ -12,12 +12,13 @@ interface TiltOptions {
 }
 
 // 默认尺寸阈值配置：按卡片主导尺寸（宽高中较大值）分档
+// 规则：卡片越大，倾斜角度越小（大卡片稳重，小卡片灵动）
 const DEFAULT_SIZE_THRESHOLDS = [
-  { minSize: 0, maxSize: 160, max: 3 },     // 小卡片（<160px）：倾斜3度
-  { minSize: 160, maxSize: 240, max: 5 },   // 中小卡片（160-240px）：倾斜5度
-  { minSize: 240, maxSize: 320, max: 7 },   // 中等卡片（240-320px）：倾斜7度
-  { minSize: 320, maxSize: 480, max: 9 },   // 大卡片（320-480px）：倾斜9度
-  { minSize: 480, maxSize: 9999, max: 12 }, // 超大卡片（>480px）：倾斜12度
+  { minSize: 0, maxSize: 160, max: 12 },     // 小卡片（<160px）：倾斜12度，灵动
+  { minSize: 160, maxSize: 240, max: 8 },    // 中小卡片（160-240px）：倾斜8度
+  { minSize: 240, maxSize: 320, max: 5 },    // 中等卡片（240-320px）：倾斜5度
+  { minSize: 320, maxSize: 480, max: 3 },    // 大卡片（320-480px）：倾斜3度，稳重
+  { minSize: 480, maxSize: 9999, max: 1.5 }, // 超大卡片（>480px）：倾斜1.5度，微倾斜
 ];
 
 function calculateMaxBySize(
@@ -27,12 +28,19 @@ function calculateMaxBySize(
 ): number {
   // 取宽高中的较大值作为判断基准（主导尺寸）
   const dominantSize = Math.max(width, height);
+  // 线性插值：在阈值区间内平滑过渡，而非阶梯跳变
   for (const threshold of thresholds) {
     if (dominantSize >= threshold.minSize && dominantSize < threshold.maxSize) {
+      // 找到下一个阈值的角度，用于线性插值
+      const nextThreshold = thresholds.find(t => t.minSize === threshold.maxSize);
+      if (nextThreshold) {
+        const ratio = (dominantSize - threshold.minSize) / (threshold.maxSize - threshold.minSize);
+        return threshold.max - ratio * (threshold.max - nextThreshold.max);
+      }
       return threshold.max;
     }
   }
-  return 5; // 默认5度
+  return 3; // 默认3度
 }
 
 export function useTilt<T extends HTMLElement = HTMLDivElement>(
