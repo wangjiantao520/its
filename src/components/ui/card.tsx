@@ -10,9 +10,10 @@ function Card({ className, ...props }: React.ComponentProps<"div">) {
         "text-card-foreground flex flex-col gap-6 rounded-xl border border-border/70",
         "bg-gradient-to-b from-[#fdfcf9] to-[#faf7f2]",
         "shadow-[0_1px_3px_rgba(92,74,58,0.05),0_4px_12px_rgba(92,74,58,0.06),inset_0_1px_0_rgba(255,255,255,0.9),inset_0_-1px_0_rgba(166,124,82,0.03)]",
-        "hover:shadow-[0_3px_6px_rgba(92,74,58,0.06),0_14px_36px_rgba(92,74,58,0.1),inset_0_1px_0_rgba(255,255,255,1)]",
+        "hover:shadow-[0_4px_8px_rgba(92,74,58,0.08),0_20px_40px_rgba(92,74,58,0.12),inset_0_1px_0_rgba(255,255,255,1)]",
         "transition-all duration-[260ms] ease-[cubic-bezier(0.4,0,0.2,1)]",
-        "hover:translate-x-1 hover:-translate-y-1",
+        "hover:-translate-y-2 hover:[transform:perspective(1000px)_rotateY(-5deg)_rotateX(2deg)]",
+        "will-change-transform",
         className
       )}
       {...props}
