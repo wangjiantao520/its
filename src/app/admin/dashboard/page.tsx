@@ -166,50 +166,55 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6">
       {/* 页面标题和筛选器 */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">数据看板</h1>
-          <p className="text-muted-foreground text-sm mt-1">ITS成员报价数据统计与分析</p>
-        </div>
-        <div className="flex gap-3">
-          <Select value={timeRange} onValueChange={setTimeRange}>
-            <SelectTrigger className="w-[140px]">
-              <SelectValue placeholder="时间范围" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">全部时间</SelectItem>
-              <SelectItem value="today">今日</SelectItem>
-              <SelectItem value="week">近7天</SelectItem>
-              <SelectItem value="month">本月</SelectItem>
-              <SelectItem value="year">本年</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select value={selectedUserId} onValueChange={setSelectedUserId}>
-            <SelectTrigger className="w-[140px]">
-              <SelectValue placeholder="选择成员" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">全部成员</SelectItem>
-              {stats.topUsers.map((user) => (
-                <SelectItem key={user.userId} value={user.userId}>
-                  {user.userName}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+      <div className="fabric-card p-6 bg-linen-texture">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold stamp-text">数据看板</h1>
+            <p className="text-muted-foreground text-sm mt-1">ITS成员报价数据统计与分析</p>
+          </div>
+          <div className="flex gap-3">
+            <Select value={timeRange} onValueChange={setTimeRange}>
+              <SelectTrigger className="w-[140px] input-fabric h-10">
+                <SelectValue placeholder="时间范围" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">全部时间</SelectItem>
+                <SelectItem value="today">今日</SelectItem>
+                <SelectItem value="week">近7天</SelectItem>
+                <SelectItem value="month">本月</SelectItem>
+                <SelectItem value="year">本年</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={selectedUserId} onValueChange={setSelectedUserId}>
+              <SelectTrigger className="w-[140px] input-fabric h-10">
+                <SelectValue placeholder="选择成员" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">全部成员</SelectItem>
+                {stats.topUsers.map((user) => (
+                  <SelectItem key={user.userId} value={user.userId}>
+                    {user.userName}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
       </div>
 
       {/* 总览统计卡片 */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card className="border-l-4 border-l-primary">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">报价总数</CardTitle>
-            <FileText className="h-5 w-5 text-primary" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-foreground">{stats.overview.totalCount}</div>
-            <div className="flex items-center justify-between mt-2 text-xs text-muted-foreground">
+        <div className="fabric-card p-6 relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-20 h-20 bg-primary/5 rounded-full -mr-8 -mt-8" />
+          <div className="relative">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-sm text-muted-foreground">报价总数</span>
+              <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                <FileText className="h-5 w-5 text-primary" />
+              </div>
+            </div>
+            <div className="text-2xl font-bold text-foreground font-serif">{stats.overview.totalCount}</div>
+            <div className="flex items-center justify-between mt-3 text-xs text-muted-foreground">
               <span className="flex items-center gap-1">
                 <Building2 className="h-3 w-3" />
                 工程 {stats.overview.engineeringCount}
@@ -219,52 +224,61 @@ export default function DashboardPage() {
                 维保 {stats.overview.maintenanceCount}
               </span>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
 
-        <Card className="border-l-4 border-l-emerald-500">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">报价总额</CardTitle>
-            <DollarSign className="h-5 w-5 text-emerald-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-foreground">
+        <div className="fabric-card p-6 relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-20 h-20 bg-moss/10 rounded-full -mr-8 -mt-8" />
+          <div className="relative">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-sm text-muted-foreground">报价总额</span>
+              <div className="w-10 h-10 rounded-lg bg-moss/15 flex items-center justify-center">
+                <DollarSign className="h-5 w-5 text-moss" />
+              </div>
+            </div>
+            <div className="text-2xl font-bold text-foreground font-serif">
               {formatCurrency(stats.overview.totalAmount)}
             </div>
-            <div className="flex items-center justify-between mt-2 text-xs text-muted-foreground">
+            <div className="flex items-center justify-between mt-3 text-xs text-muted-foreground">
               <span>工程 {formatNumber(stats.overview.engineeringAmount)}</span>
               <span>维保 {formatNumber(stats.overview.maintenanceAmount)}</span>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
 
-        <Card className="border-l-4 border-l-amber-500">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">平均报价</CardTitle>
-            <TrendingUp className="h-5 w-5 text-amber-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-foreground">
+        <div className="fabric-card p-6 relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-20 h-20 bg-terracotta/10 rounded-full -mr-8 -mt-8" />
+          <div className="relative">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-sm text-muted-foreground">平均报价</span>
+              <div className="w-10 h-10 rounded-lg bg-terracotta/15 flex items-center justify-center">
+                <TrendingUp className="h-5 w-5 text-terracotta" />
+              </div>
+            </div>
+            <div className="text-2xl font-bold text-foreground font-serif">
               {formatCurrency(stats.overview.avgAmount)}
             </div>
-            <p className="text-xs text-muted-foreground mt-2">
+            <p className="text-xs text-muted-foreground mt-3">
               单次报价平均金额
             </p>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
 
-        <Card className="border-l-4 border-l-violet-500">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">活跃成员</CardTitle>
-            <Users className="h-5 w-5 text-violet-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-foreground">{stats.topUsers.length}</div>
-            <p className="text-xs text-muted-foreground mt-2">
+        <div className="fabric-card p-6 relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-20 h-20 bg-clay/10 rounded-full -mr-8 -mt-8" />
+          <div className="relative">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-sm text-muted-foreground">活跃成员</span>
+              <div className="w-10 h-10 rounded-lg bg-clay/15 flex items-center justify-center">
+                <Users className="h-5 w-5 text-clay" />
+              </div>
+            </div>
+            <div className="text-2xl font-bold text-foreground font-serif">{stats.topUsers.length}</div>
+            <p className="text-xs text-muted-foreground mt-3">
               有报价记录的成员数
             </p>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       </div>
 
       {/* 月度趋势和成员统计 */}
