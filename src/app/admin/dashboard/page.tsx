@@ -207,10 +207,11 @@ export default function DashboardPage() {
       {/* 总览统计卡片 */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <TiltCard 
-          className="p-5 relative overflow-hidden h-full rounded-2xl" 
+          className="p-5 relative overflow-hidden h-full rounded-2xl cursor-pointer transition-all hover:shadow-lg" 
           max={8} 
           perspective={1000}
           glareOpacity={0.15}
+          onClick={() => document.getElementById('recent-quotes')?.scrollIntoView({ behavior: 'smooth' })}
         >
           <div className="absolute inset-0 bg-gradient-to-br from-white via-[#fdfcf9] to-[#f8f3ea] pointer-events-none" />
           <div className="absolute top-0 right-0 w-20 h-20 bg-gradient-to-br from-primary/8 to-primary/3 rounded-full -mr-8 -mt-8 blur-sm pointer-events-none" />
@@ -237,10 +238,11 @@ export default function DashboardPage() {
         </TiltCard>
 
         <TiltCard 
-          className="p-5 relative overflow-hidden h-full rounded-2xl" 
+          className="p-5 relative overflow-hidden h-full rounded-2xl cursor-pointer transition-all hover:shadow-lg" 
           max={8} 
           perspective={1000}
           glareOpacity={0.15}
+          onClick={() => document.getElementById('recent-quotes')?.scrollIntoView({ behavior: 'smooth' })}
         >
           <div className="absolute inset-0 bg-gradient-to-br from-white via-[#fdfcf9] to-[#f8f3ea] pointer-events-none" />
           <div className="absolute top-0 right-0 w-20 h-20 bg-gradient-to-br from-terracotta/8 to-terracotta/3 rounded-full -mr-8 -mt-8 blur-sm pointer-events-none" />
@@ -269,10 +271,11 @@ export default function DashboardPage() {
         </TiltCard>
 
         <TiltCard 
-          className="p-5 relative overflow-hidden h-full rounded-2xl" 
+          className="p-5 relative overflow-hidden h-full rounded-2xl cursor-pointer transition-all hover:shadow-lg" 
           max={8} 
           perspective={1000}
           glareOpacity={0.15}
+          onClick={() => document.getElementById('recent-quotes')?.scrollIntoView({ behavior: 'smooth' })}
         >
           <div className="absolute inset-0 bg-gradient-to-br from-white via-[#fdfcf9] to-[#f8f3ea] pointer-events-none" />
           <div className="absolute top-0 right-0 w-20 h-20 bg-gradient-to-br from-moss/8 to-moss/3 rounded-full -mr-8 -mt-8 blur-sm pointer-events-none" />
@@ -295,10 +298,11 @@ export default function DashboardPage() {
         </TiltCard>
 
         <TiltCard 
-          className="p-5 relative overflow-hidden h-full rounded-2xl" 
+          className="p-5 relative overflow-hidden h-full rounded-2xl cursor-pointer transition-all hover:shadow-lg" 
           max={8} 
           perspective={1000}
           glareOpacity={0.15}
+          onClick={() => document.getElementById('member-ranking')?.scrollIntoView({ behavior: 'smooth' })}
         >
           <div className="absolute inset-0 bg-gradient-to-br from-white via-[#fdfcf9] to-[#f8f3ea] pointer-events-none" />
           <div className="absolute top-0 right-0 w-20 h-20 bg-gradient-to-br from-clay/8 to-clay/3 rounded-full -mr-8 -mt-8 blur-sm pointer-events-none" />
@@ -466,7 +470,7 @@ export default function DashboardPage() {
         </Card>
 
         {/* 最近报价记录 */}
-        <Card className="lg:col-span-2">
+        <Card className="lg:col-span-2" id="recent-quotes">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Clock className="h-5 w-5" />
@@ -534,7 +538,7 @@ export default function DashboardPage() {
       </div>
 
       {/* 成员详细统计表格 */}
-      <Card>
+      <Card id="member-ranking">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Users className="h-5 w-5" />
