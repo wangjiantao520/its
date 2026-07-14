@@ -824,12 +824,25 @@ export default function MaintenanceQuotePage() {
   const [isSlaDialogOpen, setIsSlaDialogOpen] = useState(false);
   const [isNewSlaDevice, setIsNewSlaDevice] = useState(false);
 
+  // 设备匹配工具函数：优先使用id，id无效时用name+model+category组合
+  const isSameDevice = (d: SelectedDevice, quota: DeviceQuota | FullDeviceQuota): boolean => {
+    if (d.quota.id && quota.id && d.quota.id === quota.id) {
+      return true;
+    }
+    // id 不可靠时，用 name + model + category 组合匹配
+    return (
+      d.quota.name === quota.name &&
+      (d.quota as any).model === (quota as any).model &&
+      (d.quota as any).category === (quota as any).category
+    );
+  };
+
   // 添加设备（支持新老两种数据结构）
   const handleAddDevice = (quota: DeviceQuota | FullDeviceQuota) => {
-    const existing = selectedDevices.find(d => d.quota.id === quota.id);
+    const existing = selectedDevices.find(d => isSameDevice(d, quota));
     if (existing) {
       setSelectedDevices(selectedDevices.map(d => 
-        d.quota.id === quota.id 
+        isSameDevice(d, quota)
           ? { ...d, quantity: d.quantity + 1 }
           : d
       ));
@@ -863,10 +876,10 @@ export default function MaintenanceQuotePage() {
 
   // 添加完整设备
   const handleAddFullDevice = (quota: FullDeviceQuota) => {
-    const existing = selectedDevices.find(d => d.quota.id === quota.id);
+    const existing = selectedDevices.find(d => isSameDevice(d, quota));
     if (existing) {
       setSelectedDevices(selectedDevices.map(d => 
-        d.quota.id === quota.id 
+        isSameDevice(d, quota)
           ? { ...d, quantity: d.quantity + 1 }
           : d
       ));
@@ -4145,7 +4158,7 @@ export default function MaintenanceQuotePage() {
                     setSelectedDevices([...selectedDevices, slaConfigDevice]);
                   } else {
                     // 更新现有设备
-                    const deviceIndex = selectedDevices.findIndex(d => d.quota.id === slaConfigDevice.quota.id);
+                    const deviceIndex = selectedDevices.findIndex(d => isSameDevice(d, slaConfigDevice.quota));
                     if (deviceIndex !== -1) {
                       const newSelectedDevices = [...selectedDevices];
                       newSelectedDevices[deviceIndex] = slaConfigDevice;

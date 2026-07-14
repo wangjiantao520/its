@@ -145,11 +145,13 @@ export async function POST(request: NextRequest) {
         break;
 
       case 'maintenance_device_quotas':
+        const mdqId = data.id || `mdq_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
         query = `INSERT INTO maintenance_device_quotas 
-          (name, brand, model, specification, category, unit, quantity, 
+          (id, name, brand, model, specification, category, unit, quantity, 
            original_price, maintenance_rate, annual_fee, network_type, remark, sort_order, is_active) 
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
         params = [
+          mdqId,
           data.name, data.brand || '', data.model || '', data.specification || '',
           data.category || '', data.unit || '台', data.quantity || 1,
           data.original_price || 0, data.maintenance_rate || 0, data.annual_fee || 0,
