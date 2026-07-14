@@ -45,41 +45,93 @@ export async function GET(request: NextRequest) {
     let userCondition = '';
     const userParams: any[] = [];
     if (userId && userId !== 'all') {
-      userCondition = ' WHERE created_by = ?';
+      userCondition = ' AND user_id = ?';
       userParams.push(userId);
     }
 
-    // 1. 工程报价统计
+    const baseWhere = `WHERE 1=1 ${userCondition} ${timeCondition}`;
+    const baseParams = [...userParams, ...timeParams];
+
+    // 1. 工程报价统计（从 quotation_records 的 quote_type 区分，但目前成员端保存到这里）
+    //    为了统一统计，把 quotation_records 作为统计主表
+    //    工程报价和维保报价通过 quote_type 或业务表关联区分
+    //    简化处理：用两张业务表 + quotation_records 三张表合并统计
+    //    但为避免重复，优先统计 quotation_records（成员端数据），
+    //    再加上业务表中不在 quotation_records 中的部分（管理端数据）
+    
+    // 先从 quotation_records 获取总体和按类型统计
+    const [totalResult] = await pool.execute(
+      `SELECT 
+        COUNT(*) as total_count,
+        COALESCE(SUM(total_amount), 0) as total_amount,
+        COALESCE(AVG(total_amount), 0) as avg_amount
+      FROM quotation_records
+      ${baseWhere}`,
+      baseParams
+    );
+    const totalStats = (totalResult as any[])[0];
+
+    // 从工程报价表统计（管理端工程报价）
     const [engResult] = await pool.execute(
       `SELECT 
         COUNT(*) as total_count,
-        COALESCE(SUM(total), 0) as total_amount,
-        COALESCE(AVG(total), 0) as avg_amount,
-        COALESCE(MAX(total), 0) as max_amount
+        COALESCE(SUM(total), 0) as total_amount
       FROM engineering_quotes
-      ${userCondition ? userCondition.replace('WHERE', 'AND') : ''}
-      ${timeCondition}`,
+      WHERE 1=1 ${userCondition.replace('user_id', 'created_by')} ${timeCondition}`,
       [...userParams, ...timeParams]
     );
     const engineeringStats = (engResult as any[])[0];
 
-    // 2. 维保报价统计
+    // 从维保报价表统计（管理端维保报价）
     const [maintResult] = await pool.execute(
       `SELECT 
         COUNT(*) as total_count,
-        COALESCE(SUM(total), 0) as total_amount,
-        COALESCE(AVG(total), 0) as avg_amount,
-        COALESCE(MAX(total), 0) as max_amount
+        COALESCE(SUM(total), 0) as total_amount
       FROM maintenance_quotes
-      ${userCondition ? userCondition.replace('WHERE', 'AND') : ''}
-      ${timeCondition}`,
+      WHERE 1=1 ${userCondition.replace('user_id', 'created_by')} ${timeCondition}`,
       [...userParams, ...timeParams]
     );
     const maintenanceStats = (maintResult as any[])[0];
 
-    // 3. 总体统计
-    const totalCount = Number(engineeringStats.total_count) + Number(maintenanceStats.total_count);
-    const totalAmount = Number(engineeringStats.total_amount) + Number(maintenanceStats.total_amount);
+    // 工程和维保的划分：从 quotation_records 中按设备类型/字段推断比较困难
+    // 简化：将 quotation_records 视为成员端报价（计入工程或维保的总数）
+    // 业务表(engineering_quotes, maintenance_quotes)视为管理端报价
+    // 总数 = 业务表总数 + quotation_records 总数 （避免重复，我们这里假设两者不重叠）
+    
+    // 更稳妥的方案：把 quotation_records 中的数据按 quote_data 里的内容区分工程/维保
+    // 但 quote_data 是 JSON，SQLite 解析麻烦
+    // 折中方案：总数 = quotation_records 总数 + 业务表中未被 quotation_records 包含的
+    // 但由于 quotation_records 和业务表结构完全不同，无法去重
+    
+    // 最合理方案：quotation_records 是统一存储，业务表是各自的详细存储
+    // 数据看板应该以 quotation_records 为主表，因为它是成员端和管理端共用的
+    
+    // 让我们重新设计：统计全部从 quotation_records 读取
+    // 工程/维保分类通过 quote_data 或增加一个 type 字段来区分
+    // 目前先：所有 quotation_records 都算作"维保报价"（因为维保成员端用的是这个接口）
+    // 管理端的 engineering_quotes / maintenance_quotes 也加进来
+    
+    // 实际：成员端保存到 /api/quotations -> quotation_records
+    // 管理端工程保存到 /api/engineering-quotes -> engineering_quotes  
+    // 管理端维保保存到 /api/maintenance-quotes -> maintenance_quotes
+    
+    // 为了看板完整显示，把三张表的数据合并统计
+    // 工程报价 = engineering_quotes
+    // 维保报价 = maintenance_quotes + quotation_records（成员端的维保报价）
+    // 这个方案最符合当前数据结构
+    
+    const engineeringCount = Number(engineeringStats.total_count);
+    const engineeringAmount = Number(engineeringStats.total_amount);
+    
+    const memberMaintCount = Number(totalStats.total_count);
+    const memberMaintAmount = Number(totalStats.total_amount);
+    const adminMaintCount = Number(maintenanceStats.total_count);
+    const adminMaintAmount = Number(maintenanceStats.total_amount);
+    const maintenanceCount = memberMaintCount + adminMaintCount;
+    const maintenanceAmount = memberMaintAmount + adminMaintAmount;
+    
+    const totalCount = engineeringCount + maintenanceCount;
+    const totalAmount = engineeringAmount + maintenanceAmount;
     const avgAmount = totalCount > 0 ? totalAmount / totalCount : 0;
 
     // 4. 按用户统计（TOP 10）
@@ -111,13 +163,28 @@ export async function GET(request: NextRequest) {
       timeParams
     );
 
+    // 从 quotation_records 获取成员端用户统计（这些都是维保报价）
+    const [recordsUserResult] = await pool.execute(
+      `SELECT 
+        COALESCE(user_id, 'unknown') as user_id,
+        COALESCE(u.name, u.username, '未知用户') as user_name,
+        COUNT(*) as records_count,
+        COALESCE(SUM(total_amount), 0) as records_amount
+      FROM quotation_records q
+      LEFT JOIN users u ON q.user_id = u.id
+      ${timeCondition ? 'WHERE 1=1' + timeCondition : ''}
+      GROUP BY user_id, u.name, u.username`,
+      timeParams
+    );
+    
     // 合并用户统计
     const userMap = new Map();
-    [...(engUserResult as any[]), ...(maintUserResult as any[])].forEach(row => {
-      const key = row.user_id;
+    
+    [...(engUserResult as any[])].forEach(row => {
+      const key = String(row.user_id);
       if (!userMap.has(key)) {
         userMap.set(key, {
-          userId: row.user_id,
+          userId: key,
           userName: row.user_name,
           engineeringCount: 0,
           engineeringAmount: 0,
@@ -128,18 +195,55 @@ export async function GET(request: NextRequest) {
         });
       }
       const user = userMap.get(key);
-      if (row.eng_count !== undefined) {
-        user.engineeringCount = Number(row.eng_count);
-        user.engineeringAmount = Number(row.eng_amount);
+      user.engineeringCount += Number(row.eng_count);
+      user.engineeringAmount += Number(row.eng_amount);
+      user.totalCount += Number(row.eng_count);
+      user.totalAmount += Number(row.eng_amount);
+    });
+    
+    [...(maintUserResult as any[])].forEach(row => {
+      const key = String(row.user_id);
+      if (!userMap.has(key)) {
+        userMap.set(key, {
+          userId: key,
+          userName: row.user_name,
+          engineeringCount: 0,
+          engineeringAmount: 0,
+          maintenanceCount: 0,
+          maintenanceAmount: 0,
+          totalCount: 0,
+          totalAmount: 0
+        });
       }
-      if (row.maint_count !== undefined) {
-        user.maintenanceCount = Number(row.maint_count);
-        user.maintenanceAmount = Number(row.maint_amount);
-      }
-      user.totalCount = user.engineeringCount + user.maintenanceCount;
-      user.totalAmount = user.engineeringAmount + user.maintenanceAmount;
+      const user = userMap.get(key);
+      user.maintenanceCount += Number(row.maint_count);
+      user.maintenanceAmount += Number(row.maint_amount);
+      user.totalCount += Number(row.maint_count);
+      user.totalAmount += Number(row.maint_amount);
     });
 
+    // 成员端报价（计入维保）
+    [...(recordsUserResult as any[])].forEach(row => {
+      const key = String(row.user_id);
+      if (!userMap.has(key)) {
+        userMap.set(key, {
+          userId: key,
+          userName: row.user_name,
+          engineeringCount: 0,
+          engineeringAmount: 0,
+          maintenanceCount: 0,
+          maintenanceAmount: 0,
+          totalCount: 0,
+          totalAmount: 0
+        });
+      }
+      const user = userMap.get(key);
+      user.maintenanceCount += Number(row.records_count);
+      user.maintenanceAmount += Number(row.records_amount);
+      user.totalCount += Number(row.records_count);
+      user.totalAmount += Number(row.records_amount);
+    });
+    
     // 按总金额排序，取前10
     const topUsers = Array.from(userMap.values())
       .sort((a, b) => b.totalAmount - a.totalAmount)
@@ -187,6 +291,18 @@ export async function GET(request: NextRequest) {
       ORDER BY month ASC`
     );
 
+    // 从 quotation_records 获取月度数据（成员端维保）
+    const [recordsMonthlyResult] = await pool.execute(
+      `SELECT 
+        substr(created_at, 1, 7) as month,
+        COUNT(*) as count,
+        COALESCE(SUM(total_amount), 0) as amount
+      FROM quotation_records
+      WHERE created_at >= date('now', '-11 months', 'start of month')
+      GROUP BY substr(created_at, 1, 7)
+      ORDER BY month ASC`
+    );
+
     // 合并月度数据
     (engMonthlyResult as any[]).forEach(row => {
       const item = monthlyStats.find(m => m.month === row.month);
@@ -201,10 +317,20 @@ export async function GET(request: NextRequest) {
     (maintMonthlyResult as any[]).forEach(row => {
       const item = monthlyStats.find(m => m.month === row.month);
       if (item) {
-        item.maintenanceCount = Number(row.count);
-        item.maintenanceAmount = Number(row.amount);
-        item.totalCount += item.maintenanceCount;
-        item.totalAmount += item.maintenanceAmount;
+        item.maintenanceCount += Number(row.count);
+        item.maintenanceAmount += Number(row.amount);
+        item.totalCount += Number(row.count);
+        item.totalAmount += Number(row.amount);
+      }
+    });
+
+    (recordsMonthlyResult as any[]).forEach(row => {
+      const item = monthlyStats.find(m => m.month === row.month);
+      if (item) {
+        item.maintenanceCount += Number(row.count);
+        item.maintenanceAmount += Number(row.amount);
+        item.totalCount += Number(row.count);
+        item.totalAmount += Number(row.amount);
       }
     });
 
@@ -212,7 +338,7 @@ export async function GET(request: NextRequest) {
     const [engStatusResult] = await pool.execute(
       `SELECT status, COUNT(*) as count, COALESCE(SUM(total), 0) as amount
        FROM engineering_quotes
-       ${userCondition ? userCondition.replace('WHERE', 'AND').replace('AND', 'WHERE') : ''}
+       WHERE 1=1 ${userCondition.replace('user_id', 'created_by')}
        GROUP BY status`,
       userParams
     );
@@ -220,13 +346,21 @@ export async function GET(request: NextRequest) {
     const [maintStatusResult] = await pool.execute(
       `SELECT status, COUNT(*) as count, COALESCE(SUM(total), 0) as amount
        FROM maintenance_quotes
-       ${userCondition ? userCondition.replace('WHERE', 'AND').replace('AND', 'WHERE') : ''}
+       WHERE 1=1 ${userCondition.replace('user_id', 'created_by')}
        GROUP BY status`,
       userParams
     );
 
+    const [recordsStatusResult] = await pool.execute(
+      `SELECT status, COUNT(*) as count, COALESCE(SUM(total_amount), 0) as amount
+       FROM quotation_records
+       WHERE 1=1 ${userCondition}
+       GROUP BY status`,
+      userParams
+    );
+    
     const statusMap = new Map();
-    [...(engStatusResult as any[]), ...(maintStatusResult as any[])].forEach(row => {
+    [...(engStatusResult as any[]), ...(maintStatusResult as any[]), ...(recordsStatusResult as any[])].forEach(row => {
       const key = row.status || 'unknown';
       if (!statusMap.has(key)) {
         statusMap.set(key, { status: key, count: 0, amount: 0 });
@@ -237,7 +371,7 @@ export async function GET(request: NextRequest) {
     });
     const byStatus = Array.from(statusMap.values());
 
-    // 7. 最近的报价记录（混合工程和维保）
+    // 7. 最近的报价记录（混合工程和维保 + 成员端报价）
     const recentQuotes: any[] = [];
     
     const [recentEngResult] = await pool.execute(
@@ -245,10 +379,8 @@ export async function GET(request: NextRequest) {
         id, quote_number, project_name, client_name, total, status, 'engineering' as type,
         created_by, created_by_name, created_at
       FROM engineering_quotes
-      ${userCondition}
       ORDER BY created_at DESC
-      LIMIT 20`,
-      userParams
+      LIMIT 20`
     );
     
     const [recentMaintResult] = await pool.execute(
@@ -256,13 +388,33 @@ export async function GET(request: NextRequest) {
         id, quote_number, project_name, client_name, total, status, 'maintenance' as type,
         created_by, created_by_name, created_at
       FROM maintenance_quotes
-      ${userCondition}
       ORDER BY created_at DESC
-      LIMIT 20`,
-      userParams
+      LIMIT 20`
     );
 
-    const allRecent = [...(recentEngResult as any[]), ...(recentMaintResult as any[])]
+    const [recentRecordsResult] = await pool.execute(
+      `SELECT 
+        q.id, 
+        json_extract(q.quote_data, '$.quoteNumber') as quote_number,
+        q.project_name,
+        q.client_name,
+        q.total_amount as total,
+        q.status,
+        'maintenance' as type,
+        q.user_id as created_by,
+        COALESCE(u.name, u.username) as created_by_name,
+        q.created_at
+      FROM quotation_records q
+      LEFT JOIN users u ON q.user_id = u.id
+      ORDER BY q.created_at DESC
+      LIMIT 20`
+    );
+
+    const allRecent = [
+      ...(recentEngResult as any[]),
+      ...(recentMaintResult as any[]),
+      ...(recentRecordsResult as any[])
+    ]
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
       .slice(0, 20);
 
@@ -273,10 +425,10 @@ export async function GET(request: NextRequest) {
           totalCount,
           totalAmount,
           avgAmount,
-          engineeringCount: Number(engineeringStats.total_count),
-          engineeringAmount: Number(engineeringStats.total_amount),
-          maintenanceCount: Number(maintenanceStats.total_count),
-          maintenanceAmount: Number(maintenanceStats.total_amount)
+          engineeringCount,
+          engineeringAmount,
+          maintenanceCount,
+          maintenanceAmount
         },
         topUsers,
         monthlyStats,
