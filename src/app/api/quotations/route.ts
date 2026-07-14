@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
       [user_id, client_name, client_region || null, project_name || null, quote_type || 'full', total_amount || 0, device_count || 0, quote_data ? JSON.stringify(quote_data) : null]
     );
 
-    const quotationId = (result as any).insertId;
+    const quotationId = (result as any)[0]?.insertId;
 
     // 保存设备明细
     if (devices && Array.isArray(devices) && devices.length > 0) {

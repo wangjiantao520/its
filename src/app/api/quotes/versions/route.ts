@@ -133,7 +133,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       data: {
-        versionId: (result as any).insertId,
+        versionId: (result as any)[0]?.insertId,
         version: nextVersion,
         changeSummary
       }

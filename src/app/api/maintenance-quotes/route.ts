@@ -129,7 +129,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      data: { id: (result as any).insertId }
+      data: { id: (result as any)[0]?.insertId }
     });
   } catch (error) {
     console.error('创建维保报价失败:', error);

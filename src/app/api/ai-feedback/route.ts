@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
 
       return NextResponse.json({
         success: true,
-        id: (result as any).insertId,
+        id: (result as any)[0]?.insertId,
       });
     } finally {
       conn.release();

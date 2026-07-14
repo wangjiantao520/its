@@ -233,7 +233,7 @@ export async function POST(request: NextRequest) {
         ]
       );
 
-      const insertId = (result as any).insertId;
+      const insertId = (result as any)[0]?.insertId;
       return NextResponse.json({
         success: true,
         data: { id: insertId, message: 'AI模型配置创建成功' },

@@ -78,7 +78,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       data: {
-        id: (result as any).insertId,
+        id: (result as any)[0]?.insertId,
         token,
         quoteId,
         quoteType: type,
