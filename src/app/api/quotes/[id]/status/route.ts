@@ -20,16 +20,16 @@ function requireAuth(request: NextRequest): { authorized: boolean; session?: { r
 // 状态流转定义
 const STATUS_FLOW: Record<string, { allowedActions: string[]; nextStatus: Record<string, string> }> = {
   draft: {
-    allowedActions: ['submit_review'],
-    nextStatus: { submit_review: 'pending_review' }
+    allowedActions: ['submit_review', 'approve', 'archive'],
+    nextStatus: { submit_review: 'pending_review', approve: 'approved', archive: 'archived' }
   },
   pending_review: {
     allowedActions: ['approve', 'reject'],
     nextStatus: { approve: 'approved', reject: 'draft' }
   },
   approved: {
-    allowedActions: ['send'],
-    nextStatus: { send: 'sent' }
+    allowedActions: ['send', 'archive'],
+    nextStatus: { send: 'sent', archive: 'archived' }
   },
   sent: {
     allowedActions: ['archive'],
@@ -40,6 +40,42 @@ const STATUS_FLOW: Record<string, { allowedActions: string[]; nextStatus: Record
     nextStatus: {}
   }
 };
+
+// 从三张表中查找报价
+async function findQuoteById(quoteId: number): Promise<{ quote: any; source: string } | null> {
+  // 1. 先查 engineering_quotes
+  const [engRows] = await pool.execute(
+    'SELECT id, status, quote_number, project_name, client_name FROM engineering_quotes WHERE id = ?',
+    [quoteId]
+  ) as [any[], any];
+  if (engRows.length > 0) {
+    return { quote: engRows[0], source: 'engineering' };
+  }
+
+  // 2. 再查 maintenance_quotes
+  const [maintRows] = await pool.execute(
+    'SELECT id, status, quote_number, project_name, client_name FROM maintenance_quotes WHERE id = ?',
+    [quoteId]
+  ) as [any[], any];
+  if (maintRows.length > 0) {
+    return { quote: maintRows[0], source: 'maintenance' };
+  }
+
+  // 3. 最后查 quotation_records（成员端）
+  const [recRows] = await pool.execute(
+    `SELECT id, status, 
+      COALESCE(json_extract(quote_data, '$.quoteNumber'), 'Q' || id) as quote_number,
+      COALESCE(project_name, json_extract(quote_data, '$.projectName'), '') as project_name,
+      client_name
+     FROM quotation_records WHERE id = ?`,
+    [quoteId]
+  ) as [any[], any];
+  if (recRows.length > 0) {
+    return { quote: recRows[0], source: 'quotation_records' };
+  }
+
+  return null;
+}
 
 // PUT - 更新报价状态
 export async function PUT(
@@ -60,7 +96,7 @@ export async function PUT(
     }
 
     const body = await request.json();
-    const { action, comment, quoteType } = body;
+    const { action, comment } = body;
 
     if (!action) {
       return NextResponse.json(
@@ -69,24 +105,16 @@ export async function PUT(
       );
     }
 
-    // 确定报价类型和表名
-    const validQuoteTypes = ['maintenance', 'engineering'];
-    const tableName = quoteType === 'engineering' ? 'engineering_quotes' : 'maintenance_quotes';
-
-    // 获取当前报价状态
-    const [rows] = await pool.query(
-      `SELECT id, status, quote_number FROM ${tableName} WHERE id = ?`,
-      [quoteId]
-    ) as [any[], any];
-
-    const quote = rows[0];
-    if (!quote) {
+    // 查找报价（从三张表中找）
+    const found = await findQuoteById(quoteId);
+    if (!found) {
       return NextResponse.json(
         { success: false, error: '报价不存在' },
         { status: 404 }
       );
     }
 
+    const { quote, source } = found;
     const currentStatus = quote.status;
 
     // 验证状态流转
@@ -108,19 +136,38 @@ export async function PUT(
     // 获取操作人
     const operator = auth.session?.role === 'admin' ? 'admin' : 'its_member';
 
+    // 确定表名和 quote_type
+    let tableName: string;
+    let quoteType: string;
+    if (source === 'engineering') {
+      tableName = 'engineering_quotes';
+      quoteType = 'engineering';
+    } else if (source === 'maintenance') {
+      tableName = 'maintenance_quotes';
+      quoteType = 'maintenance';
+    } else {
+      tableName = 'quotation_records';
+      quoteType = 'maintenance';
+    }
+
     // 更新状态
-    await pool.query(
+    await pool.execute(
       `UPDATE ${tableName} SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
       [nextStatus, quoteId]
     );
 
-    // 创建审核日志
-    await pool.query(
-      `INSERT INTO quote_audit_logs
-       (quote_id, quote_type, action, from_status, to_status, comment, operator)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [quoteId, quoteType || (tableName === 'engineering_quotes' ? 'engineering' : 'maintenance'), action, currentStatus, nextStatus, comment || null, operator]
-    );
+    // 创建审核日志（如果表存在）
+    try {
+      await pool.execute(
+        `INSERT INTO quote_audit_logs
+         (quote_id, quote_type, action, from_status, to_status, comment, operator)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [quoteId, quoteType, action, currentStatus, nextStatus, comment || null, operator]
+      );
+    } catch (auditErr) {
+      // 审计日志表不存在时忽略
+      console.warn('写入审计日志失败:', auditErr);
+    }
 
     return NextResponse.json({
       success: true,
@@ -159,33 +206,21 @@ export async function GET(
       );
     }
 
-    const searchParams = request.nextUrl.searchParams;
-    const quoteType = searchParams.get('quoteType') || 'maintenance';
-    const tableName = quoteType === 'engineering' ? 'engineering_quotes' : 'maintenance_quotes';
-
-    const [rows] = await pool.query(
-      `SELECT id, quote_number, status, updated_at FROM ${tableName} WHERE id = ?`,
-      [quoteId]
-    ) as [any[], any];
-
-    const quote = rows[0];
-    if (!quote) {
+    const found = await findQuoteById(quoteId);
+    if (!found) {
       return NextResponse.json(
         { success: false, error: '报价不存在' },
         { status: 404 }
       );
     }
 
-    const flow = STATUS_FLOW[quote.status];
-
     return NextResponse.json({
       success: true,
       data: {
-        id: quote.id,
-        quoteNumber: quote.quote_number,
-        status: quote.status,
-        allowedActions: flow?.allowedActions || [],
-        updatedAt: quote.updated_at
+        id: quoteId,
+        quoteNumber: found.quote.quote_number,
+        status: found.quote.status,
+        source: found.source
       }
     });
   } catch (error) {
