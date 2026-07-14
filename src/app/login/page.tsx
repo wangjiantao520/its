@@ -175,10 +175,6 @@ function LoginContent() {
             </TiltCard>
           </div>
 
-          {/* 底部说明 */}
-          <p className="text-center text-xs text-muted-foreground/60 mt-10">
-            © 2025 维保报价管理系统
-          </p>
         </div>
       </div>
     );
