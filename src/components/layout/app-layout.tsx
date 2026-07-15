@@ -2,7 +2,7 @@
 
 import { ReactNode } from 'react';
 import { AppSidebar } from '@/components/layout/app-sidebar';
-import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
+import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '@/components/ui/breadcrumb';
 import { usePathname } from 'next/navigation';
 import { useUser } from '@/contexts/user-context';
@@ -34,6 +34,7 @@ export function AppLayout({ children }: AppLayoutProps) {
       <AppSidebar />
       <SidebarInset>
         <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border/50 bg-background/80 backdrop-blur-sm px-4 md:px-6">
+          <SidebarTrigger className="h-9 w-9 shrink-0 rounded-md hover:bg-muted" />
           <Breadcrumb>
             <BreadcrumbList>
               <BreadcrumbItem>
