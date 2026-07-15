@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { handleLogin, handleLogout, getSessionUser } from '@/lib/auth';
+import { SESSION_COOKIE_NAME } from '@/lib/request-session-token';
 
 // 登录接口
 export async function POST(request: NextRequest) {
@@ -11,7 +12,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(result, { status: 400 });
     }
 
-    return NextResponse.json(result);
+    const response = NextResponse.json(result);
+    if (result.data) {
+      response.cookies.set(SESSION_COOKIE_NAME, result.data.token, {
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: process.env.NODE_ENV === 'production',
+        path: '/',
+        maxAge: Math.max(0, Math.floor((result.data.expiresAt - Date.now()) / 1000)),
+      });
+    }
+    return response;
   } catch (error) {
     console.error('登录失败:', error);
     return NextResponse.json(
@@ -29,7 +40,15 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json(result, { status: 401 });
   }
 
-  return NextResponse.json(result);
+  const response = NextResponse.json(result);
+  response.cookies.set(SESSION_COOKIE_NAME, '', {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    path: '/',
+    maxAge: 0,
+  });
+  return response;
 }
 
 // 获取当前会话信息

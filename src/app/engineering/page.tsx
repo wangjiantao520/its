@@ -154,8 +154,12 @@ export default function EngineeringPage() {
   const [regulatoryFeeRate, setRegulatoryFeeRate] = useState(3);
   const [quoteItems, setQuoteItems] = useState<QuoteItem[]>([]);
   const [nextItemId, setNextItemId] = useState(1);
-  const quoteRandomRef = useRef(Math.floor(Math.random() * 1000));
+  const [quoteSequence, setQuoteSequence] = useState(0);
   const [activeTab, setActiveTab] = useState('create');
+
+  useEffect(() => {
+    setQuoteSequence(Math.floor(Math.random() * 1000));
+  }, []);
 
   // 草稿相关状态
   const [savedQuoteId, setSavedQuoteId] = useState<number | null>(null);
@@ -812,14 +816,6 @@ export default function EngineeringPage() {
     }
   }, [activeTab]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 切换到定额库Tab时加载数据
-  useEffect(() => {
-    if (activeTab === 'quotas') {
-      fetchQuotas();
-      fetchQuotaCategories();
-    }
-  }, [activeTab]); // eslint-disable-line react-hooks/exhaustive-deps
-
   // 页面初始化时加载人工单价档位
   useEffect(() => {
     fetchLaborPrices();
@@ -871,7 +867,7 @@ export default function EngineeringPage() {
         setNextItemId(1);
       }
 
-      quoteRandomRef.current = Math.floor(Math.random() * 1000);
+      setQuoteSequence(Math.floor(Math.random() * 1000));
       setActiveTab('create');
       toast.success('加载成功', { description: `已加载报价单 ${data.quote_number}` });
     } catch (error) {
@@ -1064,7 +1060,7 @@ export default function EngineeringPage() {
     const grandTotal = subtotal + managementFee + profit + regulatoryFee + taxAmount;
 
     // 自行生成报价单号
-    const quoteNumber = `GC${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}${String(new Date().getDate()).padStart(2, '0')}${String(quoteRandomRef.current).padStart(3, '0')}`;
+    const quoteNumber = `GC${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}${String(new Date().getDate()).padStart(2, '0')}${String(quoteSequence).padStart(3, '0')}`;
 
     return {
       projectName,
@@ -1814,7 +1810,7 @@ export default function EngineeringPage() {
 
   // 定额库分类与分页逻辑
   const [allQuotaCategories, setAllQuotaCategories] = useState<string[]>([]);
-  const fetchQuotaCategories = useCallback(async () => {
+  async function fetchQuotaCategories() {
     try {
       const [selfRes, intelligentRes] = await Promise.all([
         fetch('/api/self-construction-quotas?limit=9999'),
@@ -1830,7 +1826,15 @@ export default function EngineeringPage() {
     } catch {
       // 静默失败
     }
-  }, []);
+  }
+
+  // 切换到定额库Tab时加载数据
+  useEffect(() => {
+    if (activeTab === 'quotas') {
+      void fetchQuotas();
+      void fetchQuotaCategories();
+    }
+  }, [activeTab]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 搜索/筛选变更时触发服务端重新请求
   useEffect(() => {
@@ -1952,7 +1956,7 @@ export default function EngineeringPage() {
 
   // 生成报价单号
   const generateQuoteNumber = () => {
-    return `GC${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}${String(new Date().getDate()).padStart(2, '0')}${String(quoteRandomRef.current).padStart(3, '0')}`;
+    return `GC${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}${String(new Date().getDate()).padStart(2, '0')}${String(quoteSequence).padStart(3, '0')}`;
   };
 
   // 保存草稿

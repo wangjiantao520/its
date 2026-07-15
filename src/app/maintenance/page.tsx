@@ -157,7 +157,6 @@ export default function MaintenanceQuotePage() {
   // 价格设置功能
   const [showPriceSettings, setShowPriceSettings] = useState(false);
   const [priceSettings, setPriceSettings] = useState<Record<string, number>>({});
-  const [adminPassword, setAdminPassword] = useState('');
   const [saveType, setSaveType] = useState<'temp' | 'permanent'>('temp');
 
   // AI辅助报价处理函数
@@ -291,12 +290,9 @@ export default function MaintenanceQuotePage() {
   };
   
   const handleSavePriceSettings = () => {
-    if (saveType === 'permanent') {
-      // 永久保存需要验证管理员密码
-      if (adminPassword !== 'ecloud10086') {
-        alert('管理员密码错误！');
-        return;
-      }
+    if (saveType === 'permanent' && user?.role !== 'admin') {
+      alert('永久保存仅限管理员操作');
+      return;
     }
     
     // 应用价格修改到报价结果
@@ -460,7 +456,6 @@ export default function MaintenanceQuotePage() {
       alert('价格已暂时保存！');
     }
     setShowPriceSettings(false);
-    setAdminPassword('');
   };
 
   // 成新率等级映射：1级=全新，2级=较新，3级=一般，4级=偏旧，5级=老旧
@@ -688,6 +683,7 @@ export default function MaintenanceQuotePage() {
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [shareLink, setShareLink] = useState('');
   const [shareLinkCopied, setShareLinkCopied] = useState(false);
+  const [currentQuoteIdentity, setCurrentQuoteIdentity] = useState<string | null>(null);
 
   // 版本保存
   const [showSaveVersionDialog, setShowSaveVersionDialog] = useState(false);
@@ -720,21 +716,45 @@ export default function MaintenanceQuotePage() {
   const handleOpenHistoryDialog = async () => {
     setShowHistoryDialog(true);
     setHistoryLoading(true);
-    // 模拟历史报价数据
-    setHistoryQuotes([
-      { id: 1, quoteNumber: 'WB20250601001', clientName: '宁德市政府办公室', totalAmount: 125000, createdAt: '2025-06-01', status: '草稿' },
-      { id: 2, quoteNumber: 'WB20250528001', clientName: '福安市人民医院', totalAmount: 89000, createdAt: '2025-05-28', status: '已提交' },
-      { id: 3, quoteNumber: 'WB20250515002', clientName: '蕉城区教育局', totalAmount: 156000, createdAt: '2025-05-15', status: '已确认' },
-      { id: 4, quoteNumber: 'WB20250510003', clientName: '福鼎市人民法院', totalAmount: 78000, createdAt: '2025-05-10', status: '已签约' },
-      { id: 5, quoteNumber: 'WB20250505004', clientName: '霞浦县公安局', totalAmount: 210000, createdAt: '2025-05-05', status: '草稿' },
-    ]);
-    setHistoryLoading(false);
+    try {
+      const response = await fetch('/api/quotes?type=quotation&page_size=50');
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.error || '加载失败');
+      setHistoryQuotes(result.data.map((quote: any) => ({
+        id: quote.id,
+        sourceId: quote.source_id,
+        quoteNumber: quote.quote_number,
+        clientName: quote.client_name,
+        projectName: quote.project_name,
+        totalAmount: quote.total_amount,
+        createdAt: quote.created_at,
+        status: quote.status,
+      })));
+    } catch (error) {
+      alert(error instanceof Error ? error.message : '加载历史报价失败');
+      setHistoryQuotes([]);
+    } finally {
+      setHistoryLoading(false);
+    }
   };
 
-  const handleSelectHistoryQuote = (quote: any) => {
-    // 应用历史报价的设备列表
-    alert(`已将历史报价 ${quote.quoteNumber} 的设备列表应用到当前报价`);
-    setShowHistoryDialog(false);
+  const handleSelectHistoryQuote = async (quote: any) => {
+    try {
+      const response = await fetch(`/api/quotations/${quote.sourceId}`);
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.error || '读取历史报价失败');
+      const detail = result.data;
+      const reusedDevices = detail.quote_data?.devices;
+      if (Array.isArray(reusedDevices) && reusedDevices.length > 0) {
+        setSelectedDevices(reusedDevices);
+      }
+      setClientName(detail.client_name || quote.clientName || '');
+      setProjectName(detail.project_name || quote.projectName || '');
+      setShowHistoryDialog(false);
+      alert(`已复用历史报价 ${quote.quoteNumber}`);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : '复用历史报价失败');
+    }
   };
 
   // 批量编辑
@@ -763,15 +783,34 @@ export default function MaintenanceQuotePage() {
   };
 
   // 分享链接
-  const handleGenerateShareLink = () => {
-    const timestamp = Date.now();
-    const link = `${window.location.origin}/quote-share/${timestamp}`;
+  const handleGenerateShareLink = async (): Promise<string | null> => {
+    if (!currentQuoteIdentity) {
+      alert('请先保存报价，再生成分享链接');
+      return null;
+    }
+    const response = await fetch('/api/quotes/share', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ quoteId: currentQuoteIdentity, expiryDays: 7 }),
+    });
+    const result = await response.json();
+    if (!response.ok || !result.success) {
+      alert(result.error || '生成分享链接失败');
+      return null;
+    }
+    const link = `${window.location.origin}${result.data.shareUrl}`;
     setShareLink(link);
+    return link;
   };
 
   const handleCopyShareLink = async () => {
     if (!shareLink) {
-      handleGenerateShareLink();
+      const generated = await handleGenerateShareLink();
+      if (!generated) return;
+      await navigator.clipboard.writeText(generated);
+      setShareLinkCopied(true);
+      setTimeout(() => setShareLinkCopied(false), 2000);
+      return;
     }
     try {
       await navigator.clipboard.writeText(shareLink);
@@ -785,29 +824,59 @@ export default function MaintenanceQuotePage() {
   // 打开分享对话框
   const handleOpenShareDialog = () => {
     setShareDialogOpen(true);
-    if (!shareLink) {
-      handleGenerateShareLink();
-    }
   };
 
   // 保存新版本
-  const handleSaveAsNewVersion = () => {
+  const handleSaveAsNewVersion = async () => {
     if (!versionName.trim()) {
       alert('请输入版本名称');
       return;
     }
-    alert(`已保存为新版本：${versionName}`);
+    if (!currentQuoteIdentity) {
+      alert('请先保存报价，再保存版本');
+      return;
+    }
+    const [quoteType, quoteId] = currentQuoteIdentity.split(':');
+    const response = await fetch('/api/quotes/versions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        quoteId: Number(quoteId),
+        quoteType,
+        quoteData: { versionName, projectName, clientName, total: fullQuoteResult?.finalTotal || quoteResult?.total || 0, devices: selectedDevices },
+      }),
+    });
+    const result = await response.json();
+    if (!response.ok || !result.success) {
+      alert(result.error || '保存版本失败');
+      return;
+    }
+    alert(`已保存为版本 ${result.data.version}：${versionName}`);
     setShowSaveVersionDialog(false);
     setVersionName('');
   };
 
   // 提交审核
-  const handleSubmitForReview = () => {
+  const handleSubmitForReview = async () => {
     if (!reviewComment.trim()) {
       alert('请填写审核意见');
       return;
     }
-    alert(`已提交审核，意见：${reviewComment}`);
+    if (!currentQuoteIdentity) {
+      alert('请先保存报价，再提交审核');
+      return;
+    }
+    const response = await fetch(`/api/quotes/${encodeURIComponent(currentQuoteIdentity)}/status`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'submit_review', comment: reviewComment }),
+    });
+    const result = await response.json();
+    if (!response.ok || !result.success) {
+      alert(result.error || '提交审核失败');
+      return;
+    }
+    alert('已提交审核');
     setShowReviewDialog(false);
     setReviewComment('');
   };
@@ -815,7 +884,8 @@ export default function MaintenanceQuotePage() {
   // 专业报表导出
   const handleProfessionalExport = (format: 'standard' | 'detailed' | 'summary') => {
     setExportFormat(format);
-    alert(`正在导出 ${format === 'standard' ? '标准格式' : format === 'detailed' ? '详细格式' : '汇总格式'} 报表...`);
+    if (format === 'standard') handleExportQuote();
+    else handleExportExcel();
     setShowProfessionalExportDialog(false);
   };
 
@@ -1149,14 +1219,6 @@ export default function MaintenanceQuotePage() {
     const timestamp = Date.now();
     const newQuoteNumber = `WB${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}${String(new Date().getDate()).padStart(2, '0')}${String(timestamp % 1000).padStart(3, '0')}`;
 
-    // 获取当前用户ID（从localStorage读取）
-    const storedUserId = typeof window !== 'undefined' ? localStorage.getItem('itsUserId') : null;
-    if (!storedUserId) {
-      alert('请先登录后再保存报价！');
-      return;
-    }
-    const userId = parseInt(storedUserId);
-
     // 计算总金额
     const totalAmount = fullQuoteResult?.finalTotal || quoteResult?.total || 0;
 
@@ -1177,7 +1239,6 @@ export default function MaintenanceQuotePage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          user_id: userId,
           client_name: clientName || '未命名客户',
           client_region: '城区',
           project_name: projectName,
@@ -1194,6 +1255,10 @@ export default function MaintenanceQuotePage() {
       });
 
       if (response.ok) {
+        const saved = await response.json();
+        if (saved.success && saved.data?.id) {
+          setCurrentQuoteIdentity(`quotation:${saved.data.id}`);
+        }
         alert(`报价单 ${newQuoteNumber} 已保存！`);
         console.log('保存报价单成功:', newQuoteNumber);
       } else {
@@ -1610,7 +1675,6 @@ export default function MaintenanceQuotePage() {
                 if (draft.contractYears) {
                   setContractYears(String(draft.contractYears));
                 }
-                // TODO: 应用更多字段
               }}
               onClose={() => setShowAiChat(false)}
             />
@@ -1743,7 +1807,15 @@ export default function MaintenanceQuotePage() {
                     <Button size="sm" variant="secondary" onClick={() => setShowAiPreview(false)}>
                       返回修改需求
                     </Button>
-                    <Button size="sm">
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        if (aiDraft.region) setRegion(aiDraft.region as RegionType);
+                        if (aiDraft.contractYears) setContractYears(String(aiDraft.contractYears));
+                        setShowAiPreview(false);
+                        alert('AI识别的地区和合同年限已应用；设备匹配结果可在设备列表中继续确认');
+                      }}
+                    >
                       应用到报价单
                     </Button>
                   </div>
@@ -2784,7 +2856,7 @@ export default function MaintenanceQuotePage() {
                           <Save className="h-4 w-4 mr-2" />
                           保存报价
                         </Button>
-                        <Button variant="outline">
+                        <Button variant="outline" onClick={() => window.print()}>
                           <Printer className="h-4 w-4 mr-2" />
                           打印
                         </Button>
@@ -4383,25 +4455,14 @@ export default function MaintenanceQuotePage() {
                         value="permanent"
                         checked={saveType === 'permanent'}
                         onChange={() => setSaveType('permanent')}
+                        disabled={user?.role !== 'admin'}
                         className="w-4 h-4"
                       />
-                      <span>永久保存</span>
+                      <span>永久保存（管理员）</span>
                     </label>
                   </div>
                 </div>
                 
-                {saveType === 'permanent' && (
-                  <div className="flex items-center gap-4">
-                    <Label className="min-w-[80px]">管理员密码</Label>
-                    <Input
-                      type="password"
-                      value={adminPassword}
-                      onChange={(e) => setAdminPassword(e.target.value)}
-                      placeholder="请输入管理员密码"
-                      className="max-w-xs"
-                    />
-                  </div>
-                )}
               </div>
             </div>
           </div>
@@ -4411,7 +4472,6 @@ export default function MaintenanceQuotePage() {
               variant="outline"
               onClick={() => {
                 setShowPriceSettings(false);
-                setAdminPassword('');
               }}
             >
               取消

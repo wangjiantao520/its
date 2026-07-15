@@ -1,154 +1,84 @@
 import { NextRequest, NextResponse } from 'next/server';
-import pool, { initDatabase } from '@/lib/db';
+import { requireApiAuth } from '@/lib/api-auth-server';
+import { db } from '@/lib/db';
+import { getQuoteSummaries } from '@/lib/quote-summary';
 
-// GET /api/engineering-quotes/stats - 获取报价统计数据
 export async function GET(request: NextRequest) {
+  const auth = requireApiAuth(request);
+  if (!auth.ok) return auth.response;
+
   try {
-    await initDatabase();
+    const createdBy = auth.session.role === 'admin' ? undefined : String(auth.session.userId ?? -1);
+    const quotes = getQuoteSummaries(db, { source: 'engineering', createdBy });
+    const amounts = quotes.map((quote) => quote.total);
+    const totalAmount = amounts.reduce((sum, value) => sum + value, 0);
 
-    // 1. 总体概览统计
-    const [overviewResult] = await pool.execute(
-      `SELECT 
-        COUNT(*) as total_count,
-        COALESCE(SUM(total), 0) as total_amount,
-        COALESCE(AVG(total), 0) as avg_amount,
-        COALESCE(MAX(total), 0) as max_amount,
-        COALESCE(MIN(total), 0) as min_amount
-      FROM engineering_quotes`
-    );
-    const overview = (overviewResult as any[])[0];
+    const statusMap = new Map<string, { count: number; totalAmount: number }>();
+    const monthMap = new Map<string, { count: number; totalAmount: number }>();
+    const clientMap = new Map<string, { count: number; totalAmount: number }>();
+    const rangeDefinitions = [
+      { label: '0-1万', max: 10_000 }, { label: '1-5万', max: 50_000 },
+      { label: '5-10万', max: 100_000 }, { label: '10-50万', max: 500_000 },
+      { label: '50-100万', max: 1_000_000 }, { label: '100万以上', max: Number.POSITIVE_INFINITY },
+    ];
+    const rangeMap = new Map(rangeDefinitions.map((item) => [item.label, 0]));
 
-    // 2. 按状态统计
-    const [statusResult] = await pool.execute(
-      `SELECT 
-        status,
-        COUNT(*) as count,
-        COALESCE(SUM(total), 0) as total_amount
-      FROM engineering_quotes
-      GROUP BY status`
-    );
-    const byStatus = (statusResult as any[]).map(row => ({
-      status: row.status,
-      count: Number(row.count),
-      totalAmount: Number(row.total_amount),
-    }));
+    for (const quote of quotes) {
+      const status = statusMap.get(quote.status) || { count: 0, totalAmount: 0 };
+      status.count += 1;
+      status.totalAmount += quote.total;
+      statusMap.set(quote.status, status);
 
-    // 3. 按月统计（近12个月）
-    const [monthlyResult] = await pool.execute(
-      `SELECT 
-        DATE_FORMAT(created_at, '%Y-%m') as month,
-        COUNT(*) as count,
-        COALESCE(SUM(total), 0) as total_amount
-      FROM engineering_quotes
-      WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
-      GROUP BY DATE_FORMAT(created_at, '%Y-%m')
-      ORDER BY month ASC`
-    );
-    const byMonth = (monthlyResult as any[]).map(row => ({
-      month: row.month,
-      count: Number(row.count),
-      totalAmount: Number(row.total_amount),
-    }));
+      const month = quote.createdAt.slice(0, 7);
+      const monthly = monthMap.get(month) || { count: 0, totalAmount: 0 };
+      monthly.count += 1;
+      monthly.totalAmount += quote.total;
+      monthMap.set(month, monthly);
 
-    // 4. 客户报价频次 TOP10
-    const [clientResult] = await pool.execute(
-      `SELECT 
-        COALESCE(client_name, '未填写') as client_name,
-        COUNT(*) as count,
-        COALESCE(SUM(total), 0) as total_amount
-      FROM engineering_quotes
-      GROUP BY client_name
-      ORDER BY count DESC
-      LIMIT 10`
-    );
-    const byClient = (clientResult as any[]).map(row => ({
-      clientName: row.client_name,
-      count: Number(row.count),
-      totalAmount: Number(row.total_amount),
-    }));
+      const client = quote.clientName || '未填写';
+      const clientValue = clientMap.get(client) || { count: 0, totalAmount: 0 };
+      clientValue.count += 1;
+      clientValue.totalAmount += quote.total;
+      clientMap.set(client, clientValue);
 
-    // 5. 报价金额分布
-    const [distributionResult] = await pool.execute(
-      `SELECT 
-        CASE 
-          WHEN total < 10000 THEN '0-1万'
-          WHEN total < 50000 THEN '1-5万'
-          WHEN total < 100000 THEN '5-10万'
-          WHEN total < 500000 THEN '10-50万'
-          WHEN total < 1000000 THEN '50-100万'
-          ELSE '100万以上'
-        END as range_label,
-        COUNT(*) as count
-      FROM engineering_quotes
-      GROUP BY range_label
-      ORDER BY MIN(total) ASC`
-    );
-    const byAmountRange = (distributionResult as any[]).map(row => ({
-      range: row.range_label,
-      count: Number(row.count),
-    }));
+      const range = rangeDefinitions.find((item) => quote.total < item.max) ?? rangeDefinitions.at(-1)!;
+      rangeMap.set(range.label, (rangeMap.get(range.label) || 0) + 1);
+    }
 
-    // 6. 本月统计
-    const [thisMonthResult] = await pool.execute(
-      `SELECT 
-        COUNT(*) as count,
-        COALESCE(SUM(total), 0) as total_amount
-      FROM engineering_quotes
-      WHERE DATE_FORMAT(created_at, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m')`
-    );
-    const thisMonth = (thisMonthResult as any[])[0];
-
-    // 7. 上月统计（用于环比计算）
-    const [lastMonthResult] = await pool.execute(
-      `SELECT 
-        COUNT(*) as count,
-        COALESCE(SUM(total), 0) as total_amount
-      FROM engineering_quotes
-      WHERE DATE_FORMAT(created_at, '%Y-%m') = DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 1 MONTH), '%Y-%m')`
-    );
-    const lastMonth = (lastMonthResult as any[])[0];
-
-    // 计算环比
-    const thisMonthCount = Number(thisMonth.count);
-    const lastMonthCount = Number(lastMonth.count);
-    const thisMonthAmount = Number(thisMonth.total_amount);
-    const lastMonthAmount = Number(lastMonth.total_amount);
-
-    const countChange = lastMonthCount === 0
-      ? (thisMonthCount > 0 ? 100 : 0)
-      : Math.round(((thisMonthCount - lastMonthCount) / lastMonthCount) * 10000) / 100;
-
-    const amountChange = lastMonthAmount === 0
-      ? (thisMonthAmount > 0 ? 100 : 0)
-      : Math.round(((thisMonthAmount - lastMonthAmount) / lastMonthAmount) * 10000) / 100;
+    const now = new Date();
+    const thisMonthKey = now.toISOString().slice(0, 7);
+    const previousMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1)).toISOString().slice(0, 7);
+    const thisMonth = monthMap.get(thisMonthKey) || { count: 0, totalAmount: 0 };
+    const lastMonth = monthMap.get(previousMonth) || { count: 0, totalAmount: 0 };
+    const percentChange = (current: number, previous: number) => previous === 0
+      ? (current > 0 ? 100 : 0)
+      : Math.round(((current - previous) / previous) * 10_000) / 100;
 
     return NextResponse.json({
       success: true,
       data: {
         overview: {
-          totalCount: Number(overview.total_count),
-          totalAmount: Number(overview.total_amount),
-          avgAmount: Number(overview.avg_amount),
-          maxAmount: Number(overview.max_amount),
-          minAmount: Number(overview.min_amount),
+          totalCount: quotes.length,
+          totalAmount,
+          avgAmount: quotes.length ? totalAmount / quotes.length : 0,
+          maxAmount: amounts.length ? Math.max(...amounts) : 0,
+          minAmount: amounts.length ? Math.min(...amounts) : 0,
         },
-        byStatus,
-        byMonth,
-        byClient,
-        byAmountRange,
+        byStatus: [...statusMap].map(([status, value]) => ({ status, ...value })),
+        byMonth: [...monthMap].sort(([a], [b]) => a.localeCompare(b)).slice(-12)
+          .map(([month, value]) => ({ month, ...value })),
+        byClient: [...clientMap].sort((a, b) => b[1].count - a[1].count).slice(0, 10)
+          .map(([clientName, value]) => ({ clientName, ...value })),
+        byAmountRange: [...rangeMap].map(([range, count]) => ({ range, count })),
         thisMonth: {
-          count: thisMonthCount,
-          totalAmount: thisMonthAmount,
-          countChange,
-          amountChange,
+          ...thisMonth,
+          countChange: percentChange(thisMonth.count, lastMonth.count),
+          amountChange: percentChange(thisMonth.totalAmount, lastMonth.totalAmount),
         },
       },
     });
   } catch (error) {
-    console.error('获取报价统计数据失败:', error);
-    return NextResponse.json(
-      { success: false, error: '获取报价统计数据失败' },
-      { status: 500 }
-    );
+    console.error('获取工程报价统计失败:', error);
+    return NextResponse.json({ success: false, error: '获取工程报价统计失败' }, { status: 500 });
   }
 }

@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireApiAuth } from '@/lib/api-auth-server';
 import pool, { initDatabase } from '@/lib/db';
 
 // GET /api/intelligent-project-quotas - 获取智能化项目定额列表
 export async function GET(request: NextRequest) {
+  const auth = requireApiAuth(request);
+  if (!auth.ok) return auth.response;
+
   try {
     await initDatabase();
 
@@ -66,6 +70,9 @@ export async function GET(request: NextRequest) {
 
 // POST /api/intelligent-project-quotas - 新增智能化项目定额
 export async function POST(request: NextRequest) {
+  const auth = requireApiAuth(request, ['admin']);
+  if (!auth.ok) return auth.response;
+
   try {
     await initDatabase();
 
@@ -112,6 +119,9 @@ export async function POST(request: NextRequest) {
 
 // PUT /api/intelligent-project-quotas - 编辑智能化项目定额
 export async function PUT(request: NextRequest) {
+  const auth = requireApiAuth(request, ['admin']);
+  if (!auth.ok) return auth.response;
+
   try {
     await initDatabase();
 
@@ -159,6 +169,9 @@ export async function PUT(request: NextRequest) {
 
 // DELETE /api/intelligent-project-quotas - 删除智能化项目定额
 export async function DELETE(request: NextRequest) {
+  const auth = requireApiAuth(request, ['admin']);
+  if (!auth.ok) return auth.response;
+
   try {
     await initDatabase();
 

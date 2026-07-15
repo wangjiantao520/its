@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/lib/db';
+import { requireApiAuth } from '@/lib/api-auth-server';
 
 // AI模型配置管理 - 支持DeepSeek/OpenAI/豆包/通义千问等多家厂商
 
@@ -131,15 +132,13 @@ function maskApiKey(key: string): string {
 
 // GET - 获取所有AI模型配置列表
 export async function GET(request: NextRequest) {
-  try {
-    const { searchParams } = new URL(request.url);
-    const includeInactive = searchParams.get('includeInactive') === 'true';
+  const auth = requireApiAuth(request, ['admin']);
+  if (!auth.ok) return auth.response;
 
+  try {
     const connection = await pool.getConnection();
     try {
-      const sql = includeInactive
-        ? 'SELECT * FROM ai_model_configs ORDER BY is_active DESC, is_default DESC, sort_order ASC, id DESC'
-        : 'SELECT * FROM ai_model_configs ORDER BY is_active DESC, is_default DESC, sort_order ASC, id DESC';
+      const sql = 'SELECT * FROM ai_model_configs ORDER BY is_active DESC, is_default DESC, sort_order ASC, id DESC';
 
       const [rows] = await connection.execute(sql);
       const configs = (rows as any[]).map((row) => ({
@@ -159,20 +158,17 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error('[AI Models] 获取配置列表失败:', error);
     return NextResponse.json(
-      {
-        success: true,
-        data: [],
-        presets: PROVIDER_PRESETS,
-        warning: '数据库未连接，返回空配置列表',
-        _offline: true,
-      },
-      { status: 200 }
+      { success: false, error: '获取AI模型配置失败' },
+      { status: 500 },
     );
   }
 }
 
 // POST - 创建新的AI模型配置
 export async function POST(request: NextRequest) {
+  const auth = requireApiAuth(request, ['admin']);
+  if (!auth.ok) return auth.response;
+
   try {
     const body = await request.json();
     const {
@@ -233,7 +229,7 @@ export async function POST(request: NextRequest) {
         ]
       );
 
-      const insertId = (result as any)[0]?.insertId;
+      const insertId = (result as { insertId?: number | bigint }).insertId;
       return NextResponse.json({
         success: true,
         data: { id: insertId, message: 'AI模型配置创建成功' },
@@ -257,6 +253,9 @@ export async function POST(request: NextRequest) {
 
 // PUT - 更新AI模型配置（通过query参数指定id）
 export async function PUT(request: NextRequest) {
+  const auth = requireApiAuth(request, ['admin']);
+  if (!auth.ok) return auth.response;
+
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
@@ -289,6 +288,7 @@ export async function PUT(request: NextRequest) {
       const setClauses: string[] = [];
       const values: any[] = [];
       for (const field of allowedFields) {
+        if (field === 'api_key' && body[field] === '') continue;
         if (body[field] !== undefined) {
           setClauses.push(`${field} = ?`);
           values.push(body[field]);
@@ -320,6 +320,9 @@ export async function PUT(request: NextRequest) {
 
 // DELETE - 删除AI模型配置
 export async function DELETE(request: NextRequest) {
+  const auth = requireApiAuth(request, ['admin']);
+  if (!auth.ok) return auth.response;
+
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');

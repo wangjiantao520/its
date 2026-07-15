@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireApiAuth } from '@/lib/api-auth-server';
 import { pool } from '@/lib/db';
 
 // 获取所有设备参数
 export async function GET(request: NextRequest) {
+  const auth = requireApiAuth(request);
+  if (!auth.ok) return auth.response;
+
   try {
     const { searchParams } = new URL(request.url);
     const type = searchParams.get('type'); // device_quotas, self_construction, intelligent_project, labor_price
@@ -78,6 +82,9 @@ export async function GET(request: NextRequest) {
 
 // 新增设备参数
 export async function POST(request: NextRequest) {
+  const auth = requireApiAuth(request, ['admin']);
+  if (!auth.ok) return auth.response;
+
   try {
     const body = await request.json();
     const { type, data } = body;

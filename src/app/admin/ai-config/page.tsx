@@ -200,24 +200,13 @@ export default function AIConfigPage() {
   const [fetchingModels, setFetchingModels] = useState(false);
   const [fetchedModels, setFetchedModels] = useState<string[]>([]);
 
-  useEffect(() => {
-    loadAgents();
-    loadModels();
-  }, []);
-
-  useEffect(() => {
-    if (selectedAgent) {
-      loadSkills(selectedAgent.id);
-    }
-  }, [selectedAgent]);
-
   // 加载智能体列表
   const loadAgents = async () => {
     try {
       const res = await fetch('/api/agents');
       if (res.ok) {
         const data = await res.json();
-        setAgents(data);
+        setAgents(data.data || []);
       }
     } catch (error) {
       console.error('加载智能体列表失败:', error);
@@ -244,12 +233,23 @@ export default function AIConfigPage() {
       const res = await fetch(`/api/agents/${agentId}/skills`);
       if (res.ok) {
         const data = await res.json();
-        setSkills(data);
+        setSkills(data.data || []);
       }
     } catch (error) {
       console.error('加载技能列表失败:', error);
     }
   };
+
+  useEffect(() => {
+    void loadAgents();
+    void loadModels();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (selectedAgent) {
+      void loadSkills(selectedAgent.id);
+    }
+  }, [selectedAgent]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 创建/更新智能体
   const handleSaveAgent = async () => {
@@ -343,7 +343,7 @@ export default function AIConfigPage() {
   const handleSaveModel = async () => {
     try {
       const method = editingModel.id ? 'PUT' : 'POST';
-      const url = editingModel.id ? `/api/ai-models/${editingModel.id}` : '/api/ai-models';
+      const url = editingModel.id ? `/api/ai-models?id=${editingModel.id}` : '/api/ai-models';
       
       const res = await fetch(url, {
         method,
@@ -367,7 +367,7 @@ export default function AIConfigPage() {
     if (!confirm('确定要删除这个AI模型吗？')) return;
     
     try {
-      const res = await fetch(`/api/ai-models/${id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/ai-models?id=${id}`, { method: 'DELETE' });
       if (res.ok) {
         toast({ title: '成功', description: 'AI模型已删除' });
         loadModels();
@@ -383,12 +383,11 @@ export default function AIConfigPage() {
     setTestResult(null);
     
     try {
-      const res = await fetch('/api/ai-models/test', {
+      const res = await fetch(`/api/ai-models/test?id=${model.id}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model_id: model.id,
-          message: '你好，请简单介绍一下自己',
+          prompt: '你好，请简单介绍一下自己',
         }),
       });
       
@@ -486,7 +485,7 @@ export default function AIConfigPage() {
               {agents.length === 0 && (
                 <Card>
                   <CardContent className="py-8 text-center text-muted-foreground">
-                    暂无智能体，点击"新建智能体"创建
+                    暂无智能体，点击&ldquo;新建智能体&rdquo;创建
                   </CardContent>
                 </Card>
               )}
@@ -651,7 +650,7 @@ export default function AIConfigPage() {
             {models.length === 0 && (
               <Card className="col-span-full">
                 <CardContent className="py-8 text-center text-muted-foreground">
-                  暂无AI模型，点击"添加模型"配置
+                  暂无AI模型，点击&ldquo;添加模型&rdquo;配置
                 </CardContent>
               </Card>
             )}

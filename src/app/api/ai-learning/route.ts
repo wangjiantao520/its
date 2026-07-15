@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireApiAuth } from '@/lib/api-auth-server';
 import pool from '@/lib/db';
 
 // 设备签名：归一化设备名称+类型，用于相似匹配
@@ -10,6 +11,9 @@ function buildDeviceSignature(deviceName: string, useYears?: number): string {
 
 // 查询客户历史学习记忆
 export async function GET(request: NextRequest) {
+  const auth = requireApiAuth(request, ['admin']);
+  if (!auth.ok) return auth.response;
+
   const { searchParams } = new URL(request.url);
   const clientId = searchParams.get('clientId');
   const clientName = searchParams.get('clientName');
@@ -59,6 +63,9 @@ export async function GET(request: NextRequest) {
 
 // 保存学习记忆
 export async function POST(request: NextRequest) {
+  const auth = requireApiAuth(request, ['admin']);
+  if (!auth.ok) return auth.response;
+
   try {
     const body = await request.json();
     const { clientId, clientName, deviceName, useYears, deviceConfig, deviceConfigs, action } = body;

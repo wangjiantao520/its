@@ -1,13 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { FetchClient, Config, HeaderUtils } from 'coze-coding-dev-sdk';
 import { db } from '@/lib/db';
+import { requireApiAuth } from '@/lib/api-auth-server';
 
 export async function POST(request: NextRequest) {
+  const auth = requireApiAuth(request, ['admin']);
+  if (!auth.ok) return auth.response;
+
   try {
     const { url } = await request.json();
     
     if (!url) {
-      return NextResponse.json({ error: '请提供文件URL' }, { status: 400 });
+      return NextResponse.json({ success: false, error: '请提供文件URL' }, { status: 400 });
     }
 
     const customHeaders = HeaderUtils.extractForwardHeaders(request.headers);
@@ -34,7 +38,7 @@ export async function POST(request: NextRequest) {
     const devices = parseExcelContent(textContent);
     
     if (devices.length === 0) {
-      return NextResponse.json({ error: '未解析到有效的设备数据' }, { status: 400 });
+      return NextResponse.json({ success: false, error: '未解析到有效的设备数据' }, { status: 400 });
     }
 
     // 导入到数据库

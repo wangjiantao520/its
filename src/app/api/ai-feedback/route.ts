@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireApiAuth } from '@/lib/api-auth-server';
 import pool from '@/lib/db';
 
 // 保存用户对AI识别的反馈
 export async function POST(request: NextRequest) {
+  const auth = requireApiAuth(request);
+  if (!auth.ok) return auth.response;
+
   try {
     const body = await request.json();
     const {
@@ -70,6 +74,9 @@ export async function POST(request: NextRequest) {
 
 // 查询反馈列表（管理员用）
 export async function GET(request: NextRequest) {
+  const auth = requireApiAuth(request, ['admin']);
+  if (!auth.ok) return auth.response;
+
   const { searchParams } = new URL(request.url);
   const clientName = searchParams.get('clientName');
   const limit = parseInt(searchParams.get('limit') || '50');

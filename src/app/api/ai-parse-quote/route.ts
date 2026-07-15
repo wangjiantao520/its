@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireApiAuth } from '@/lib/api-auth-server';
 
 // DeepSeek API 配置
 const DEEPSEEK_API_URL = process.env.DEEPSEEK_API_URL || 'https://api.deepseek.com/v1/chat/completions';
@@ -269,6 +270,9 @@ function buildMessages(userMessage: string, history?: Array<{ role: string; cont
 }
 
 export async function POST(request: NextRequest) {
+  const auth = requireApiAuth(request);
+  if (!auth.ok) return auth.response;
+
   console.log('[AI] 收到解析请求');
 
   try {

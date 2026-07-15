@@ -35,6 +35,15 @@ interface AgentSkill {
   priority: number;
 }
 
+interface AgentLog {
+  id: number;
+  session_id: string;
+  user_message: string;
+  agent_response: string;
+  created_at: string;
+  user_name: string;
+}
+
 const AVAILABLE_MODELS = [
   { value: 'doubao-seed-2-0-pro-260215', label: '豆包 Seed 2.0 Pro' },
   { value: 'doubao-seed-2-0-lite-260215', label: '豆包 Seed 2.0 Lite' },
@@ -57,28 +66,19 @@ export default function AgentsPage() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
   const [skills, setSkills] = useState<AgentSkill[]>([]);
+  const [logs, setLogs] = useState<AgentLog[]>([]);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isSkillDialogOpen, setIsSkillDialogOpen] = useState(false);
   const [editingAgent, setEditingAgent] = useState<Partial<Agent>>({});
   const [editingSkill, setEditingSkill] = useState<Partial<AgentSkill>>({});
   const { toast } = useToast();
 
-  useEffect(() => {
-    loadAgents();
-  }, []);
-
-  useEffect(() => {
-    if (selectedAgent) {
-      loadSkills(selectedAgent.id);
-    }
-  }, [selectedAgent]);
-
   const loadAgents = async () => {
     try {
       const res = await fetch('/api/agents');
       if (res.ok) {
         const data = await res.json();
-        setAgents(data);
+        setAgents(data.data || []);
       }
     } catch (error) {
       console.error('加载智能体列表失败:', error);
@@ -90,12 +90,33 @@ export default function AgentsPage() {
       const res = await fetch(`/api/agents/${agentId}/skills`);
       if (res.ok) {
         const data = await res.json();
-        setSkills(data);
+        setSkills(data.data || []);
       }
     } catch (error) {
       console.error('加载技能列表失败:', error);
     }
   };
+
+  const loadLogs = async (agentId: number) => {
+    try {
+      const response = await fetch(`/api/agent-logs?agent_id=${agentId}`);
+      const result = await response.json();
+      if (response.ok && result.success) setLogs(result.data);
+    } catch (error) {
+      console.error('加载对话日志失败:', error);
+    }
+  };
+
+  useEffect(() => {
+    void loadAgents();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (selectedAgent) {
+      void loadSkills(selectedAgent.id);
+      void loadLogs(selectedAgent.id);
+    }
+  }, [selectedAgent]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleCreateAgent = () => {
     setEditingAgent({
@@ -269,7 +290,7 @@ export default function AgentsPage() {
               ))}
               {agents.length === 0 && (
                 <div className="text-center py-8 text-muted-foreground">
-                  暂无智能体，点击"新建"创建
+                  暂无智能体，点击&ldquo;新建&rdquo;创建
                 </div>
               )}
             </div>
@@ -372,9 +393,13 @@ export default function AgentsPage() {
                 </TabsContent>
 
                 <TabsContent value="logs">
-                  <div className="text-center py-8 text-muted-foreground">
-                    对话日志功能开发中...
-                  </div>
+                  <Table>
+                    <TableHeader><TableRow><TableHead>用户</TableHead><TableHead>问题</TableHead><TableHead>回复</TableHead><TableHead>时间</TableHead></TableRow></TableHeader>
+                    <TableBody>
+                      {logs.map((log) => <TableRow key={log.id}><TableCell>{log.user_name}</TableCell><TableCell className="max-w-48 truncate" title={log.user_message}>{log.user_message}</TableCell><TableCell className="max-w-64 truncate" title={log.agent_response}>{log.agent_response}</TableCell><TableCell>{log.created_at}</TableCell></TableRow>)}
+                      {logs.length === 0 && <TableRow><TableCell colSpan={4} className="py-8 text-center text-muted-foreground">暂无对话日志</TableCell></TableRow>}
+                    </TableBody>
+                  </Table>
                 </TabsContent>
               </Tabs>
             ) : (

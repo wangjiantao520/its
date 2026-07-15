@@ -1,29 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
-import pool from '@/lib/db';
-import { verifySession } from '@/lib/auth';
-
-// 认证中间件
-function requireAuth(request: NextRequest): { authorized: boolean; response?: NextResponse } {
-  const session = verifySession(request);
-  if (!session) {
-    return {
-      authorized: false,
-      response: NextResponse.json(
-        { success: false, error: '请先登录' },
-        { status: 401 }
-      )
-    };
-  }
-  return { authorized: true };
-}
+import pool, { db } from '@/lib/db';
+import { requireApiAuth } from '@/lib/api-auth-server';
+import { asQuoteSource, canAccessQuote } from '@/lib/quote-access';
 
 // GET - 获取报价审核日志
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = requireAuth(request);
-  if (!auth.authorized) return auth.response!;
+  const auth = requireApiAuth(request);
+  if (!auth.ok) return auth.response;
 
   try {
     const { id } = await params;
@@ -36,7 +22,13 @@ export async function GET(
     }
 
     const searchParams = request.nextUrl.searchParams;
-    const quoteType = searchParams.get('quoteType') || 'maintenance';
+    const quoteType = asQuoteSource(searchParams.get('quoteType') || 'maintenance');
+    if (!quoteType) {
+      return NextResponse.json({ success: false, error: '无效的报价类型' }, { status: 400 });
+    }
+    if (!canAccessQuote(db, auth.session, quoteType, quoteId)) {
+      return NextResponse.json({ success: false, error: '报价不存在或无权访问' }, { status: 404 });
+    }
     const page = Math.max(1, parseInt(searchParams.get('page') || '1') || 1);
     const limit = Math.min(Math.max(1, parseInt(searchParams.get('limit') || '50') || 50), 200);
     const offset = (page - 1) * limit;

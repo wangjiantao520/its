@@ -1,4 +1,6 @@
+import crypto from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
+import { requireApiAuth } from '@/lib/api-auth-server';
 import { pool } from '@/lib/db';
 
 // 简单的技能执行器
@@ -112,56 +114,62 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const auth = requireApiAuth(request);
+  if (!auth.ok) return auth.response;
+
   try {
     const { id } = await params;
-    const body = await request.json();
-    const { message, history = [], session_id } = body;
+    const body = (await request.json()) as { message?: string; session_id?: string | null };
+    const message = body.message?.trim();
+    const sessionId = body.session_id || null;
     
     if (!message) {
-      return NextResponse.json({ error: '消息不能为空' }, { status: 400 });
+      return NextResponse.json({ success: false, error: '消息不能为空' }, { status: 400 });
     }
-    
-    // 从cookie获取用户信息
-    const cookieHeader = request.headers.get('cookie') || '';
-    const sessionMatch = cookieHeader.match(/session=([^;]+)/);
-    let userId = 1;
-    let userName = '用户';
-    if (sessionMatch) {
-      try {
-        const sessionData = JSON.parse(decodeURIComponent(sessionMatch[1]));
-        userId = sessionData.userId || 1;
-        userName = sessionData.name || '用户';
-      } catch {}
+
+    const agents = await pool.execute('SELECT * FROM agent_configs WHERE id = ? AND enabled = 1', [id]);
+    const agent = (agents[0] as Array<Record<string, unknown>>)?.[0];
+    if (!agent) {
+      return NextResponse.json({ success: false, error: '智能体不存在或未启用' }, { status: 404 });
     }
-    
-    // 处理会话：如果有session_id则更新，没有则创建
-    const finalSessionId = session_id || `sess_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+    const userId = auth.session.userId ?? -1;
+    const userName = auth.session.name || auth.session.username || '用户';
+
+    const finalSessionId = sessionId || `sess_${crypto.randomUUID()}`;
     const firstLine = message.slice(0, 30);
-    
-    if (session_id) {
-      // 更新已有会话：更新最后消息时间和消息计数
+
+    if (sessionId) {
+      const existingResult = await pool.execute(
+        'SELECT user_id, agent_id FROM agent_sessions WHERE session_id = ? AND is_deleted = 0',
+        [sessionId],
+      );
+      const existing = (existingResult[0] as Array<{ user_id: number; agent_id: number }>)[0];
+      if (!existing) {
+        return NextResponse.json({ success: false, error: '会话不存在' }, { status: 404 });
+      }
+      if (auth.session.role !== 'admin' && existing.user_id !== userId) {
+        return NextResponse.json({ success: false, error: '权限不足' }, { status: 403 });
+      }
+      if (Number(existing.agent_id) !== Number(id)) {
+        return NextResponse.json(
+          { success: false, error: '该会话不属于当前智能体' },
+          { status: 409 },
+        );
+      }
       await pool.execute(
-        `UPDATE agent_sessions SET last_message = ?, updated_at = datetime('now'), message_count = message_count + 1 WHERE session_id = ?`,
-        [firstLine, session_id]
+        `UPDATE agent_sessions
+         SET last_message = ?, last_message_at = datetime('now'),
+             updated_at = datetime('now'), message_count = message_count + 1
+         WHERE session_id = ?`,
+        [firstLine, sessionId],
       );
     } else {
-      // 创建新会话
       await pool.execute(
         `INSERT INTO agent_sessions (session_id, agent_id, user_id, user_name, title, last_message, message_count, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, 1, datetime('now'), datetime('now'))`,
-        [finalSessionId, id, userId, userName, firstLine, firstLine]
+        [finalSessionId, id, userId, userName, firstLine, firstLine],
       );
-    }
-    
-    // 获取智能体配置
-    const agents = await pool.execute(
-      'SELECT * FROM agent_configs WHERE id = ?',
-      [id]
-    );
-    const agent = (agents[0] as Array<Record<string, unknown>>)?.[0];
-    
-    if (!agent) {
-      return NextResponse.json({ error: '智能体不存在' }, { status: 404 });
     }
     
     // 获取启用的技能
@@ -193,16 +201,15 @@ export async function POST(
     
     // 记录日志
     await pool.execute(
-      `INSERT INTO agent_logs (user_id, agent_id, session_id, log_id, user_message, agent_response, actions_executed) 
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO agent_logs (user_id, agent_id, session_id, user_message, agent_response, actions_executed)
+       VALUES (?, ?, ?, ?, ?, ?)`,
       [
         userId,
         id,
         finalSessionId,
-        `log_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         message,
         response,
-        JSON.stringify(intent ? [intent.skill] : [])
+        JSON.stringify(intent ? [intent.skill] : []),
       ]
     );
     
@@ -250,6 +257,6 @@ export async function POST(
     });
   } catch (error) {
     console.error('智能体对话错误:', error);
-    return NextResponse.json({ error: '对话失败' }, { status: 500 });
+    return NextResponse.json({ success: false, error: '对话失败' }, { status: 500 });
   }
 }

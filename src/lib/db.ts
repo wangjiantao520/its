@@ -1,12 +1,14 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
+import { runDatabaseMigrations } from './database/migrations';
 
 // 数据库类型导出
-export type DbRow = Record<string, any>;
-export type DbRows = Record<string, any>[];
-export type DbSelectResult = [Record<string, any>[], any[]];
-export type DbInsertResult = [{ insertId: number | bigint; affectedRows: number }, any[]];
+export type DbValue = string | number | bigint | Buffer | null | undefined;
+export type DbRow = Record<string, DbValue>;
+export type DbRows = DbRow[];
+export type DbSelectResult = [DbRows, unknown[]];
+export type DbInsertResult = [{ insertId: number | bigint; affectedRows: number }, unknown[]];
 
 // SQLite 数据库路径
 const DB_PATH = process.env.DB_PATH || path.join(process.cwd(), 'data', 'quotation.db');
@@ -21,7 +23,22 @@ if (!fs.existsSync(dbDir)) {
 const db = new Database(DB_PATH);
 
 // 启用 WAL 模式以提高性能
-db.pragma('journal_mode = WAL');
+db.pragma('busy_timeout = 15000');
+try {
+  db.pragma('journal_mode = WAL');
+} catch (error) {
+  // 多进程同时首次打开数据库时，另一进程可能正在切换 WAL。
+  // 后续迁移锁会等待该进程完成，因此 SQLITE_BUSY 可安全重用已打开的连接。
+  if ((error as { code?: string }).code !== 'SQLITE_BUSY') throw error;
+}
+
+const migrationResult = runDatabaseMigrations(db, DB_PATH);
+if (migrationResult.appliedVersions.length > 0) {
+  console.log(
+    `[DB Migration] 已应用版本: ${migrationResult.appliedVersions.join(', ')}`,
+    migrationResult.backupPath ? `备份: ${migrationResult.backupPath}` : '',
+  );
+}
 
 // 测试数据库连接
 export async function testConnection() {
@@ -107,6 +124,7 @@ export async function initDatabase() {
         consumable_fee REAL DEFAULT 0,
         consumable_details TEXT,
         spare_part_reserve REAL DEFAULT 0,
+        spare_part_fee REAL DEFAULT 0,
         spare_part_basis TEXT,
         city_price REAL DEFAULT 0,
         fault_handling_fee_total REAL DEFAULT 0,
@@ -125,57 +143,6 @@ export async function initDatabase() {
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
       )
     `);
-
-    // 数据库迁移：为已存在的 device_quotas 表添加缺失的列
-    try {
-      // 检查并添加费用相关字段
-      const columns = db.prepare("PRAGMA table_info(device_quotas)").all().map((col: any) => col.name);
-      
-      const addColumns = [
-        { name: 'visit_service_fee', type: 'REAL DEFAULT 0' },
-        { name: 'fault_handling_fee', type: 'REAL DEFAULT 0' },
-        { name: 'tool_amortization', type: 'REAL DEFAULT 0' },
-        { name: 'consumable_fee', type: 'REAL DEFAULT 0' },
-        { name: 'spare_part_reserve', type: 'REAL DEFAULT 0' },
-        { name: 'spare_part_fee', type: 'REAL DEFAULT 0' }
-      ];
-
-      for (const col of addColumns) {
-        if (!columns.includes(col.name)) {
-          db.exec(`ALTER TABLE device_quotas ADD COLUMN ${col.name} ${col.type}`);
-          console.log(`[DB Migration] Added column: ${col.name}`);
-        }
-      }
-    } catch (migrationError) {
-      console.warn('[DB Migration] Migration check failed:', migrationError);
-    }
-
-    // 数据库迁移：为报价表添加创建人字段
-    try {
-      // 工程报价表
-      const engColumns = db.prepare("PRAGMA table_info(engineering_quotes)").all().map((col: any) => col.name);
-      if (!engColumns.includes('created_by')) {
-        db.exec("ALTER TABLE engineering_quotes ADD COLUMN created_by TEXT");
-        console.log('[DB Migration] Added column: engineering_quotes.created_by');
-      }
-      if (!engColumns.includes('created_by_name')) {
-        db.exec("ALTER TABLE engineering_quotes ADD COLUMN created_by_name TEXT");
-        console.log('[DB Migration] Added column: engineering_quotes.created_by_name');
-      }
-
-      // 维保报价表
-      const maintColumns = db.prepare("PRAGMA table_info(maintenance_quotes)").all().map((col: any) => col.name);
-      if (!maintColumns.includes('created_by')) {
-        db.exec("ALTER TABLE maintenance_quotes ADD COLUMN created_by TEXT");
-        console.log('[DB Migration] Added column: maintenance_quotes.created_by');
-      }
-      if (!maintColumns.includes('created_by_name')) {
-        db.exec("ALTER TABLE maintenance_quotes ADD COLUMN created_by_name TEXT");
-        console.log('[DB Migration] Added column: maintenance_quotes.created_by_name');
-      }
-    } catch (migrationError) {
-      console.warn('[DB Migration] Quote migration check failed:', migrationError);
-    }
 
     // 创建工程报价表
     db.exec(`
@@ -287,38 +254,6 @@ export async function initDatabase() {
       )
     `);
 
-    // 创建分享链接表
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS quote_shares (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        quote_id INTEGER NOT NULL,
-        share_token TEXT UNIQUE NOT NULL,
-        quote_type TEXT NOT NULL,
-        password TEXT,
-        expires_at DATETIME,
-        max_views INTEGER DEFAULT 0,
-        view_count INTEGER DEFAULT 0,
-        is_active INTEGER DEFAULT 1,
-        remark TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    // 创建用户表
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT UNIQUE NOT NULL,
-        password_hash TEXT NOT NULL,
-        name TEXT,
-        role TEXT DEFAULT 'its',
-        is_active INTEGER DEFAULT 1,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        created_by TEXT
-      )
-    `);
-
     // 创建自施工工序定额表
     db.exec(`
       CREATE TABLE IF NOT EXISTS self_construction_quotas (
@@ -365,22 +300,6 @@ export async function initDatabase() {
         unit TEXT DEFAULT '人天',
         description TEXT DEFAULT '',
         sort_order INTEGER DEFAULT 0,
-        is_active INTEGER DEFAULT 1,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    // 创建AI模型配置表
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS ai_models (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        provider TEXT NOT NULL,
-        model_name TEXT NOT NULL,
-        api_endpoint TEXT NOT NULL,
-        api_key TEXT NOT NULL,
-        description TEXT,
         is_active INTEGER DEFAULT 1,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -435,22 +354,6 @@ export async function initDatabase() {
         on_site_time TEXT DEFAULT '',
         description TEXT DEFAULT '',
         sort_order INTEGER DEFAULT 0,
-        is_active INTEGER DEFAULT 1,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    // 创建用户表（ITS成员）
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT UNIQUE NOT NULL,
-        password TEXT NOT NULL,
-        real_name TEXT NOT NULL,
-        phone TEXT,
-        email TEXT,
-        role TEXT DEFAULT 'member',
         is_active INTEGER DEFAULT 1,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -576,23 +479,6 @@ export async function initDatabase() {
       )
     `);
 
-    // AI模型配置表
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS ai_model_configs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        model_name TEXT NOT NULL,
-        display_name TEXT,
-        provider TEXT,
-        api_key TEXT,
-        base_url TEXT,
-        temperature REAL DEFAULT 0.7,
-        max_tokens INTEGER DEFAULT 4000,
-        enabled INTEGER DEFAULT 1,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
     console.log('✅ SQLite 数据库表初始化完成');
     return true;
   } catch (error) {
@@ -603,7 +489,7 @@ export async function initDatabase() {
 
 // 兼容 MySQL 风格的 pool 接口
 export const pool = {
-  execute: async (sql: string, params?: any[]) => {
+  execute: async (sql: string, params?: unknown[]) => {
     const stmt = db.prepare(sql);
     
     if (sql.trim().toUpperCase().startsWith('SELECT') || 
@@ -615,7 +501,7 @@ export const pool = {
       return [{ insertId: result.lastInsertRowid, affectedRows: result.changes }, []];
     }
   },
-  query: async (sql: string, params?: any[]) => {
+  query: async (sql: string, params?: unknown[]) => {
     const stmt = db.prepare(sql);
     if (sql.trim().toUpperCase().startsWith('SELECT') || 
         sql.trim().toUpperCase().startsWith('PRAGMA')) {
@@ -627,7 +513,7 @@ export const pool = {
     }
   },
   getConnection: async () => ({
-    execute: async (sql: string, params?: any[]) => {
+    execute: async (sql: string, params?: unknown[]) => {
       const stmt = db.prepare(sql);
       if (sql.trim().toUpperCase().startsWith('SELECT') || 
           sql.trim().toUpperCase().startsWith('PRAGMA')) {
@@ -638,7 +524,7 @@ export const pool = {
         return [{ insertId: result.lastInsertRowid, affectedRows: result.changes }, []];
       }
     },
-    query: async (sql: string, params?: any[]) => {
+    query: async (sql: string, params?: unknown[]) => {
       const stmt = db.prepare(sql);
       if (sql.trim().toUpperCase().startsWith('SELECT') || 
           sql.trim().toUpperCase().startsWith('PRAGMA')) {

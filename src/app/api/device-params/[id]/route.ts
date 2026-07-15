@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireApiAuth } from '@/lib/api-auth-server';
 import { pool } from '@/lib/db';
 
 // 更新设备参数
 export async function PUT(request: NextRequest) {
+  const auth = requireApiAuth(request, ['admin']);
+  if (!auth.ok) return auth.response;
+
   try {
     const body = await request.json();
     const { type, id, data } = body;
@@ -117,6 +121,9 @@ export async function PUT(request: NextRequest) {
 
 // 删除设备参数
 export async function DELETE(request: NextRequest) {
+  const auth = requireApiAuth(request, ['admin']);
+  if (!auth.ok) return auth.response;
+
   try {
     const { searchParams } = new URL(request.url);
     const type = searchParams.get('type');

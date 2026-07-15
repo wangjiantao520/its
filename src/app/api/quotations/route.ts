@@ -1,11 +1,41 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { pool } from '@/lib/db';
+import { requireApiAuth } from '@/lib/api-auth-server';
+import { db, pool } from '@/lib/db';
+
+interface QuotationDeviceInput {
+  device_name?: unknown;
+  name?: unknown;
+  brand?: unknown;
+  model?: unknown;
+  category?: unknown;
+  quantity?: unknown;
+  unit_price?: unknown;
+  total_price?: unknown;
+  maintenance_rate?: unknown;
+  maintenance_fee?: unknown;
+}
+
+function optionalText(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function nonNegativeNumber(value: unknown, fallback: number): number | null {
+  if (value === undefined || value === null || value === '') return fallback;
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? number : null;
+}
 
 // GET /api/quotations - 获取报价记录列表
 export async function GET(request: NextRequest) {
+  const auth = requireApiAuth(request);
+  if (!auth.ok) return auth.response;
+
   try {
     const { searchParams } = new URL(request.url);
-    const userId = searchParams.get('user_id');
+    const requestedUserId = searchParams.get('user_id');
+    const userId = auth.session.role === 'admin'
+      ? requestedUserId
+      : String(auth.session.userId ?? -1);
     const page = parseInt(searchParams.get('page') || '1');
     const pageSize = parseInt(searchParams.get('page_size') || '20');
     const offset = (page - 1) * pageSize;
@@ -33,63 +63,109 @@ export async function GET(request: NextRequest) {
     const [countResult] = await pool.execute(countQuery, countParams);
     const total = (countResult as any[])[0]?.total || 0;
 
-    return NextResponse.json({
-      records,
-      total,
-      page,
-      pageSize
-    });
+    return NextResponse.json({ success: true, data: { records, total, page, pageSize } });
   } catch (error) {
     console.error('获取报价记录失败:', error);
-    return NextResponse.json({ error: '获取报价记录失败' }, { status: 500 });
+    return NextResponse.json({ success: false, error: '获取报价记录失败' }, { status: 500 });
   }
 }
 
 // POST /api/quotations - 创建报价记录
 export async function POST(request: NextRequest) {
+  const auth = requireApiAuth(request);
+  if (!auth.ok) return auth.response;
+
   try {
     const body = await request.json();
-    const { user_id, client_name, client_region, project_name, quote_type, total_amount, device_count, quote_data, devices } = body;
+    const { client_name, client_region, project_name, quote_type, total_amount, device_count, quote_data, devices } = body;
+    const userId = auth.session.userId ?? -1;
 
-    if (!user_id || !client_name) {
-      return NextResponse.json({ error: '用户ID和客户名称不能为空' }, { status: 400 });
+    if (typeof client_name !== 'string' || !client_name.trim()) {
+      return NextResponse.json({ success: false, error: '客户名称不能为空' }, { status: 400 });
+    }
+    if (total_amount !== undefined && (!Number.isFinite(Number(total_amount)) || Number(total_amount) < 0)) {
+      return NextResponse.json({ success: false, error: '报价金额必须是有效的非负数' }, { status: 400 });
+    }
+    if (devices !== undefined && !Array.isArray(devices)) {
+      return NextResponse.json({ success: false, error: '设备明细格式无效' }, { status: 400 });
     }
 
-    // 创建报价记录
-    const result = await pool.execute(
-      'INSERT INTO quotation_records (user_id, client_name, client_region, project_name, quote_type, total_amount, device_count, quote_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      [user_id, client_name, client_region || null, project_name || null, quote_type || 'full', total_amount || 0, device_count || 0, quote_data ? JSON.stringify(quote_data) : null]
-    );
+    const normalizedDevices = (devices || []).map((rawDevice: QuotationDeviceInput) => {
+      const deviceName = optionalText(rawDevice.device_name) || optionalText(rawDevice.name);
+      const quantity = nonNegativeNumber(rawDevice.quantity, 1);
+      const unitPrice = nonNegativeNumber(rawDevice.unit_price, 0);
+      const totalPrice = nonNegativeNumber(rawDevice.total_price, 0);
+      const maintenanceRate = nonNegativeNumber(rawDevice.maintenance_rate, 0);
+      const maintenanceFee = nonNegativeNumber(rawDevice.maintenance_fee, 0);
+      if (!deviceName || [quantity, unitPrice, totalPrice, maintenanceRate, maintenanceFee].includes(null)) {
+        return null;
+      }
+      return {
+        deviceName,
+        brand: optionalText(rawDevice.brand),
+        model: optionalText(rawDevice.model),
+        category: optionalText(rawDevice.category),
+        quantity: quantity as number,
+        unitPrice: unitPrice as number,
+        totalPrice: totalPrice as number,
+        maintenanceRate: maintenanceRate as number,
+        maintenanceFee: maintenanceFee as number,
+      };
+    });
+    if (normalizedDevices.some((device: unknown) => device === null)) {
+      return NextResponse.json(
+        { success: false, error: '设备名称不能为空，数量和金额必须是有效的非负数' },
+        { status: 400 },
+      );
+    }
 
-    const quotationId = (result as any)[0]?.insertId;
+    const serializedQuoteData = quote_data === undefined || quote_data === null
+      ? null
+      : JSON.stringify(quote_data);
 
-    // 保存设备明细
-    if (devices && Array.isArray(devices) && devices.length > 0) {
-      for (const device of devices) {
-        await pool.execute(
+    const createQuotation = db.transaction(() => {
+      const result = db.prepare(
+        'INSERT INTO quotation_records (user_id, client_name, client_region, project_name, quote_type, total_amount, device_count, quote_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      ).run(
+        userId,
+        client_name.trim(),
+        optionalText(client_region),
+        optionalText(project_name),
+        optionalText(quote_type) || 'full',
+        Number(total_amount) || 0,
+        Number(device_count) || normalizedDevices.length,
+        serializedQuoteData,
+      );
+      const quotationId = Number(result.lastInsertRowid);
+      const insertDevice = db.prepare(
           'INSERT INTO quotation_devices (quotation_id, device_name, brand, model, category, quantity, unit_price, total_price, maintenance_rate, maintenance_fee) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-          [
+      );
+      for (const device of normalizedDevices) {
+        if (!device) continue;
+        insertDevice.run(
             quotationId,
-            device.device_name || device.name,
-            device.brand || null,
-            device.model || null,
-            device.category || null,
-            device.quantity || 1,
-            device.unit_price || 0,
-            device.total_price || 0,
-            device.maintenance_rate || 0,
-            device.maintenance_fee || 0
-          ]
+            device.deviceName,
+            device.brand,
+            device.model,
+            device.category,
+            device.quantity,
+            device.unitPrice,
+            device.totalPrice,
+            device.maintenanceRate,
+            device.maintenanceFee,
         );
       }
-    }
+      return quotationId;
+    });
 
-    return NextResponse.json({ 
-      message: '报价记录保存成功',
-      id: quotationId 
+    const quotationId = createQuotation();
+
+    return NextResponse.json({
+      success: true,
+      data: { message: '报价记录保存成功', id: quotationId },
     }, { status: 201 });
   } catch (error) {
     console.error('保存报价记录失败:', error);
-    return NextResponse.json({ error: '保存报价记录失败' }, { status: 500 });
+    return NextResponse.json({ success: false, error: '保存报价记录失败' }, { status: 500 });
   }
 }

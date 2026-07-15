@@ -25,6 +25,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { useRouter, useSearchParams } from "next/navigation";
 import { TiltIcon } from "@/components/ui/tilt-icon";
+import { createAssistantStreamParser } from "@/lib/assistant-stream";
 
 interface Message {
   role: "user" | "assistant";
@@ -114,7 +115,7 @@ function AssistantContent() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message: input.trim(),
-          sessionId: currentSessionId,
+          session_id: currentSessionId,
           history: newMessages.slice(-10),
         }),
       });
@@ -124,63 +125,50 @@ function AssistantContent() {
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
       let assistantMessage = "";
-      let isFirstChunk = true;
+      let streamError = "";
 
       setMessages(prev => [...prev, { role: "assistant", content: "" }]);
+
+      const parser = createAssistantStreamParser((event) => {
+        if (event.type === "start") {
+          setCurrentSessionId(event.session_id);
+          void loadSessions();
+        } else if (event.type === "content") {
+          assistantMessage += event.content;
+          setMessages(prev => {
+            const updated = [...prev];
+            updated[updated.length - 1] = {
+              role: "assistant",
+              content: assistantMessage,
+            };
+            return updated;
+          });
+        } else if (event.type === "error") {
+          streamError = event.error;
+        }
+      });
 
       if (reader) {
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
-
-          const text = decoder.decode(value, { stream: true });
-          const lines = text.split("\n");
-
-          for (const line of lines) {
-            if (line.startsWith("data: ")) {
-              const data = line.slice(6);
-              if (data === "[DONE]") continue;
-              try {
-                const parsed = JSON.parse(data);
-                if (parsed.type === "content" || parsed.content) {
-                  assistantMessage += parsed.content || parsed.text || parsed.chunk || "";
-                  setMessages(prev => {
-                    const updated = [...prev];
-                    updated[updated.length - 1] = {
-                      role: "assistant",
-                      content: assistantMessage,
-                    };
-                    return updated;
-                  });
-                }
-                if (parsed.type === "session_start" && parsed.sessionId && isFirstChunk) {
-                  isFirstChunk = false;
-                  setCurrentSessionId(parsed.sessionId);
-                  loadSessions(); // 刷新列表
-                }
-              } catch (e) {
-                // 非JSON数据，可能是纯文本
-                if (data && data !== "[DONE]") {
-                  assistantMessage += data;
-                  setMessages(prev => {
-                    const updated = [...prev];
-                    updated[updated.length - 1] = {
-                      role: "assistant",
-                      content: assistantMessage,
-                    };
-                    return updated;
-                  });
-                }
-              }
-            }
-          }
+          parser.push(decoder.decode(value, { stream: true }));
         }
+        parser.push(decoder.decode());
+        parser.finish();
       }
+      if (streamError) throw new Error(streamError);
     } catch (error) {
-      setMessages(prev => [
-        ...prev,
-        { role: "assistant", content: "抱歉，处理您的请求时出现错误，请稍后重试。" },
-      ]);
+      setMessages(prev => {
+        const fallback: Message = {
+          role: "assistant",
+          content: "抱歉，处理您的请求时出现错误，请稍后重试。",
+        };
+        if (prev.at(-1)?.role === "assistant" && !prev.at(-1)?.content) {
+          return [...prev.slice(0, -1), fallback];
+        }
+        return [...prev, fallback];
+      });
     } finally {
       setIsLoading(false);
       loadSessions(); // 刷新会话列表

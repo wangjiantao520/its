@@ -1,21 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import pool from '@/lib/db';
-import { verifySession } from '@/lib/auth';
-
-// 认证中间件
-function requireAuth(request: NextRequest) {
-  const session = verifySession(request);
-  if (!session) {
-    return {
-      authorized: false,
-      response: NextResponse.json(
-        { success: false, error: '请先登录' },
-        { status: 401 }
-      )
-    };
-  }
-  return { authorized: true, session };
-}
+import { requireApiAuth } from '@/lib/api-auth-server';
+import { db } from '@/lib/db';
+import { getQuoteSummaries, type QuoteSource } from '@/lib/quote-summary';
+import { canAccessQuote } from '@/lib/quote-access';
 
 // 生成变更摘要
 function generateChangeSummary(
@@ -67,76 +54,71 @@ function generateChangeSummary(
 
 // POST - 保存当前报价为新版本
 export async function POST(request: NextRequest) {
-  const auth = requireAuth(request);
-  if (!auth.authorized) return auth.response!;
+  const auth = requireApiAuth(request);
+  if (!auth.ok) return auth.response;
 
   try {
     const body = await request.json();
     const { quoteId, quoteType, quoteData } = body;
 
-    if (!quoteId || !quoteType || !quoteData) {
+    if (!quoteId || !quoteType || !quoteData || typeof quoteData !== 'object' || Array.isArray(quoteData)) {
       return NextResponse.json(
         { success: false, error: '缺少必需参数: quoteId, quoteType, quoteData' },
         { status: 400 }
       );
     }
 
-    if (!['maintenance', 'engineering'].includes(quoteType)) {
+    if (!['maintenance', 'engineering', 'quotation'].includes(quoteType)) {
       return NextResponse.json(
         { success: false, error: '无效的报价类型' },
         { status: 400 }
       );
     }
 
-    // 获取当前最大版本号
-    const [versionRows] = await pool.query(
-      'SELECT COALESCE(MAX(version), 0) as maxVersion FROM quote_versions WHERE quote_id = ? AND quote_type = ?',
-      [quoteId, quoteType]
-    );
-    const nextVersion = ((versionRows as any)[0]?.maxVersion || 0) + 1;
+    const createdBy = auth.session.role === 'admin' ? undefined : String(auth.session.userId ?? -1);
+    const quote = getQuoteSummaries(db, { source: quoteType as QuoteSource, createdBy })
+      .find((item) => item.id === Number(quoteId));
+    if (!quote) {
+      return NextResponse.json({ success: false, error: '报价不存在或无权访问' }, { status: 404 });
+    }
 
-    // 获取上一个版本的数据用于生成变更摘要
-    let prevData: Record<string, any> | null = null;
-    if (nextVersion > 1) {
-      const [prevRows] = await pool.query(
-        'SELECT data FROM quote_versions WHERE quote_id = ? AND quote_type = ? ORDER BY version DESC LIMIT 1',
-        [quoteId, quoteType]
+    const versionCreatedBy = auth.session.name || auth.session.username || auth.session.role;
+    const saveVersion = db.transaction(() => {
+      const current = db.prepare(`
+        SELECT version, data
+        FROM quote_versions
+        WHERE quote_id = ? AND quote_type = ?
+        ORDER BY version DESC
+        LIMIT 1
+      `).get(Number(quoteId), quoteType) as { version: number; data: string } | undefined;
+      const nextVersion = (current?.version || 0) + 1;
+      const prevData = current?.data
+        ? JSON.parse(current.data) as Record<string, any>
+        : null;
+      const changeSummary = generateChangeSummary(prevData, quoteData);
+      const result = db.prepare(`
+        INSERT INTO quote_versions
+          (quote_id, quote_type, version, data, change_summary, created_by)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(
+        Number(quoteId),
+        quoteType,
+        nextVersion,
+        JSON.stringify(quoteData),
+        changeSummary.join('; '),
+        versionCreatedBy,
       );
-      if ((prevRows as any).length > 0) {
-        prevData = (prevRows as any)[0].data;
-      }
-    }
-
-    // 生成变更摘要
-    const changeSummary = generateChangeSummary(prevData, quoteData);
-
-    // 获取创建者信息
-    const createdBy = auth.session?.role || 'unknown';
-
-    // 插入新版本
-    const [result] = await pool.query(
-      `INSERT INTO quote_versions (quote_id, quote_type, version, data, change_summary, created_by)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [quoteId, quoteType, nextVersion, JSON.stringify(quoteData), changeSummary.join('; '), createdBy]
-    );
-
-    // 如果是第一个版本，同时更新主报价表的 version 字段
-    if (nextVersion === 1) {
-      // 使用白名单方式而不是动态表名拼接
-      if (quoteType === 'maintenance') {
-        await pool.query('UPDATE maintenance_quotes SET version = 1 WHERE id = ?', [quoteId]);
-      } else {
-        await pool.query('UPDATE engineering_quotes SET version = 1 WHERE id = ?', [quoteId]);
-      }
-    }
+      return {
+        versionId: Number(result.lastInsertRowid),
+        version: nextVersion,
+        changeSummary,
+      };
+    });
+    const saved = saveVersion();
 
     return NextResponse.json({
       success: true,
-      data: {
-        versionId: (result as any)[0]?.insertId,
-        version: nextVersion,
-        changeSummary
-      }
+      data: saved,
     });
   } catch (error) {
     console.error('保存报价版本失败:', error);
@@ -149,8 +131,8 @@ export async function POST(request: NextRequest) {
 
 // GET - 获取报价版本列表
 export async function GET(request: NextRequest) {
-  const auth = requireAuth(request);
-  if (!auth.authorized) return auth.response!;
+  const auth = requireApiAuth(request);
+  if (!auth.ok) return auth.response;
 
   try {
     const searchParams = request.nextUrl.searchParams;
@@ -164,20 +146,23 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    if (!['maintenance', 'engineering'].includes(quoteType)) {
+    if (!['maintenance', 'engineering', 'quotation'].includes(quoteType)) {
       return NextResponse.json(
         { success: false, error: '无效的报价类型' },
         { status: 400 }
       );
     }
 
-    const [rows] = await pool.query(
+    if (!canAccessQuote(db, auth.session, quoteType as QuoteSource, Number(quoteId))) {
+      return NextResponse.json({ success: false, error: '报价不存在或无权访问' }, { status: 404 });
+    }
+
+    const rows = db.prepare(
       `SELECT id, quote_id, quote_type, version, change_summary, created_by, created_at
        FROM quote_versions
        WHERE quote_id = ? AND quote_type = ?
        ORDER BY version DESC`,
-      [parseInt(quoteId), quoteType]
-    );
+    ).all(parseInt(quoteId), quoteType);
 
     return NextResponse.json({
       success: true,

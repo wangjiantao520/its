@@ -1,16 +1,6 @@
 import pool, { type DbRow } from '@/lib/db';
-
-export interface AIModelConfig {
-  id: number;
-  name: string;
-  provider: string;
-  model_name: string;
-  api_endpoint: string;
-  api_key: string;
-  temperature: number;
-  max_tokens: number;
-  system_prompt?: string;
-}
+import { callAIModelWithConfig, type AIModelConfig } from './ai-model-client';
+export { callAIModelWithConfig, type AIModelConfig } from './ai-model-client';
 
 interface AIModelConfigRow extends DbRow {
   id: number;
@@ -98,49 +88,7 @@ export async function callAIModel(
     return { success: false, error: '未找到可用的AI模型配置，请在系统设置中配置或设置 DEEPSEEK_API_KEY 环境变量' };
   }
 
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 60000);
-
-    const response = await fetch(config.api_endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${config.api_key}`,
-      },
-      body: JSON.stringify({
-        model: config.model_name,
-        messages,
-        temperature: options?.temperature ?? config.temperature,
-        max_tokens: options?.maxTokens ?? config.max_tokens,
-        stream: false,
-      }),
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeoutId);
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('[AI Model] API 调用失败:', response.status, errorText);
-      return {
-        success: false,
-        error: `API调用失败 (${response.status})`,
-        config,
-      };
-    }
-
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content || '';
-
-    return { success: true, content, config };
-  } catch (error) {
-    return {
-      success: false,
-      error: '调用失败: ' + (error as Error).message,
-      config,
-    };
-  }
+  return callAIModelWithConfig(config, messages, options);
 }
 
 async function getAIModelConfigById(id: number): Promise<AIModelConfig | null> {

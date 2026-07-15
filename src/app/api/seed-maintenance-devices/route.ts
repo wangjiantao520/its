@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireApiAuth } from '@/lib/api-auth-server';
 import { pool } from '@/lib/db';
 
 // 云数据中心维保设备数据（47条）
@@ -87,6 +88,9 @@ const maintenanceDevices = [
 ];
 
 export async function GET(request: NextRequest) {
+  const auth = requireApiAuth(request, ['admin']);
+  if (!auth.ok) return auth.response;
+
   try {
     // 检查是否已导入
     const [existing] = await pool.execute('SELECT COUNT(*) as count FROM maintenance_device_quotas');

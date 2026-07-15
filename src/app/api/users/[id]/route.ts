@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { verifySession, updateUser, deleteUser } from '@/lib/auth';
+import { updateUser, deleteUser } from '@/lib/auth';
+import { requireApiAuth } from '@/lib/api-auth-server';
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -9,10 +10,8 @@ interface RouteParams {
 export async function PUT(request: NextRequest, { params }: RouteParams) {
   try {
     // 验证管理员权限
-    const session = verifySession(request);
-    if (!session || session.role !== 'admin') {
-      return NextResponse.json({ success: false, error: '无权限' }, { status: 403 });
-    }
+    const auth = requireApiAuth(request, ['admin']);
+    if (!auth.ok) return auth.response;
 
     const { id } = await params;
     const userId = parseInt(id);
@@ -45,10 +44,8 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
     // 验证管理员权限
-    const session = verifySession(request);
-    if (!session || session.role !== 'admin') {
-      return NextResponse.json({ success: false, error: '无权限' }, { status: 403 });
-    }
+    const auth = requireApiAuth(request, ['admin']);
+    if (!auth.ok) return auth.response;
 
     const { id } = await params;
     const userId = parseInt(id);

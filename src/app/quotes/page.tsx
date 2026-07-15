@@ -48,6 +48,7 @@ import {
   X,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { downloadAsPDF } from '@/lib/export-utils';
 
 // 报价单状态
 type QuoteStatus = 'draft' | 'pending_review' | 'approved' | 'sent' | 'archived';
@@ -233,7 +234,7 @@ export default function QuotesPage() {
     try {
       const results = await Promise.allSettled(
         Array.from(selectedIds).map((id) =>
-          fetch(`/api/quotes/${id}/status`, {
+          fetch(`/api/quotes/${encodeURIComponent(id)}/status`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ action: 'approve' }),
@@ -298,7 +299,7 @@ export default function QuotesPage() {
     try {
       const results = await Promise.allSettled(
         Array.from(selectedIds).map((id) =>
-          fetch(`/api/quotes/${id}/status`, {
+          fetch(`/api/quotes/${encodeURIComponent(id)}/status`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ action: 'archive' }),
@@ -359,7 +360,7 @@ export default function QuotesPage() {
   // 单条操作：批准
   const handleApproveQuote = async (quote: Quote) => {
     try {
-      const res = await fetch(`/api/quotes/${quote.id}/status`, {
+      const res = await fetch(`/api/quotes/${encodeURIComponent(quote.id)}/status`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'approve' }),
@@ -380,7 +381,7 @@ export default function QuotesPage() {
   // 单条操作：发送
   const handleSendQuote = async (quote: Quote) => {
     try {
-      const res = await fetch(`/api/quotes/${quote.id}/status`, {
+      const res = await fetch(`/api/quotes/${encodeURIComponent(quote.id)}/status`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'send' }),
@@ -401,20 +402,25 @@ export default function QuotesPage() {
   // 单条操作：导出 PDF
   const handleExportPdf = async (quote: Quote) => {
     try {
-      const res = await fetch(`/api/quotes/${quote.id}/export?format=pdf`, {
-        headers: { Authorization: `Bearer ${token ?? ''}` },
-      });
-      if (!res.ok) {
-        toast.error('导出失败：服务器返回 ' + res.status);
-        return;
-      }
-      const blob = await res.blob();
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `${quote.quote_number}.pdf`;
-      link.click();
-      window.URL.revokeObjectURL(url);
+      const escapeHtml = (value: string) => value
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#039;');
+      const html = `
+        <html><body>
+          <h1 class="title">报价单</h1>
+          <table class="info-table">
+            <tr><td class="label">报价编号</td><td>${escapeHtml(quote.quote_number)}</td></tr>
+            <tr><td class="label">客户名称</td><td>${escapeHtml(quote.client_name)}</td></tr>
+            <tr><td class="label">项目名称</td><td>${escapeHtml(quote.project_name)}</td></tr>
+            <tr><td class="label">报价金额</td><td>${escapeHtml(formatCurrency(quote.total_amount))}</td></tr>
+            <tr><td class="label">状态</td><td>${escapeHtml(STATUS_CONFIG[quote.status]?.label || quote.status)}</td></tr>
+            <tr><td class="label">创建时间</td><td>${escapeHtml(formatDate(quote.created_at))}</td></tr>
+          </table>
+        </body></html>`;
+      await downloadAsPDF(html, `${quote.quote_number}.pdf`);
       toast.success(`已导出：${quote.quote_number}.pdf`);
     } catch (e) {
       const err = e instanceof Error ? e : new Error(String(e));
@@ -428,7 +434,7 @@ export default function QuotesPage() {
       return;
     }
     try {
-      const res = await fetch(`/api/quotes/${quote.id}`, {
+      const res = await fetch(`/api/quotes/${encodeURIComponent(quote.id)}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token ?? ''}` },
       });
@@ -451,12 +457,12 @@ export default function QuotesPage() {
       {
         label: '查看详情',
         icon: Eye,
-        onClick: () => router.push(`/quotes/${quote.id}`),
+        onClick: () => router.push(`/quotes/${encodeURIComponent(quote.id)}`),
       },
       {
         label: '编辑',
         icon: Edit2,
-        onClick: () => router.push(`/quotes/${quote.id}/edit`),
+        onClick: () => router.push(`/quotes/${encodeURIComponent(quote.id)}/edit`),
         disabled: quote.status === 'archived',
       },
       {
@@ -496,14 +502,14 @@ export default function QuotesPage() {
     }
 
     items.push(
-      { label: 'divider', onClick: () => {} } as any,
+      { label: 'divider', icon: null, onClick: () => {} },
       {
         label: '删除',
         icon: Trash2,
         onClick: () => handleDeleteQuote(quote),
         variant: 'destructive',
         disabled: quote.status === 'sent',
-      } as any
+      }
     );
 
     return items;

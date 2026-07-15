@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db';
+import { requireApiAuth } from '@/lib/api-auth-server';
 
 // GET /api/agents/[id]/skills - 获取智能体技能列表
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const auth = requireApiAuth(request, ['admin']);
+  if (!auth.ok) return auth.response;
+
   const { id } = await params;
   
   try {
@@ -13,11 +17,11 @@ export async function GET(
       'SELECT * FROM agent_skills WHERE agent_id = ? ORDER BY priority DESC',
       [id]
     );
-    return NextResponse.json(rows);
+    return NextResponse.json({ success: true, data: rows });
   } catch (error) {
     console.error('获取技能列表失败:', error);
     return NextResponse.json(
-      { error: '获取技能列表失败' },
+      { success: false, error: '获取技能列表失败' },
       { status: 500 }
     );
   }
@@ -28,6 +32,9 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const auth = requireApiAuth(request, ['admin']);
+  if (!auth.ok) return auth.response;
+
   const { id } = await params;
   
   try {
@@ -36,7 +43,7 @@ export async function POST(
 
     if (!skill_name || !skill_type) {
       return NextResponse.json(
-        { error: '技能名称和类型不能为空' },
+        { success: false, error: '技能名称和类型不能为空' },
         { status: 400 }
       );
     }
@@ -47,11 +54,11 @@ export async function POST(
       [id, skill_name, skill_type, config_json || '{}', enabled !== undefined ? enabled : 1, priority || 0]
     );
 
-    return NextResponse.json({ message: '技能添加成功' }, { status: 201 });
+    return NextResponse.json({ success: true, data: { message: '技能添加成功' } }, { status: 201 });
   } catch (error) {
     console.error('添加技能失败:', error);
     return NextResponse.json(
-      { error: '添加技能失败' },
+      { success: false, error: '添加技能失败' },
       { status: 500 }
     );
   }
@@ -62,6 +69,9 @@ export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const auth = requireApiAuth(request, ['admin']);
+  if (!auth.ok) return auth.response;
+
   const { id } = await params;
   
   try {
@@ -70,7 +80,7 @@ export async function PUT(
 
     if (!skill_id) {
       return NextResponse.json(
-        { error: '技能ID不能为空' },
+        { success: false, error: '技能ID不能为空' },
         { status: 400 }
       );
     }
@@ -82,11 +92,11 @@ export async function PUT(
       [skill_name, skill_type, config_json || '{}', enabled !== undefined ? enabled : 1, priority || 0, skill_id, id]
     );
 
-    return NextResponse.json({ message: '技能更新成功' });
+    return NextResponse.json({ success: true, data: { message: '技能更新成功' } });
   } catch (error) {
     console.error('更新技能失败:', error);
     return NextResponse.json(
-      { error: '更新技能失败' },
+      { success: false, error: '更新技能失败' },
       { status: 500 }
     );
   }
@@ -97,6 +107,9 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const auth = requireApiAuth(request, ['admin']);
+  if (!auth.ok) return auth.response;
+
   const { id } = await params;
   
   try {
@@ -105,18 +118,18 @@ export async function DELETE(
 
     if (!skill_id) {
       return NextResponse.json(
-        { error: '技能ID不能为空' },
+        { success: false, error: '技能ID不能为空' },
         { status: 400 }
       );
     }
 
     await pool.execute('DELETE FROM agent_skills WHERE id = ? AND agent_id = ?', [skill_id, id]);
 
-    return NextResponse.json({ message: '技能删除成功' });
+    return NextResponse.json({ success: true, data: { message: '技能删除成功' } });
   } catch (error) {
     console.error('删除技能失败:', error);
     return NextResponse.json(
-      { error: '删除技能失败' },
+      { success: false, error: '删除技能失败' },
       { status: 500 }
     );
   }

@@ -25,7 +25,6 @@ coverage
 storybook-static
 
 # Package manager artifacts
-pnpm-lock.yaml
 package-lock.json
 yarn.lock
 .pnp*
@@ -118,6 +117,11 @@ pids
 *.pid
 *.seed
 *.pid.lock
+data/*.db-wal
+data/*.db-shm
+data/*.migrate.lock
+data/quotations.db
+data/backups/
 # Diagnostic reports
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 # Cache

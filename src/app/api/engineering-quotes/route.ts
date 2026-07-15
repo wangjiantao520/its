@@ -1,21 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import pool, { initDatabase } from '@/lib/db';
-import { verifySession } from '@/lib/auth';
-
-// 从会话中获取当前用户信息
-function getCurrentUser(request: NextRequest) {
-  const session = verifySession(request);
-  if (!session) return { userId: null, username: null, name: null, role: null };
-  return {
-    userId: session.userId,
-    username: session.username,
-    name: session.name,
-    role: session.role
-  };
-}
+import { requireApiAuth } from '@/lib/api-auth-server';
 
 // 初始化数据库
 export async function GET(request: NextRequest) {
+  const auth = requireApiAuth(request);
+  if (!auth.ok) return auth.response;
+
   try {
     // 初始化数据库表
     await initDatabase();
@@ -43,6 +34,11 @@ export async function GET(request: NextRequest) {
         whereClause += ' WHERE status = ?';
       }
       params.push(status);
+    }
+
+    if (auth.session.role !== 'admin') {
+      whereClause += whereClause ? ' AND created_by = ?' : ' WHERE created_by = ?';
+      params.push(String(auth.session.userId ?? -1));
     }
 
     const [rows] = await pool.execute(
@@ -82,10 +78,10 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const auth = requireApiAuth(request);
+  if (!auth.ok) return auth.response;
+
   try {
-    // 从会话中获取用户信息
-    const user = getCurrentUser(request);
-    
     const body = await request.json();
     const {
       quoteNumber,
@@ -106,6 +102,22 @@ export async function POST(request: NextRequest) {
       total,
       items
     } = body;
+
+    if (typeof quoteNumber !== 'string' || !quoteNumber.trim() || typeof projectName !== 'string' || !projectName.trim()) {
+      return NextResponse.json({ success: false, error: '报价编号和项目名称不能为空' }, { status: 400 });
+    }
+    const numericValues = {
+      constructionArea, managementRate, profitRate, regulatoryRate, taxRate,
+      subtotal, managementFee, profit, regulatoryFee, tax, total,
+    };
+    for (const [field, value] of Object.entries(numericValues)) {
+      if (value !== undefined && (!Number.isFinite(Number(value)) || Number(value) < 0)) {
+        return NextResponse.json({ success: false, error: `${field} 必须是有效的非负数` }, { status: 400 });
+      }
+    }
+    if (items !== undefined && !Array.isArray(items)) {
+      return NextResponse.json({ success: false, error: '报价明细格式无效' }, { status: 400 });
+    }
 
     const [result] = await pool.execute(
       `INSERT INTO engineering_quotes 
@@ -132,14 +144,14 @@ export async function POST(request: NextRequest) {
         tax,
         total,
         JSON.stringify(items),
-        user.userId || user.username || null,
-        user.name || user.username || null
+        String(auth.session.userId ?? auth.session.username ?? -1),
+        auth.session.name || auth.session.username || auth.session.role,
       ]
     );
 
     return NextResponse.json({
       success: true,
-      data: { id: (result as any)[0]?.insertId }
+      data: { id: (result as { insertId?: number | bigint }).insertId }
     });
   } catch (error) {
     console.error('创建工程报价失败:', error);
@@ -151,6 +163,9 @@ export async function POST(request: NextRequest) {
 }
 
 export async function PUT(request: NextRequest) {
+  const auth = requireApiAuth(request);
+  if (!auth.ok) return auth.response;
+
   try {
     const body = await request.json();
     const {
@@ -180,6 +195,15 @@ export async function PUT(request: NextRequest) {
         { success: false, error: '缺少报价ID' },
         { status: 400 }
       );
+    }
+
+    const [ownerRows] = await pool.execute('SELECT created_by FROM engineering_quotes WHERE id = ?', [id]);
+    const owner = (ownerRows as Array<{ created_by: string | null }>)[0];
+    if (!owner) {
+      return NextResponse.json({ success: false, error: '报价不存在' }, { status: 404 });
+    }
+    if (auth.session.role !== 'admin' && owner.created_by !== String(auth.session.userId ?? -1)) {
+      return NextResponse.json({ success: false, error: '权限不足' }, { status: 403 });
     }
 
     // 将 undefined 转为 null，避免 MySQL2 报错
@@ -229,18 +253,12 @@ export async function PUT(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
+  const auth = requireApiAuth(request, ['admin']);
+  if (!auth.ok) return auth.response;
+
   try {
     const body = await request.json();
-    const { id, password } = body;
-
-    // 二级密码验证
-    const ADMIN_PASSWORD = 'ecloud10086';
-    if (password !== ADMIN_PASSWORD) {
-      return NextResponse.json(
-        { success: false, error: '密码错误' },
-        { status: 401 }
-      );
-    }
+    const { id } = body;
 
     const [result] = await pool.execute(
       'DELETE FROM engineering_quotes WHERE id = ?',

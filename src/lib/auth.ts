@@ -1,7 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
-import pool, { type DbRow, type DbSelectResult, type DbInsertResult } from './db';
+import pool, { db, type DbRow, type DbSelectResult, type DbInsertResult } from './db';
+import {
+  cleanupExpiredAuthSessions,
+  createAuthSession,
+  deleteAuthSession,
+  deleteAuthSessionsForUser,
+  findAuthSession,
+} from './auth-session-store';
+import { getRequestSessionToken } from './request-session-token';
 
 // 密码配置（从环境变量读取，如果没有则使用默认值）
 const PASSWORDS: Record<string, string | undefined> = {
@@ -9,10 +17,10 @@ const PASSWORDS: Record<string, string | undefined> = {
 };
 
 // 默认ITS账号（无需数据库，用于演示和测试）
-const DEFAULT_ITS_USERS: Record<string, { password: string; name: string }> = {
-  'demo': { password: 'demo123', name: '演示用户' },
-  'test': { password: 'test123', name: '测试账号' },
-  'its': { password: process.env.ITS_PASSWORD || 'its123', name: 'ITS成员' },
+const DEFAULT_ITS_USERS: Record<string, { password: string; name: string; userId: number }> = {
+  'demo': { password: 'demo123', name: '演示用户', userId: -101 },
+  'test': { password: 'test123', name: '测试账号', userId: -102 },
+  'its': { password: process.env.ITS_PASSWORD || 'its123', name: 'ITS成员', userId: -103 },
 };
 
 // 验证管理员密码
@@ -29,25 +37,6 @@ function validateAdminPassword(password: string): boolean {
   return password === expected;
 }
 
-// 会话数据结构
-interface SessionData {
-  role: string;
-  userId?: number;
-  username?: string;
-  name?: string;  // 真实姓名
-  expiresAt: number;
-}
-
-// 使用 globalThis 持久化会话存储
-type AuthGlobals = { __authSessions?: Map<string, SessionData> };
-const getSessions = (): Map<string, SessionData> => {
-  const g = globalThis as unknown as AuthGlobals;
-  if (!g.__authSessions) {
-    g.__authSessions = new Map<string, SessionData>();
-  }
-  return g.__authSessions;
-};
-
 // 生成会话token
 export function generateToken(): string {
   return crypto.randomBytes(32).toString('hex');
@@ -55,13 +44,7 @@ export function generateToken(): string {
 
 // 清理过期会话
 function cleanupExpiredSessions() {
-  const sessions = getSessions();
-  const now = Date.now();
-  for (const [token, session] of sessions.entries()) {
-    if (session.expiresAt < now) {
-      sessions.delete(token);
-    }
-  }
+  cleanupExpiredAuthSessions(db);
 }
 
 // 定期清理过期会话（避免 HMR 累积多个定时器）
@@ -74,22 +57,21 @@ if (typeof setInterval !== 'undefined' && !sessionG.__sessionCleanupInterval) {
 
 // 验证会话
 export function verifySession(request: NextRequest): { role: string; userId?: number; username?: string; name?: string } | null {
-  const sessions = getSessions();
-  const authHeader = request.headers.get('authorization');
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return null;
-  }
+  const token = getRequestSessionToken(request);
+  if (!token) return null;
+  const session = findAuthSession(db, token);
+  if (!session) return null;
 
-  const token = authHeader.substring(7);
-  const session = sessions.get(token);
-
-  if (!session) {
-    return null;
-  }
-
-  if (session.expiresAt < Date.now()) {
-    sessions.delete(token);
-    return null;
+  // 数据库用户被停用或删除后，已有登录态也必须立即失效。
+  // 负数 ID 属于保留的内置账号，不在 users 表中校验。
+  if (session.userId !== undefined && session.userId > 0) {
+    const user = db
+      .prepare('SELECT is_active FROM users WHERE id = ?')
+      .get(session.userId) as { is_active: number } | undefined;
+    if (!user || user.is_active !== 1) {
+      deleteAuthSession(db, token);
+      return null;
+    }
   }
 
   return { role: session.role, userId: session.userId, username: session.username, name: session.name };
@@ -106,7 +88,7 @@ async function validateUserCredentials(username: string, password: string): Prom
   const defaultUser = DEFAULT_ITS_USERS[username];
   if (defaultUser) {
     if (defaultUser.password === password) {
-      return { valid: true, userId: -1, name: defaultUser.name }; // userId=-1 表示默认账号
+      return { valid: true, userId: defaultUser.userId, name: defaultUser.name };
     }
     return { valid: false };
   }
@@ -164,7 +146,7 @@ export async function createUser(username: string, password: string, name: strin
       [username, passwordHash, name, createdBy]
     )) as unknown as DbInsertResult;
 
-    return { success: true, userId: (result as any).insertId };
+    return { success: true, userId: Number(result.insertId) };
   } catch (error) {
     console.error('创建用户失败:', error);
     return { success: false, error: '创建用户失败' };
@@ -219,6 +201,9 @@ export async function updateUser(userId: number, data: { name?: string; password
 
     values.push(userId);
     await pool.execute(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`, values);
+    if (data.is_active === 0) {
+      deleteAuthSessionsForUser(db, userId);
+    }
 
     return { success: true };
   } catch (error) {
@@ -230,6 +215,7 @@ export async function updateUser(userId: number, data: { name?: string; password
 // 删除用户
 export async function deleteUser(userId: number): Promise<{ success: boolean; error?: string }> {
   try {
+    deleteAuthSessionsForUser(db, userId);
     await pool.execute('DELETE FROM users WHERE id = ?', [userId]);
     return { success: true };
   } catch (error) {
@@ -259,8 +245,7 @@ export async function handleLogin(body: { role?: string; username?: string; pass
       const token = generateToken();
       const expiresAt = Date.now() + expiresIn;
 
-      const sessions = getSessions();
-      sessions.set(token, { role: 'admin', expiresAt });
+      createAuthSession(db, token, { role: 'admin', expiresAt });
 
       return {
         success: true,
@@ -278,8 +263,13 @@ export async function handleLogin(body: { role?: string; username?: string; pass
       const token = generateToken();
       const expiresAt = Date.now() + expiresIn;
 
-      const sessions = getSessions();
-      sessions.set(token, { role: 'its_member', userId: result.userId, username, name: result.name, expiresAt });
+      createAuthSession(db, token, {
+        role: 'its_member',
+        userId: result.userId,
+        username,
+        name: result.name,
+        expiresAt,
+      });
 
       return {
         success: true,
@@ -296,14 +286,11 @@ export async function handleLogin(body: { role?: string; username?: string; pass
 
 // 登出处理
 export function handleLogout(request: NextRequest): { success: boolean; error?: string } {
-  const authHeader = request.headers.get('authorization');
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  const token = getRequestSessionToken(request);
+  if (!token) {
     return { success: false, error: '未登录' };
   }
-
-  const token = authHeader.substring(7);
-  const sessions = getSessions();
-  sessions.delete(token);
+  deleteAuthSession(db, token);
 
   return { success: true };
 }

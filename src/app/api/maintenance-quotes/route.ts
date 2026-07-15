@@ -1,27 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/lib/db';
-import { verifySession } from '@/lib/auth';
-
-// 认证中间件
-function requireAuth(request: NextRequest): { authorized: boolean; response?: NextResponse } {
-  const session = verifySession(request);
-  if (!session) {
-    return {
-      authorized: false,
-      response: NextResponse.json(
-        { success: false, error: '请先登录' },
-        { status: 401 }
-      )
-    };
-  }
-  return { authorized: true };
-}
+import { requireApiAuth } from '@/lib/api-auth-server';
 
 // GET - 获取维保报价列表
 export async function GET(request: NextRequest) {
   // 认证检查
-  const auth = requireAuth(request);
-  if (!auth.authorized) return auth.response!;
+  const auth = requireApiAuth(request);
+  if (!auth.ok) return auth.response;
 
   try {
     const searchParams = request.nextUrl.searchParams;
@@ -30,13 +15,16 @@ export async function GET(request: NextRequest) {
     const offset = (page - 1) * limit;
 
     // 使用 query 而不是 execute 避免 MySQL prepared statement 参数问题
+    const ownerWhere = auth.session.role === 'admin' ? '' : 'WHERE created_by = ?';
+    const ownerParams = auth.session.role === 'admin' ? [] : [String(auth.session.userId ?? -1)];
     const [rows] = await pool.query(
-      'SELECT * FROM maintenance_quotes ORDER BY created_at DESC LIMIT ? OFFSET ?',
-      [limit, offset]
+      `SELECT * FROM maintenance_quotes ${ownerWhere} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+      [...ownerParams, limit, offset]
     );
 
     const [countResult] = await pool.query(
-      'SELECT COUNT(*) as total FROM maintenance_quotes'
+      `SELECT COUNT(*) as total FROM maintenance_quotes ${ownerWhere}`,
+      ownerParams,
     );
     const total = (countResult as any)[0]?.total || 0;
 
@@ -62,8 +50,8 @@ export async function GET(request: NextRequest) {
 // POST - 创建维保报价
 export async function POST(request: NextRequest) {
   // 认证检查
-  const auth = requireAuth(request);
-  if (!auth.authorized) return auth.response!;
+  const auth = requireApiAuth(request);
+  if (!auth.ok) return auth.response;
 
   try {
     const body = await request.json();
@@ -122,14 +110,14 @@ export async function POST(request: NextRequest) {
         body.tax || 0,
         body.total || 0,
         JSON.stringify(body.devices || []),
-        body.createdBy || null,
-        body.createdByName || null
+        String(auth.session.userId ?? auth.session.username ?? -1),
+        auth.session.name || auth.session.username || auth.session.role,
       ]
     );
 
     return NextResponse.json({
       success: true,
-      data: { id: (result as any)[0]?.insertId }
+      data: { id: (result as { insertId?: number | bigint }).insertId }
     });
   } catch (error) {
     console.error('创建维保报价失败:', error);
@@ -143,8 +131,8 @@ export async function POST(request: NextRequest) {
 // DELETE - 删除维保报价（需要管理员权限）
 export async function DELETE(request: NextRequest) {
   // 认证检查
-  const auth = requireAuth(request);
-  if (!auth.authorized) return auth.response!;
+  const auth = requireApiAuth(request, ['admin']);
+  if (!auth.ok) return auth.response;
 
   try {
     const body = await request.json();

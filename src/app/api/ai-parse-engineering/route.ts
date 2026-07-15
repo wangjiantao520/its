@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireApiAuth } from '@/lib/api-auth-server';
 import { callAIModel, getActiveAIModelConfig } from '@/lib/ai-config';
 
 interface EngineeringAIItem {
@@ -146,6 +147,9 @@ ${text}
 }
 
 export async function POST(request: NextRequest) {
+  const auth = requireApiAuth(request);
+  if (!auth.ok) return auth.response;
+
   try {
     const body = await request.json();
     const { text, learningContext, priceVersion } = body as {

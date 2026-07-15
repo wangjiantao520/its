@@ -1,21 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import pool from '@/lib/db';
-import { verifySession } from '@/lib/auth';
-
-// 认证中间件
-function requireAuth(request: NextRequest) {
-  const session = verifySession(request);
-  if (!session) {
-    return {
-      authorized: false,
-      response: NextResponse.json(
-        { success: false, error: '请先登录' },
-        { status: 401 }
-      )
-    };
-  }
-  return { authorized: true, session };
-}
+import pool, { db } from '@/lib/db';
+import { requireApiAuth } from '@/lib/api-auth-server';
+import { asQuoteSource, canAccessQuote } from '@/lib/quote-access';
 
 // 比较两个值的差异
 function diffValues(
@@ -113,8 +99,8 @@ function compareArrays(
 
 // POST - 比较两个版本
 export async function POST(request: NextRequest) {
-  const auth = requireAuth(request);
-  if (!auth.authorized) return auth.response!;
+  const auth = requireApiAuth(request);
+  if (!auth.ok) return auth.response;
 
   try {
     const body = await request.json();
@@ -154,6 +140,15 @@ export async function POST(request: NextRequest) {
 
     const vA = (versionA[0] as any)[0];
     const vB = (versionB[0] as any)[0];
+    const sourceA = asQuoteSource(vA.quote_type);
+    const sourceB = asQuoteSource(vB.quote_type);
+    if (
+      !sourceA || !sourceB
+      || !canAccessQuote(db, auth.session, sourceA, Number(vA.quote_id))
+      || !canAccessQuote(db, auth.session, sourceB, Number(vB.quote_id))
+    ) {
+      return NextResponse.json({ success: false, error: '版本不存在或无权访问' }, { status: 404 });
+    }
 
     // 解析 JSON 数据
     const dataA = typeof vA.data === 'string' ? JSON.parse(vA.data) : vA.data;

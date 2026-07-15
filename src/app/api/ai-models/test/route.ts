@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/lib/db';
+import { requireApiAuth } from '@/lib/api-auth-server';
 
 // POST - 测试AI模型连接
 export async function POST(request: NextRequest) {
+  const auth = requireApiAuth(request, ['admin']);
+  if (!auth.ok) return auth.response;
+
   const startTime = Date.now();
   try {
     const { searchParams } = new URL(request.url);

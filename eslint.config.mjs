@@ -37,6 +37,13 @@ const eslintConfig = defineConfig([
     },
   },
   {
+    // 工程报价同时兼容多种历史 Excel/JSON 行结构，逐步收窄前保留运行时校验。
+    files: ['src/app/engineering/page.tsx', 'src/app/database/page.tsx'],
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'warn',
+    },
+  },
+  {
     files: ['next.config.ts'],
     rules: {
       'no-restricted-syntax': ['error', ...nextConfigRestrictedSyntaxRules],

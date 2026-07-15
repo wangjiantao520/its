@@ -1,368 +1,132 @@
 'use client';
 
-import { useState } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Search, FileText, Eye, Copy, FileDown, Calendar, Trash2, Download, FileSpreadsheet, Lock, History } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { Copy, Eye, FileDown, FileSpreadsheet, History, Search, Trash2 } from 'lucide-react';
+import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
-// 报价记录类型
 interface QuoteRecord {
-  id: number;
-  quoteNo: string;
-  quoteType: string;
-  customerName: string;
-  projectName: string;
-  totalAmount: number;
-  taxAmount: number;
-  netAmount: number;
+  id: string;
+  quote_number: string;
+  quote_type: string;
+  client_name: string;
+  project_name: string;
+  total_amount: number;
   status: string;
-  createdAt: string;
-  createdBy: string;
+  created_at: string;
+  created_by_name: string;
 }
 
-const statusColors: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
-  '草稿': 'secondary',
-  '已提交': 'default',
-  '已成交': 'default',
-  '已失效': 'destructive',
+const TYPE_LABELS: Record<string, string> = {
+  engineering: '工程报价',
+  maintenance: '维保报价',
+  quotation: '综合报价',
 };
 
 export default function HistoryPage() {
+  const router = useRouter();
   const [records, setRecords] = useState<QuoteRecord[]>([]);
+  const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
-  const [recordToDelete, setRecordToDelete] = useState<number | null>(null);
-  const [deletePassword, setDeletePassword] = useState('');
-  const [deleteError, setDeleteError] = useState('');
 
-  // 过滤后的记录
-  const filteredRecords = records.filter(record => {
-    const matchesSearch = !searchQuery ||
-      record.customerName.includes(searchQuery) ||
-      record.projectName.includes(searchQuery);
-    const matchesType = typeFilter === 'all' || record.quoteType === typeFilter;
-    const matchesStatus = statusFilter === 'all' || record.status === statusFilter;
-    return matchesSearch && matchesType && matchesStatus;
-  });
-
-  // 导出单条记录为Excel
-  const exportSingleRecord = (record: QuoteRecord) => {
-    const data = [
-      {
-        '报价单号': record.quoteNo,
-        '报价类型': record.quoteType,
-        '客户名称': record.customerName,
-        '项目名称': record.projectName,
-        '总价': record.totalAmount,
-        '税额': record.taxAmount,
-        '不含税金额': record.netAmount,
-        '状态': record.status,
-        '创建时间': record.createdAt,
-        '创建人': record.createdBy,
-      },
-    ];
-
-    const worksheet = XLSX.utils.json_to_sheet(data);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, '报价记录');
-    XLSX.writeFile(workbook, `${record.quoteNo}_${record.customerName}.xlsx`);
-  };
-
-  // 导出所有记录为Excel
-  const exportAllRecords = () => {
-    const data = filteredRecords.map(record => ({
-      '报价单号': record.quoteNo,
-      '报价类型': record.quoteType,
-      '客户名称': record.customerName,
-      '项目名称': record.projectName,
-      '总价': record.totalAmount,
-      '税额': record.taxAmount,
-      '不含税金额': record.netAmount,
-      '状态': record.status,
-      '创建时间': record.createdAt,
-      '创建人': record.createdBy,
-    }));
-
-    const worksheet = XLSX.utils.json_to_sheet(data);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, '报价记录');
-    XLSX.writeFile(workbook, '历史报价记录.xlsx');
-  };
-
-  // 确认删除记录
-  const confirmDelete = (id: number) => {
-    setRecordToDelete(id);
-    setDeletePassword('');
-    setDeleteError('');
-    setPasswordDialogOpen(true);
-  };
-
-  // 验证密码并删除
-  const verifyPasswordAndDelete = () => {
-    const correctPassword = 'ecloud10086';
-
-    if (deletePassword === correctPassword) {
-      if (recordToDelete) {
-        setRecords(records.filter(record => record.id !== recordToDelete));
-      }
-      setPasswordDialogOpen(false);
-      setRecordToDelete(null);
-      setDeletePassword('');
-      setDeleteError('');
-    } else {
-      setDeleteError('密码错误，请重新输入');
+  const loadRecords = useCallback(async () => {
+    setLoading(true);
+    try {
+      const response = await fetch('/api/quotes?page_size=100');
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.error || '加载失败');
+      setRecords(result.data);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '加载历史记录失败');
+    } finally {
+      setLoading(false);
     }
+  }, []);
+
+  useEffect(() => { void loadRecords(); }, [loadRecords]);
+
+  const filteredRecords = useMemo(() => records.filter((record) => {
+    const query = searchQuery.trim().toLocaleLowerCase('zh-CN');
+    const matchesSearch = !query || [record.client_name, record.project_name, record.quote_number]
+      .some((value) => value.toLocaleLowerCase('zh-CN').includes(query));
+    return matchesSearch &&
+      (typeFilter === 'all' || record.quote_type === typeFilter) &&
+      (statusFilter === 'all' || record.status === statusFilter);
+  }), [records, searchQuery, statusFilter, typeFilter]);
+
+  const exportRecords = (items: QuoteRecord[], filename: string) => {
+    if (items.length === 0) {
+      toast.info('没有可导出的记录');
+      return;
+    }
+    const worksheet = XLSX.utils.json_to_sheet(items.map((record) => ({
+      报价单号: record.quote_number,
+      报价类型: TYPE_LABELS[record.quote_type] || record.quote_type,
+      客户名称: record.client_name,
+      项目名称: record.project_name,
+      总价: record.total_amount,
+      状态: record.status,
+      创建时间: record.created_at,
+      创建人: record.created_by_name,
+    })));
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, '报价记录');
+    XLSX.writeFile(workbook, filename);
+  };
+
+  const deleteRecord = async (record: QuoteRecord) => {
+    if (!window.confirm(`确定删除报价 ${record.quote_number}？此操作不可恢复。`)) return;
+    const response = await fetch(`/api/quotes/${encodeURIComponent(record.id)}`, { method: 'DELETE' });
+    const result = await response.json();
+    if (!response.ok || !result.success) {
+      toast.error(result.error || '删除失败');
+      return;
+    }
+    toast.success('报价已删除');
+    await loadRecords();
   };
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">历史记录</h1>
-        <p className="text-muted-foreground mt-1">查看和管理历史报价记录</p>
-      </div>
-
+      <div><h1 className="text-2xl font-bold">历史记录</h1><p className="mt-1 text-muted-foreground">查看和管理全部历史报价</p></div>
       <Card>
         <CardHeader>
-          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div>
-              <CardTitle>报价记录</CardTitle>
-              <CardDescription>共 {filteredRecords.length} 条记录</CardDescription>
-            </div>
-            <div className="flex flex-col gap-2 md:flex-row">
-              <div className="flex items-center gap-2">
-                <Search className="h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="搜索客户名称或项目名称"
-                  className="w-[250px]"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                />
-              </div>
-              <Select value={typeFilter} onValueChange={setTypeFilter}>
-                <SelectTrigger className="w-[120px]">
-                  <SelectValue placeholder="报价类型" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">全部</SelectItem>
-                  <SelectItem value="工程报价">工程报价</SelectItem>
-                  <SelectItem value="维保报价">维保报价</SelectItem>
-                </SelectContent>
-              </Select>
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-[120px]">
-                  <SelectValue placeholder="状态" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">全部</SelectItem>
-                  <SelectItem value="草稿">草稿</SelectItem>
-                  <SelectItem value="已提交">已提交</SelectItem>
-                  <SelectItem value="已成交">已成交</SelectItem>
-                  <SelectItem value="已失效">已失效</SelectItem>
-                </SelectContent>
-              </Select>
-              <Button onClick={exportAllRecords} variant="outline" className="flex items-center gap-2">
-                <FileSpreadsheet className="h-4 w-4" />
-                导出全部
-              </Button>
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div><CardTitle>报价记录</CardTitle><CardDescription>共 {filteredRecords.length} 条记录</CardDescription></div>
+            <div className="flex flex-wrap gap-2">
+              <div className="relative"><Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" /><Input className="w-64 pl-9" placeholder="搜索编号、客户或项目" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} /></div>
+              <Select value={typeFilter} onValueChange={setTypeFilter}><SelectTrigger className="w-32"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">全部类型</SelectItem><SelectItem value="engineering">工程报价</SelectItem><SelectItem value="maintenance">维保报价</SelectItem><SelectItem value="quotation">综合报价</SelectItem></SelectContent></Select>
+              <Select value={statusFilter} onValueChange={setStatusFilter}><SelectTrigger className="w-32"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">全部状态</SelectItem><SelectItem value="draft">草稿</SelectItem><SelectItem value="pending_review">待审核</SelectItem><SelectItem value="approved">已批准</SelectItem><SelectItem value="sent">已发送</SelectItem><SelectItem value="archived">已归档</SelectItem></SelectContent></Select>
+              <Button variant="outline" onClick={() => exportRecords(filteredRecords, '历史报价记录.xlsx')}><FileSpreadsheet className="mr-2 h-4 w-4" />导出全部</Button>
             </div>
           </div>
         </CardHeader>
         <CardContent>
-          {filteredRecords.length > 0 ? (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>报价单号</TableHead>
-                  <TableHead>报价类型</TableHead>
-                  <TableHead>客户名称</TableHead>
-                  <TableHead>项目名称</TableHead>
-                  <TableHead>总价</TableHead>
-                  <TableHead>状态</TableHead>
-                  <TableHead>创建时间</TableHead>
-                  <TableHead>创建人</TableHead>
-                  <TableHead className="w-[220px]">操作</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredRecords.map((record) => (
-                  <TableRow key={record.id}>
-                    <TableCell className="font-mono">{record.quoteNo}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline">
-                        {record.quoteType}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>{record.customerName}</TableCell>
-                    <TableCell>{record.projectName}</TableCell>
-                    <TableCell className="font-semibold">
-                      ¥{record.totalAmount.toLocaleString()}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={statusColors[record.status] ?? 'default'}>
-                        {record.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      <div className="flex items-center gap-1">
-                        <Calendar className="h-3 w-3" />
-                        {record.createdAt}
-                      </div>
-                    </TableCell>
-                    <TableCell>{record.createdBy}</TableCell>
-                    <TableCell>
-                      <div className="flex gap-1">
-                        <Button variant="ghost" size="icon" title="查看">
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="icon" title="复制">
-                          <Copy className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          title="导出Excel"
-                          onClick={() => exportSingleRecord(record)}
-                        >
-                          <FileDown className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          title="删除"
-                          onClick={() => confirmDelete(record.id)}
-                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+          {loading ? <div className="py-16 text-center text-muted-foreground">加载中...</div> : filteredRecords.length === 0 ? (
+            <div className="flex flex-col items-center py-16 text-muted-foreground"><History className="mb-3 h-12 w-12" />暂无历史记录</div>
           ) : (
-            <div className="flex flex-col items-center justify-center py-16 text-center">
-              <History className="h-12 w-12 text-muted-foreground mb-4" />
-              <h3 className="text-lg font-medium mb-2">暂无历史记录</h3>
-              <p className="text-sm text-muted-foreground">
-                暂无报价记录，创建报价后将显示在这里
-              </p>
-            </div>
+            <Table><TableHeader><TableRow><TableHead>报价单号</TableHead><TableHead>类型</TableHead><TableHead>客户</TableHead><TableHead>项目</TableHead><TableHead className="text-right">金额</TableHead><TableHead>状态</TableHead><TableHead>创建时间</TableHead><TableHead>创建人</TableHead><TableHead>操作</TableHead></TableRow></TableHeader>
+              <TableBody>{filteredRecords.map((record) => (
+                <TableRow key={record.id}><TableCell className="font-mono">{record.quote_number}</TableCell><TableCell><Badge variant="outline">{TYPE_LABELS[record.quote_type] || record.quote_type}</Badge></TableCell><TableCell>{record.client_name}</TableCell><TableCell>{record.project_name}</TableCell><TableCell className="text-right font-semibold">¥{record.total_amount.toLocaleString('zh-CN')}</TableCell><TableCell><Badge variant="secondary">{record.status}</Badge></TableCell><TableCell>{record.created_at}</TableCell><TableCell>{record.created_by_name || '-'}</TableCell><TableCell><div className="flex gap-1">
+                  <Button variant="ghost" size="icon" title="查看" onClick={() => router.push(`/quotes/${encodeURIComponent(record.id)}`)}><Eye className="h-4 w-4" /></Button>
+                  <Button variant="ghost" size="icon" title="复制编号" onClick={async () => { await navigator.clipboard.writeText(record.quote_number); toast.success('报价编号已复制'); }}><Copy className="h-4 w-4" /></Button>
+                  <Button variant="ghost" size="icon" title="导出Excel" onClick={() => exportRecords([record], `${record.quote_number}.xlsx`)}><FileDown className="h-4 w-4" /></Button>
+                  <Button variant="ghost" size="icon" title="删除" className="text-destructive" onClick={() => void deleteRecord(record)}><Trash2 className="h-4 w-4" /></Button>
+                </div></TableCell></TableRow>
+              ))}</TableBody>
+            </Table>
           )}
         </CardContent>
       </Card>
-
-      {/* 密码验证对话框 */}
-      <Dialog open={passwordDialogOpen} onOpenChange={setPasswordDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Lock className="h-5 w-5" />
-              删除验证
-            </DialogTitle>
-            <DialogDescription>
-              删除报价记录需要验证二级密码
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">二级密码</label>
-              <Input
-                type="password"
-                placeholder="请输入二级密码"
-                value={deletePassword}
-                onChange={(e) => setDeletePassword(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    verifyPasswordAndDelete();
-                  }
-                }}
-              />
-              {deleteError && (
-                <p className="text-sm text-red-600">{deleteError}</p>
-              )}
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => {
-              setPasswordDialogOpen(false);
-              setRecordToDelete(null);
-              setDeletePassword('');
-              setDeleteError('');
-            }}>
-              取消
-            </Button>
-            <Button variant="destructive" onClick={verifyPasswordAndDelete}>
-              验证并删除
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* 统计卡片 - 仅在有数据时显示 */}
-      {records.length > 0 && (
-        <div className="grid gap-4 md:grid-cols-4">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
-                总报价数
-              </CardTitle>
-              <FileText className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{records.length}</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
-                已成交
-              </CardTitle>
-              <div className="h-4 w-4 rounded-full bg-green-500" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">
-                {records.filter(r => r.status === '已成交').length}
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
-                工程报价
-              </CardTitle>
-              <Badge variant="outline">工程</Badge>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">
-                {records.filter(r => r.quoteType === '工程报价').length}
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
-                维保报价
-              </CardTitle>
-              <Badge variant="outline">维保</Badge>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">
-                {records.filter(r => r.quoteType === '维保报价').length}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
     </div>
   );
 }

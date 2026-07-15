@@ -59,7 +59,7 @@ function LoginContent() {
   const handleItsLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setItsError('');
-    setItsLoading(false);
+    setItsLoading(true);
 
     try {
       if (!itsUsername) {

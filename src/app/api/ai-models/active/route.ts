@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/lib/db';
+import { requireApiAuth } from '@/lib/api-auth-server';
 
 // POST - 激活指定的AI模型配置（同时取消其他激活状态）
 export async function POST(request: NextRequest) {
+  const auth = requireApiAuth(request, ['admin']);
+  if (!auth.ok) return auth.response;
+
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
@@ -43,7 +47,10 @@ export async function POST(request: NextRequest) {
 }
 
 // GET - 获取当前激活的配置（脱敏）
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const auth = requireApiAuth(request);
+  if (!auth.ok) return auth.response;
+
   try {
     const connection = await pool.getConnection();
     try {

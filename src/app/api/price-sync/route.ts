@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireApiAuth } from '@/lib/api-auth-server';
 
 // 价格同步API：价格变更时重新计算AI识别结果
 // 这里复用ai-parse-quote的逻辑
 export async function POST(request: NextRequest) {
+  const auth = requireApiAuth(request, ['admin']);
+  if (!auth.ok) return auth.response;
+
   try {
     const body = await request.json();
     const { devices, region, serviceMode, serviceTime, needSpareParts } = body;
@@ -88,7 +92,10 @@ export async function POST(request: NextRequest) {
 }
 
 // GET: 获取当前价格版本信息
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const auth = requireApiAuth(request, ['admin']);
+  if (!auth.ok) return auth.response;
+
   return NextResponse.json({
     success: true,
     priceVersion: '2025-01-15-v1',

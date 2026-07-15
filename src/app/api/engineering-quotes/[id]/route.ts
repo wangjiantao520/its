@@ -1,12 +1,16 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import pool, { initDatabase } from '@/lib/db';
+import { requireApiAuth } from '@/lib/api-auth-server';
 
 // GET /api/engineering-quotes/[id] - 获取单条工程报价
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const auth = requireApiAuth(request);
+  if (!auth.ok) return auth.response;
+
   try {
     await initDatabase();
 
@@ -24,6 +28,9 @@ export async function GET(
         { success: false, error: '报价单不存在' },
         { status: 404 }
       );
+    }
+    if (auth.session.role !== 'admin' && quoteList[0].created_by !== String(auth.session.userId ?? -1)) {
+      return NextResponse.json({ success: false, error: '报价单不存在或无权访问' }, { status: 404 });
     }
 
     // 解析 items JSON 字符串
@@ -52,6 +59,9 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const auth = requireApiAuth(request);
+  if (!auth.ok) return auth.response;
+
   try {
     await initDatabase();
 
@@ -70,7 +80,7 @@ export async function PATCH(
 
     // 检查报价单是否存在
     const [existing] = await pool.execute(
-      'SELECT id, status FROM engineering_quotes WHERE id = ?',
+      'SELECT id, status, created_by FROM engineering_quotes WHERE id = ?',
       [id]
     );
     if ((existing as any[]).length === 0) {
@@ -78,6 +88,9 @@ export async function PATCH(
         { success: false, error: '报价单不存在' },
         { status: 404 }
       );
+    }
+    if (auth.session.role !== 'admin' && (existing as any[])[0].created_by !== String(auth.session.userId ?? -1)) {
+      return NextResponse.json({ success: false, error: '报价单不存在或无权访问' }, { status: 404 });
     }
 
     await pool.execute(

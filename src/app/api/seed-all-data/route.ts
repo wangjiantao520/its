@@ -1,9 +1,13 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { requireApiAuth } from '@/lib/api-auth-server';
 import { pool } from '@/lib/db';
 import { FULL_DEVICE_QUOTAS } from '@/lib/complete-device-data';
 import { SELF_CONSTRUCTION_QUOTA, INTELLIGENT_PROJECT_QUOTA } from '@/lib/self-construction-quota';
 
-export async function POST() {
+export async function POST(request: NextRequest) {
+  const auth = requireApiAuth(request, ['admin']);
+  if (!auth.ok) return auth.response;
+
   try {
     // 1. 导入维保设备定额（完整版123条）
     let deviceInserted = 0;

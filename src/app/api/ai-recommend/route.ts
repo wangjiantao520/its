@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireApiAuth } from '@/lib/api-auth-server';
 import pool from '@/lib/db';
 
 // 根据客户/设备信息推荐相似历史报价
 export async function GET(request: NextRequest) {
+  const auth = requireApiAuth(request);
+  if (!auth.ok) return auth.response;
+
   const { searchParams } = new URL(request.url);
   const clientName = searchParams.get('clientName');
   const clientId = searchParams.get('clientId');
@@ -75,6 +79,9 @@ export async function GET(request: NextRequest) {
 
 // 保存报价设备历史（供后续推荐使用）
 export async function POST(request: NextRequest) {
+  const auth = requireApiAuth(request);
+  if (!auth.ok) return auth.response;
+
   try {
     const body = await request.json();
     const { quoteId, quoteType, clientId, clientName, devices, quoteTotal } = body;

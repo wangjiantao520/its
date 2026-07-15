@@ -154,12 +154,6 @@ export default function DatabaseManagementPage() {
   const [editingItem, setEditingItem] = useState<any>(null);
   const [isAdding, setIsAdding] = useState(false);
   
-  // 二级密码确认对话框
-  const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [pendingAction, setPendingAction] = useState<(() => Promise<void>) | null>(null);
-  const [confirmError, setConfirmError] = useState('');
-  
   // 操作反馈
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   
@@ -197,11 +191,6 @@ export default function DatabaseManagementPage() {
     setCurrentPage(1);
   }, [activeTab]);
 
-  // 加载数据
-  useEffect(() => {
-    loadData();
-  }, []);
-
   const loadData = async () => {
     setLoading(true);
     try {
@@ -228,6 +217,11 @@ export default function DatabaseManagementPage() {
     setMessage({ type, text });
     setTimeout(() => setMessage(null), 3000);
   };
+
+  // 加载数据
+  useEffect(() => {
+    void loadData();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 打开编辑对话框
   const handleEdit = (item: any) => {
@@ -264,14 +258,8 @@ export default function DatabaseManagementPage() {
     }
   };
 
-  // 保存前需要二级密码确认
   const handleSave = async () => {
-    setConfirmError('');
-    setConfirmPassword('');
-    setPendingAction(() => async () => {
-      await doSave();
-    });
-    setConfirmDialogOpen(true);
+    await doSave();
   };
 
   const doSave = async () => {
@@ -303,14 +291,8 @@ export default function DatabaseManagementPage() {
     }
   };
 
-  // 删除前需要二级密码确认
   const handleDelete = (id: string | number) => {
-    setConfirmError('');
-    setConfirmPassword('');
-    setPendingAction(() => async () => {
-      await doDelete(id);
-    });
-    setConfirmDialogOpen(true);
+    void doDelete(id);
   };
 
   const doDelete = async (id: string | number) => {
@@ -329,20 +311,6 @@ export default function DatabaseManagementPage() {
       }
     } catch (error) {
       showMessage('error', '删除失败: ' + String(error));
-    }
-  };
-
-  // 确认密码验证
-  const handleConfirm = async () => {
-    // 验证二级密码（这里使用简单的固定密码，实际应该从后端验证）
-    if (confirmPassword !== 'admin123') {
-      setConfirmError('密码错误，请输入正确的管理密码');
-      return;
-    }
-    
-    setConfirmDialogOpen(false);
-    if (pendingAction) {
-      await pendingAction();
     }
   };
 
@@ -1449,31 +1417,26 @@ export default function DatabaseManagementPage() {
 
   // 导入数据
   const handleSeedData = async () => {
-    setConfirmError('');
-    setConfirmPassword('');
-    setPendingAction(() => async () => {
-      try {
-        setMessage(null);
-        setLoading(true);
-        const response = await fetch('/api/seed-all-data', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' }
-        });
-        const result = await response.json();
-        if (result.success) {
-          showMessage('success', result.message);
-          loadData();
-        } else {
-          showMessage('error', result.error || '导入失败');
-        }
-      } catch (error) {
-        console.error('导入数据失败:', error);
-        showMessage('error', '导入数据失败');
-      } finally {
-        setLoading(false);
+    try {
+      setMessage(null);
+      setLoading(true);
+      const response = await fetch('/api/seed-all-data', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const result = await response.json();
+      if (result.success) {
+        showMessage('success', result.message);
+        await loadData();
+      } else {
+        showMessage('error', result.error || '导入失败');
       }
-    });
-    setConfirmDialogOpen(true);
+    } catch (error) {
+      console.error('导入数据失败:', error);
+      showMessage('error', '导入数据失败');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -1641,55 +1604,6 @@ export default function DatabaseManagementPage() {
             <Button onClick={handleSave} className="bg-blue-600 hover:bg-blue-700">
               <Save className="w-4 h-4 mr-2" />
               保存
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* 二级密码确认对话框 */}
-      <Dialog open={confirmDialogOpen} onOpenChange={setConfirmDialogOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <AlertCircle className="w-5 h-5 text-amber-600" />
-              安全确认
-            </DialogTitle>
-            <DialogDescription>
-              此操作需要二级密码确认，请输入管理密码
-            </DialogDescription>
-          </DialogHeader>
-          <div className="py-4 space-y-4">
-            <div className="space-y-2">
-              <Label>管理密码</Label>
-              <Input
-                type="password"
-                placeholder="请输入管理密码"
-                value={confirmPassword}
-                onChange={(e) => {
-                  setConfirmPassword(e.target.value);
-                  setConfirmError('');
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleConfirm();
-                }}
-                autoFocus
-              />
-              {confirmError && (
-                <p className="text-sm text-red-600 mt-1">{confirmError}</p>
-              )}
-            </div>
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
-              <p className="text-sm text-amber-800">
-                提示：默认管理密码为 <code className="bg-amber-100 px-1 rounded">admin123</code>，建议部署后修改
-              </p>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirmDialogOpen(false)}>
-              取消
-            </Button>
-            <Button onClick={handleConfirm} className="bg-amber-600 hover:bg-amber-700">
-              确认
             </Button>
           </DialogFooter>
         </DialogContent>

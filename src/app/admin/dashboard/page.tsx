@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useCallback, useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -60,7 +60,7 @@ interface DashboardStats {
     amount: number;
   }>;
   recentQuotes: Array<{
-    id: number;
+    id: string;
     quote_number: string;
     project_name: string;
     client_name: string;
@@ -109,11 +109,7 @@ export default function DashboardPage() {
   const [selectedUserId, setSelectedUserId] = useState<string>('all');
   const [timeRange, setTimeRange] = useState<string>('all');
 
-  useEffect(() => {
-    fetchStats();
-  }, [selectedUserId, timeRange]);
-
-  const fetchStats = async () => {
+  const fetchStats = useCallback(async () => {
     setLoading(true);
     try {
       const params = new URLSearchParams();
@@ -136,14 +132,14 @@ export default function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedUserId, timeRange]);
 
-  const handleViewDetail = (type: string, id: number) => {
-    if (type === 'engineering') {
-      window.open(`/engineering?id=${id}`, '_blank');
-    } else {
-      window.open(`/maintenance?id=${id}`, '_blank');
-    }
+  useEffect(() => {
+    void fetchStats();
+  }, [fetchStats]);
+
+  const handleViewDetail = (_type: string, id: string) => {
+    window.open(`/quotes/${encodeURIComponent(id)}`, '_blank', 'noopener,noreferrer');
   };
 
   if (loading) {

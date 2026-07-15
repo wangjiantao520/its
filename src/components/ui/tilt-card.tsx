@@ -44,6 +44,7 @@ function calculateMaxBySize(
 }
 
 export function useTilt<T extends HTMLElement = HTMLDivElement>(
+  ref: React.RefObject<T | null>,
   options: TiltOptions = {}
 ) {
   const {
@@ -55,7 +56,6 @@ export function useTilt<T extends HTMLElement = HTMLDivElement>(
     sizeThresholds = DEFAULT_SIZE_THRESHOLDS,
   } = options;
 
-  const ref = useRef<T>(null);
   const [style, setStyle] = useState<React.CSSProperties>({});
   const [currentMax, setCurrentMax] = useState(baseMax);
   const [glarePos, setGlarePos] = useState({ x: 0, y: 0, opacity: 0 });
@@ -136,7 +136,6 @@ export function useTilt<T extends HTMLElement = HTMLDivElement>(
   }, [autoMax, perspective, scale, speed, sizeThresholds]);
 
   return {
-    ref,
     style,
     glarePos,
     onMouseMove: handleMouseMove,
@@ -170,7 +169,8 @@ export function TiltCard({
   sizeThresholds?: { minSize: number; maxSize: number; max: number }[];
   onClick?: (e: React.MouseEvent<HTMLDivElement>) => void;
 }) {
-  const tilt = useTilt<HTMLDivElement>({
+  const cardRef = useRef<HTMLDivElement>(null);
+  const tilt = useTilt<HTMLDivElement>(cardRef, {
     max,
     perspective,
     scale,
@@ -181,7 +181,7 @@ export function TiltCard({
 
   return (
     <div
-      ref={tilt.ref}
+      ref={cardRef}
       style={{
         ...tilt.style,
         transformStyle: "preserve-3d",

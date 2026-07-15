@@ -1,13 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { requireApiAuth } from '@/lib/api-auth-server';
 
 export async function POST(request: NextRequest) {
+  const auth = requireApiAuth(request, ['admin']);
+  if (!auth.ok) return auth.response;
+
   try {
     const formData = await request.formData();
     const file = formData.get('file') as File;
     
     if (!file) {
-      return NextResponse.json({ error: '请选择文件' }, { status: 400 });
+      return NextResponse.json({ success: false, error: '请选择文件' }, { status: 400 });
     }
 
     // 读取文件内容
@@ -21,7 +25,7 @@ export async function POST(request: NextRequest) {
     const devices = parseExcelContent(textContent);
     
     if (devices.length === 0) {
-      return NextResponse.json({ error: '未解析到有效的设备数据' }, { status: 400 });
+      return NextResponse.json({ success: false, error: '未解析到有效的设备数据' }, { status: 400 });
     }
 
     // 导入到数据库

@@ -4,18 +4,16 @@ import { useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useUser } from '@/contexts/user-context';
 import { UserRole, Role } from '@/lib/roles';
+import { isAllowedPath, isPublicPath } from '@/lib/route-access';
 
 interface AuthProtectedProps {
   children: React.ReactNode;
   allowedRoles?: UserRole[];
 }
 
-// 不需要登录的路径
-const PUBLIC_PATHS = ['/login'];
-
 // 角色权限映射
 const ROLE_PATHS: Record<UserRole, string[]> = {
-  'its_member': ['/', '/device-import', '/maintenance', '/engineering', '/survey-upload', '/quotes', '/clients', '/dashboard', '/reports', '/assistant'],
+  'its_member': ['/', '/device-import', '/maintenance', '/engineering', '/survey-upload', '/quotes', '/history', '/clients', '/dashboard', '/reports', '/assistant'],
   'admin': ['/', '/dashboard', '/engineering', '/quotes', '/maintenance', '/survey-upload', '/data', '/history', '/database', '/clients', '/reports', '/admin', '/admin/users', '/admin/ai-config', '/admin/agents', '/admin/dashboard', '/admin/members', '/device-review', '/settings/ai-models']
 };
 
@@ -26,7 +24,7 @@ export function AuthProtected({ children, allowedRoles }: AuthProtectedProps) {
 
   useEffect(() => {
     // 如果是公开路径，不需要登录
-    if (PUBLIC_PATHS.includes(pathname)) {
+    if (isPublicPath(pathname)) {
       return;
     }
 
@@ -57,7 +55,7 @@ export function AuthProtected({ children, allowedRoles }: AuthProtectedProps) {
     }
 
     // 检查当前路径是否允许访问
-    if (!allowedPaths.includes(pathname) && pathname !== '/login') {
+    if (!isAllowedPath(pathname, allowedPaths)) {
       // 如果是根路径，允许访问
       if (pathname === '/') {
         return;
@@ -69,7 +67,7 @@ export function AuthProtected({ children, allowedRoles }: AuthProtectedProps) {
   }, [isLoggedIn, user, pathname, router, allowedRoles, isLoading]);
 
   // 如果是公开路径，直接渲染
-  if (PUBLIC_PATHS.includes(pathname)) {
+  if (isPublicPath(pathname)) {
     return <>{children}</>;
   }
 
