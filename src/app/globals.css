@@ -355,6 +355,20 @@
     background: linear-gradient(180deg, #f7f1e8 0%, #f2eadc 100%);
   }
 
+  .sidebar-fabric [data-slot="sidebar-inner"] {
+    border-right: 1px solid var(--sidebar-border);
+  }
+
+  /* inset模式折叠时去掉外层padding，让图标栏更紧凑 */
+  .group[data-variant="inset"][data-state="collapsed"][data-collapsible="icon"] [data-slot="sidebar-container"] {
+    padding: 0 !important;
+    width: var(--sidebar-width-icon) !important;
+  }
+
+  .group[data-variant="inset"][data-state="collapsed"][data-collapsible="icon"] [data-slot="sidebar-gap"] {
+    width: var(--sidebar-width-icon) !important;
+  }
+
   /* 侧边栏菜单项 */
   .sidebar-item {
     @apply flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-all;
