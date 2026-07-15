@@ -22,6 +22,8 @@ import {
   FileSpreadsheet,
   Copy,
   UserCheck,
+  PanelLeftClose,
+  PanelLeft,
 } from 'lucide-react';
 import { usePathname, useRouter } from 'next/navigation';
 import {
@@ -35,6 +37,7 @@ import {
   SidebarMenuItem,
   SidebarHeader,
   SidebarFooter,
+  useSidebar,
 } from '@/components/ui/sidebar';
 import Link from 'next/link';
 import { useUser } from '@/contexts/user-context';
@@ -126,6 +129,7 @@ export function AppSidebar() {
   const router = useRouter();
   const { user, logout, isLoggedIn } = useUser();
   const { theme, toggleTheme } = useTheme();
+  const { state, toggleSidebar } = useSidebar();
 
   // 如果未登录，不显示侧边栏
   if (!isLoggedIn || !user) {
@@ -146,19 +150,20 @@ export function AppSidebar() {
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground">
             <FileText className="h-5 w-5" />
           </div>
-          <div className="flex-1">
-            <h1 className="text-lg font-semibold">ITS报价系统</h1>
+          <div className="flex-1 min-w-0">
+            <h1 className="text-lg font-semibold truncate">ITS报价系统</h1>
           </div>
           <Button
             variant="ghost"
             size="icon"
-            onClick={toggleTheme}
-            className="h-8 w-8"
+            onClick={toggleSidebar}
+            className="h-8 w-8 shrink-0"
+            title={state === 'collapsed' ? '展开侧边栏' : '收起侧边栏'}
           >
-            {theme === 'dark' ? (
-              <Sun className="h-4 w-4" />
+            {state === 'collapsed' ? (
+              <PanelLeft className="h-4 w-4" />
             ) : (
-              <Moon className="h-4 w-4" />
+              <PanelLeftClose className="h-4 w-4" />
             )}
           </Button>
         </div>
