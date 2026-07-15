@@ -10,6 +10,28 @@
 
 ---
 
+### Task 0: Repair the pre-existing TypeScript baseline
+
+**Files:**
+- Modify: `src/app/api/agents/[id]/chat/route.ts`
+- Modify: `src/app/maintenance/page.tsx:2975`
+
+- [ ] **Step 1: Confirm the existing type failures**
+
+Run `pnpm ts-check`. Expected: three errors for `Response.json` and two implicit-`any` errors for `pageNum`.
+
+- [ ] **Step 2: Use the framework response helper**
+
+Import `NextResponse` from `next/server` and replace the three error-path calls to `Response.json(...)` with `NextResponse.json(...)`. Keep the streaming success response as the standard `new Response(stream, ...)`.
+
+- [ ] **Step 3: Give the page number an explicit numeric type**
+
+Change `let pageNum;` to `let pageNum: number;` in the pagination callback.
+
+- [ ] **Step 4: Verify the baseline is green**
+
+Run `pnpm ts-check`. Expected: exit code 0 with no TypeScript errors.
+
 ### Task 1: Add a browser regression test
 
 **Files:**

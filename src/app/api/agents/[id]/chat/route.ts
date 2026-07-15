@@ -1,4 +1,4 @@
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db';
 
 // 简单的技能执行器
@@ -118,7 +118,7 @@ export async function POST(
     const { message, history = [], session_id } = body;
     
     if (!message) {
-      return Response.json({ error: '消息不能为空' }, { status: 400 });
+      return NextResponse.json({ error: '消息不能为空' }, { status: 400 });
     }
     
     // 从cookie获取用户信息
@@ -161,7 +161,7 @@ export async function POST(
     const agent = (agents[0] as Array<Record<string, unknown>>)?.[0];
     
     if (!agent) {
-      return Response.json({ error: '智能体不存在' }, { status: 404 });
+      return NextResponse.json({ error: '智能体不存在' }, { status: 404 });
     }
     
     // 获取启用的技能
@@ -183,7 +183,7 @@ export async function POST(
     }
     
     // 生成回复
-    let response = skillResult || `我理解您的问题："${message}"\n\n作为ITS报价系统智能助手，我可以帮助您：
+    const response = skillResult || `我理解您的问题："${message}"\n\n作为ITS报价系统智能助手，我可以帮助您：
 - 查询设备定额和单价
 - 查询维保费率配置
 - 计算维保报价
@@ -250,6 +250,6 @@ export async function POST(
     });
   } catch (error) {
     console.error('智能体对话错误:', error);
-    return Response.json({ error: '对话失败' }, { status: 500 });
+    return NextResponse.json({ error: '对话失败' }, { status: 500 });
   }
 }

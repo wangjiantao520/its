@@ -144,13 +144,13 @@ export function AppSidebar() {
   };
 
   return (
-    <Sidebar variant="inset" collapsible="icon" className="border-r sidebar-fabric">
-      <SidebarHeader className="border-b px-6 py-4">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+    <Sidebar variant="inset" collapsible="icon" className="overflow-hidden border-r sidebar-fabric">
+      <SidebarHeader className="border-b px-6 py-4 group-data-[collapsible=icon]:px-2">
+        <div className="flex items-center gap-3 group-data-[collapsible=icon]:justify-center">
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground group-data-[collapsible=icon]:hidden">
             <FileText className="h-5 w-5" />
           </div>
-          <div className="flex-1 min-w-0">
+          <div className="flex-1 min-w-0 group-data-[collapsible=icon]:hidden">
             <h1 className="text-lg font-semibold truncate">ITS报价系统</h1>
           </div>
           <Button
@@ -175,7 +175,7 @@ export function AppSidebar() {
             <SidebarMenu>
               {navItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild isActive={pathname === item.url}>
+                  <SidebarMenuButton asChild isActive={pathname === item.url} tooltip={item.title}>
                     <Link href={item.url} className="flex items-center gap-3">
                       <TiltIcon className="icon-3d icon-3d-sm" max={15} scale={1.08}>
                         <item.icon className="h-4 w-4" />
@@ -189,7 +189,7 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
-      <SidebarFooter className="border-t p-4 space-y-4">
+      <SidebarFooter className="border-t p-4 space-y-4 group-data-[collapsible=icon]:hidden">
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
