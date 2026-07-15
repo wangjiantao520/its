@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { User, UserRole } from '@/lib/roles';
+import { readApiResponse, type ApiResponse } from '@/lib/api-response';
 
 interface AuthResponse {
   token: string;
@@ -45,7 +46,12 @@ async function verifyTokenOnServer(token: string): Promise<{ role: UserRole; nam
     });
 
     if (response.ok) {
-      const data = await response.json();
+      const data = await readApiResponse(response) as ApiResponse<{
+        role: UserRole;
+        name?: string;
+        username?: string;
+      }>;
+      if (!data.success || !data.data) return null;
       return {
         role: data.data.role as UserRole,
         name: data.data.name,
@@ -111,13 +117,13 @@ export function UserProvider({ children }: { children: ReactNode }) {
         body: JSON.stringify({ role, password })
       });
 
-      const data = await response.json();
+      const data = await readApiResponse(response) as ApiResponse<AuthResponse>;
 
-      if (!data.success) {
+      if (!data.success || !data.data) {
         return { success: false, error: data.error || '登录失败' };
       }
 
-      const authData = data.data as AuthResponse;
+      const authData = data.data;
 
       // 存储到本地
       localStorage.setItem('authToken', authData.token);

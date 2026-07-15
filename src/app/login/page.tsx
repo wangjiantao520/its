@@ -10,6 +10,13 @@ import { AlertCircle, Building2, Users, ArrowLeft, ShieldCheck } from 'lucide-re
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useUser } from '@/contexts/user-context';
 import { TiltCard } from '@/components/ui/tilt-card';
+import { readApiResponse, type ApiResponse } from '@/lib/api-response';
+
+interface MemberLoginResponse {
+  token: string;
+  userId?: number;
+  name?: string;
+}
 
 function LoginContent() {
   const router = useRouter();
@@ -74,9 +81,9 @@ function LoginContent() {
         body: JSON.stringify({ username: itsUsername, password: itsPassword })
       });
 
-      const data = await response.json();
+      const data = await readApiResponse(response) as ApiResponse<MemberLoginResponse>;
 
-      if (!data.success) {
+      if (!data.success || !data.data?.token) {
         setItsError(data.error || '登录失败');
         setItsLoading(false);
         return;
