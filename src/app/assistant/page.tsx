@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useState, useEffect, useRef, Suspense, useCallback } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
   MessageSquare,
   Send,
@@ -9,9 +11,15 @@ import {
   X,
   Menu,
   Calculator,
-  FileText,
   Bot,
   Search,
+  Copy,
+  Check,
+  RotateCcw,
+  History,
+  Settings,
+  TrendingUp,
+  Database,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -23,7 +31,7 @@ import {
 } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { TiltIcon } from "@/components/ui/tilt-icon";
 import { createAssistantStreamParser } from "@/lib/assistant-stream";
 
@@ -47,7 +55,7 @@ function AssistantContent() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -80,7 +88,6 @@ function AssistantContent() {
 
   useEffect(() => {
     loadSessions();
-    // 检查URL参数
     const sessionId = searchParams.get("session");
     if (sessionId) {
       loadSession(sessionId);
@@ -95,16 +102,16 @@ function AssistantContent() {
     scrollToBottom();
   }, [messages]);
 
-  const handleSend = async () => {
-    if (!input.trim() || isLoading) return;
+  const handleSend = async (overrideInput?: string) => {
+    const textToSend = overrideInput ?? input;
+    if (!textToSend.trim() || isLoading) return;
 
-    const userMessage: Message = { role: "user", content: input.trim() };
+    const userMessage: Message = { role: "user", content: textToSend.trim() };
     const newMessages = [...messages, userMessage];
     setMessages(newMessages);
     setInput("");
     setIsLoading(true);
 
-    // 自动调整textarea高度
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
     }
@@ -114,7 +121,7 @@ function AssistantContent() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message: input.trim(),
+          message: textToSend.trim(),
           session_id: currentSessionId,
           history: newMessages.slice(-10),
         }),
@@ -171,7 +178,7 @@ function AssistantContent() {
       });
     } finally {
       setIsLoading(false);
-      loadSessions(); // 刷新会话列表
+      loadSessions();
     }
   };
 
@@ -200,7 +207,6 @@ function AssistantContent() {
           setMessages([]);
           setCurrentSessionId(null);
         }
-        setShowDeleteConfirm(null);
       }
     } catch (e) {
       console.error("删除会话失败", e);
@@ -211,11 +217,41 @@ function AssistantContent() {
     loadSession(sessionId);
   };
 
+  const handleCopy = async (content: string, index: number) => {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopiedIndex(index);
+      setTimeout(() => setCopiedIndex(null), 2000);
+    } catch (e) {
+      console.error("复制失败", e);
+    }
+  };
+
+  const handleRegenerate = () => {
+    if (messages.length < 2 || isLoading) return;
+    const lastUserMsg = [...messages].reverse().find(m => m.role === "user");
+    if (!lastUserMsg) return;
+
+    // 移除最后一条助手回复
+    setMessages(prev => {
+      const updated = [...prev];
+      if (updated.at(-1)?.role === "assistant") {
+        updated.pop();
+      }
+      return updated;
+    });
+
+    // 重新发送
+    setTimeout(() => handleSend(lastUserMsg.content), 100);
+  };
+
   const quickPrompts = [
-    { icon: FileText, label: "帮我识别设备清单", desc: "上传图片识别设备" },
-    { icon: Calculator, label: "计算维保报价", desc: "快速估算维保费用" },
-    { icon: Calculator, label: "计算工程报价", desc: "辅助工程报价计算" },
-    { icon: Search, label: "查询设备定额", desc: "搜索设备定额信息" },
+    { icon: Search, label: "查询交换机定额", desc: "搜索设备定额和单价" },
+    { icon: Calculator, label: "计算服务器维保报价", desc: "快速估算维保费用" },
+    { icon: TrendingUp, label: "查询网络设备费率", desc: "查看维保费率配置" },
+    { icon: History, label: "查看最近报价记录", desc: "浏览历史报价单" },
+    { icon: Database, label: "查询摄像机价格", desc: "搜索设备中标单价" },
+    { icon: Settings, label: "系统功能介绍", desc: "了解系统功能" },
   ];
 
   const formatTime = (timeStr: string) => {
@@ -354,7 +390,7 @@ function AssistantContent() {
               <div>
                 <CardTitle className="text-lg font-semibold">智能报价助手</CardTitle>
                 <CardDescription className="text-xs">
-                  帮您快速完成设备识别、报价计算、定额查询
+                  设备查询 · 报价计算 · 定额查询 · 历史记录
                 </CardDescription>
               </div>
             </div>
@@ -384,16 +420,16 @@ function AssistantContent() {
                   <h2 className="text-xl font-semibold text-foreground mb-2">
                     智能报价助手
                   </h2>
-                  <p className="text-sm text-muted-foreground mb-6 text-center">
-                    您好！我是ITS智能报价助手，可以帮您识别设备清单、计算报价、查询定额。
-                    有什么可以帮您的？
+                  <p className="text-sm text-muted-foreground mb-6 text-center max-w-md">
+                    您好！我是ITS智能报价助手，可以帮您查询设备定额、计算维保报价、查看报价记录、了解系统功能。
+                    支持自然语言交互，试试下面的快捷操作吧。
                   </p>
 
                   <div className="w-full grid grid-cols-2 gap-3 mb-6">
                     {quickPrompts.map(({ icon: Icon, label, desc }) => (
                       <button
                         key={label}
-                        onClick={() => setInput(label)}
+                        onClick={() => handleSend(label)}
                         className="p-4 rounded-xl border border-border/50 bg-gradient-to-br from-card to-muted/30 text-left hover:border-primary/30 hover:shadow-sm transition-all duration-200 group"
                       >
                         <TiltIcon className="text-primary inline-flex">
@@ -416,21 +452,75 @@ function AssistantContent() {
                         msg.role === "user" ? "justify-end" : "justify-start"
                       }`}
                     >
-                      <div
-                        className={`max-w-[80%] px-4 py-3 rounded-2xl ${
-                          msg.role === "user"
-                            ? "bg-gradient-to-br from-primary/95 to-primary/85 text-primary-foreground rounded-br-md shadow-sm"
-                            : "bg-gradient-to-br from-card to-muted/20 text-foreground rounded-bl-md border border-border/50"
-                        }`}
-                      >
-                        <div className="text-sm whitespace-pre-wrap leading-relaxed">
-                          {msg.content || (
+                      <div className="flex flex-col gap-1 max-w-[85%]">
+                        <div
+                          className={`px-4 py-3 rounded-2xl ${
+                            msg.role === "user"
+                              ? "bg-gradient-to-br from-primary/95 to-primary/85 text-primary-foreground rounded-br-md shadow-sm"
+                              : "bg-gradient-to-br from-card to-muted/20 text-foreground rounded-bl-md border border-border/50"
+                          }`}
+                        >
+                          {msg.role === "assistant" ? (
+                            <div className="text-sm leading-relaxed prose prose-sm dark:prose-invert max-w-none prose-table:border-collapse prose-th:border prose-th:border-border/60 prose-th:bg-muted/40 prose-th:px-3 prose-th:py-1.5 prose-th:text-left prose-td:border prose-td:border-border/60 prose-td:px-3 prose-td:py-1.5 prose-pre:bg-muted/50 prose-pre:rounded-lg prose-pre:p-3 prose-code:text-primary prose-code:bg-primary/5 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-blockquote:border-l-primary/40 prose-blockquote:bg-muted/20 prose-blockquote:py-0.5 prose-blockquote:px-3 prose-li:my-0">
+                              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                {msg.content || " "}
+                              </ReactMarkdown>
+                            </div>
+                          ) : (
+                            <div className="text-sm whitespace-pre-wrap leading-relaxed">
+                              {msg.content}
+                            </div>
+                          )}
+                          {msg.role === "assistant" && !msg.content && (
                             <span className="inline-block w-2 h-4 bg-current animate-pulse rounded" />
                           )}
                         </div>
+                        {/* 消息操作栏 */}
+                        {msg.role === "assistant" && msg.content && (
+                          <div className="flex items-center gap-1 px-2 opacity-0 hover:opacity-100 transition-opacity group-hover:opacity-100">
+                            <button
+                              onClick={() => handleCopy(msg.content, index)}
+                              className="flex items-center gap-1 px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/40 rounded-md transition-colors"
+                              title="复制"
+                            >
+                              {copiedIndex === index ? (
+                                <>
+                                  <Check size={12} />
+                                  已复制
+                                </>
+                              ) : (
+                                <>
+                                  <Copy size={12} />
+                                  复制
+                                </>
+                              )}
+                            </button>
+                            {index === messages.length - 1 && !isLoading && (
+                              <button
+                                onClick={handleRegenerate}
+                                className="flex items-center gap-1 px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/40 rounded-md transition-colors"
+                                title="重新生成"
+                              >
+                                <RotateCcw size={12} />
+                                重新生成
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </div>
                   ))}
+                  {isLoading && messages.at(-1)?.role === "user" && (
+                    <div className="flex justify-start">
+                      <div className="px-4 py-3 rounded-2xl bg-gradient-to-br from-card to-muted/20 text-foreground rounded-bl-md border border-border/50">
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-2 h-2 bg-primary/60 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+                          <span className="w-2 h-2 bg-primary/60 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+                          <span className="w-2 h-2 bg-primary/60 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+                        </div>
+                      </div>
+                    </div>
+                  )}
                   <div ref={messagesEndRef} />
                 </div>
               )}
@@ -449,12 +539,12 @@ function AssistantContent() {
                       e.target.style.height = Math.min(e.target.scrollHeight, 150) + "px";
                     }}
                     onKeyDown={handleKeyDown}
-                    placeholder="输入您的问题，按 Enter 发送..."
+                    placeholder="输入您的问题，如「查询交换机的定额」或「计算10台服务器3年维保报价」..."
                     className="flex-1 resize-none bg-transparent border-none focus:ring-0 text-sm placeholder:text-muted-foreground/40 min-h-[24px] max-h-[150px] p-0"
                     rows={1}
                   />
                   <Button
-                    onClick={handleSend}
+                    onClick={() => handleSend()}
                     disabled={!input.trim() || isLoading}
                     size="icon"
                     className="shrink-0 w-9 h-9 rounded-xl bg-gradient-to-b from-primary/90 to-primary/80 hover:from-primary hover:to-primary/90 text-white shadow-sm disabled:opacity-50 disabled:cursor-not-allowed transition-all"
@@ -463,7 +553,7 @@ function AssistantContent() {
                   </Button>
                 </div>
                 <p className="text-xs text-muted-foreground/50 text-center mt-2">
-                  AI生成内容仅供参考，请结合实际情况核对
+                  AI生成内容仅供参考，请结合实际情况核对 · 按 Enter 发送，Shift+Enter 换行
                 </p>
               </div>
             </div>

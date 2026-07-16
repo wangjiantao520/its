@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -777,14 +778,12 @@ export default function MaintenanceQuotePage() {
 
   // 分享链接
   const handleGenerateShareLink = async (): Promise<string | null> => {
-    if (!currentQuoteIdentity) {
-      alert('请先保存报价，再生成分享链接');
-      return null;
-    }
+    const identity = await ensureQuoteSaved();
+    if (!identity) return null;
     const response = await fetch('/api/quotes/share', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ quoteId: currentQuoteIdentity, expiryDays: 7 }),
+      body: JSON.stringify({ quoteId: identity, expiryDays: 7 }),
     });
     const result = await response.json();
     if (!response.ok || !result.success) {
@@ -825,11 +824,9 @@ export default function MaintenanceQuotePage() {
       alert('请输入版本名称');
       return;
     }
-    if (!currentQuoteIdentity) {
-      alert('请先保存报价，再保存版本');
-      return;
-    }
-    const [quoteType, quoteId] = currentQuoteIdentity.split(':');
+    const identity = await ensureQuoteSaved();
+    if (!identity) return;
+    const [quoteType, quoteId] = identity.split(':');
     const response = await fetch('/api/quotes/versions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -855,11 +852,9 @@ export default function MaintenanceQuotePage() {
       alert('请填写审核意见');
       return;
     }
-    if (!currentQuoteIdentity) {
-      alert('请先保存报价，再提交审核');
-      return;
-    }
-    const response = await fetch(`/api/quotes/${encodeURIComponent(currentQuoteIdentity)}/status`, {
+    const identity = await ensureQuoteSaved();
+    if (!identity) return;
+    const response = await fetch(`/api/quotes/${encodeURIComponent(identity)}/status`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'submit_review', comment: reviewComment }),
@@ -876,10 +871,68 @@ export default function MaintenanceQuotePage() {
 
   // 专业报表导出
   const handleProfessionalExport = (format: 'standard' | 'detailed' | 'summary') => {
+    if ((!quoteResult && !fullQuoteResult) || selectedDevices.length === 0) {
+      alert('请先添加设备并计算报价后再导出！');
+      return;
+    }
     setExportFormat(format);
-    if (format === 'standard') handleExportQuote();
-    else handleExportExcel();
+    if (format === 'standard') {
+      // 标准格式：Word报价单（含设备清单+费用汇总）
+      handleExportQuote();
+    } else if (format === 'detailed') {
+      // 详细格式：Excel多Sheet（设备清单+报价明细+费用汇总+成本测算）
+      handleExportExcel();
+    } else {
+      // 汇总格式：单页Excel汇总表
+      handleExportSummaryExcel();
+    }
     setShowProfessionalExportDialog(false);
+  };
+
+  // 汇总格式导出Excel（单页汇总表）
+  const handleExportSummaryExcel = () => {
+    if ((!quoteResult && !fullQuoteResult) || selectedDevices.length === 0) return;
+
+    const activeFullResult = fullQuoteResult;
+    const years = parseInt(contractYears) as 1 | 2 | 3;
+    const grandTotal = activeFullResult
+      ? activeFullResult.totalByYear[years]
+      : (quoteResult?.totalByYear[years] ?? 0);
+    const costRatioVal = costRatio / 100;
+    const maintenanceCost = grandTotal * costRatioVal;
+    const maintenanceProfit = grandTotal - maintenanceCost;
+
+    const summaryData = [
+      { '项目': '报价单号', '数值': `WB${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}${String(new Date().getDate()).padStart(2, '0')}` },
+      { '项目': '项目名称', '数值': projectName || '-' },
+      { '项目': '客户名称', '数值': clientName || '-' },
+      { '项目': '设备数量', '数值': `${selectedDevices.reduce((s, d) => s + d.quantity, 0)} 台` },
+      { '项目': '服务区域', '数值': region },
+      { '项目': '合同年限', '数值': `${contractYears} 年` },
+      { '项目': '', '数值': '' },
+      { '项目': '维保报价（不含税）', '数值': `¥${(activeFullResult?.subtotalAfterDiscount ?? quoteResult?.subtotal ?? 0).toLocaleString()}` },
+      { '项目': '增值税（13%）', '数值': `¥${(activeFullResult?.taxAmount ?? quoteResult?.taxAmount ?? 0).toLocaleString()}` },
+      { '项目': '含税总价', '数值': `¥${grandTotal.toLocaleString()}` },
+      { '项目': '', '数值': '' },
+      { '项目': '维保成本', '数值': `¥${maintenanceCost.toLocaleString()}` },
+      { '项目': '维保利润', '数值': `¥${maintenanceProfit.toLocaleString()}` },
+      { '项目': '成本率', '数值': `${costRatio}%` },
+      { '项目': '利润率', '数值': `${100 - costRatio}%` },
+    ];
+
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(summaryData);
+    ws['!cols'] = [{ wch: 25 }, { wch: 35 }];
+    XLSX.utils.book_append_sheet(wb, ws, '报价汇总');
+    XLSX.writeFile(wb, `维保报价汇总_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+
+  // 确保报价已保存（自动保存辅助函数）
+  const ensureQuoteSaved = async (): Promise<string | null> => {
+    if (currentQuoteIdentity) return currentQuoteIdentity;
+    // 自动先保存
+    await handleSaveQuote();
+    return currentQuoteIdentity;
   };
 
   // SLA配置状态
@@ -1130,21 +1183,65 @@ export default function MaintenanceQuotePage() {
     }
   }, [selectedDevices, handleCalculate]);
 
-  // 导出报价单 - 简化版本（导出Word）
+  // 导出报价单（导出Word）- 优先使用完整数据
   const handleExportQuote = () => {
-    if (!quoteResult || selectedDevices.length === 0) {
-      alert('请先添加设备并点击"计算报价"按钮后再导出！');
+    if ((!quoteResult && !fullQuoteResult) || selectedDevices.length === 0) {
+      alert('请先添加设备并计算报价后再导出！');
       return;
     }
 
-    // 生成报价单号
     const timestamp = Date.now();
     const quoteNumber = `WB${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}${String(new Date().getDate()).padStart(2, '0')}${String(timestamp % 1000).padStart(3, '0')}`;
 
-    const activeQuoteResult = quoteResult;
+    // 使用完整数据构建导出内容
+    const activeFullResult = fullQuoteResult;
+    const activeSimpleResult = quoteResult;
+    const useFull = useFullData && activeFullResult;
 
-    // 创建一个简单的导出数据
-    const simpleExportData = {
+    // 构建设备清单（使用真实数据）
+    const equipmentList = selectedDevices.map((device, index) => {
+      const fullItem = useFull ? activeFullResult!.deviceItems[index] : null;
+      return {
+        name: device.quota.name || `设备${index + 1}`,
+        category: device.quota.category || '未分类',
+        brand: (device.quota as FullDeviceQuota).brand || '-',
+        model: device.quota.model || '-',
+        quantity: device.quantity,
+        maintenanceTier: fullItem
+          ? `${device.deviceGrade}档 - ${device.depreciationLevel}`
+          : 'C档 - 中级型',
+        ageRate: device.depreciationLevel,
+        ageCoefficient: fullItem?.slaTotalFactor ?? 1.0,
+        warrantyStatus: device.inWarranty ? '在保' : '过保',
+        warrantyCoefficient: device.inWarranty ? 0.5 : 1.0,
+        subtotalInspection: fullItem?.inspectionFee ?? 0,
+        subtotalOnsite: fullItem?.onSiteFee ?? 0,
+        subtotalRepair: fullItem?.faultHandlingFee ?? 0,
+        subtotalTools: fullItem?.toolAmortization ?? 0,
+        subtotalConsumables: fullItem?.consumableFee ?? 0,
+        subtotalSpareParts: fullItem?.sparePartReserve ?? 0,
+        subtotal: fullItem?.totalAfterDiscount ?? activeSimpleResult?.subtotal ?? 0,
+      };
+    });
+
+    // 汇总费用（使用真实数据）
+    const totalInspection = equipmentList.reduce((s, e) => s + e.subtotalInspection, 0);
+    const totalOnsite = equipmentList.reduce((s, e) => s + e.subtotalOnsite, 0);
+    const totalRepair = equipmentList.reduce((s, e) => s + e.subtotalRepair, 0);
+    const totalTools = equipmentList.reduce((s, e) => s + e.subtotalTools, 0);
+    const totalConsumables = equipmentList.reduce((s, e) => s + e.subtotalConsumables, 0);
+    const totalSpareParts = equipmentList.reduce((s, e) => s + e.subtotalSpareParts, 0);
+
+    const subtotalBeforeDiscount = useFull ? activeFullResult!.subtotalBeforeDiscount : (activeSimpleResult?.subtotal ?? 0);
+    const subtotalAfterDiscount = useFull ? activeFullResult!.subtotalAfterDiscount : subtotalBeforeDiscount;
+    const bulkDiscountAmount = useFull ? activeFullResult!.bulkDiscountAmount : 0;
+    const years = parseInt(contractYears) as 1 | 2 | 3;
+    const grandTotal = useFull
+      ? activeFullResult!.totalByYear[years]
+      : (activeSimpleResult?.totalByYear[years] ?? 0);
+    const taxAmount = useFull ? activeFullResult!.taxAmount : (activeSimpleResult?.taxAmount ?? 0);
+
+    const exportData = {
       projectName,
       clientName,
       contactPerson,
@@ -1153,61 +1250,43 @@ export default function MaintenanceQuotePage() {
       quoteDate,
       engineerLevel: '中级',
       slaParams: {
-        teamExperience: '有经验',
-        securityLevel: '第二级',
-        supportMethod: '远程+现场',
-        recoveryTime: '24小时内',
-        arrivalTime: '2小时内',
-        responseTime: '10分钟内',
-        serviceTime: '5×8小时',
+        teamExperience: selectedDevices[0]?.slaConfig?.teamExperience ?? '有经验',
+        securityLevel: selectedDevices[0]?.slaConfig?.securityLevel ?? '二级',
+        supportMethod: selectedDevices[0]?.slaConfig?.supportMode ?? '远程+现场',
+        recoveryTime: selectedDevices[0]?.slaConfig?.faultRecoveryTime ?? '24小时内',
+        arrivalTime: selectedDevices[0]?.slaConfig?.arrivalTime ?? '8小时内',
+        responseTime: selectedDevices[0]?.slaConfig?.responseTime ?? '30分钟内',
+        serviceTime: selectedDevices[0]?.slaConfig?.serviceTime ?? '5x8',
       },
-      totalSlaCoefficient: 1.0,
-      region: '城区',
+      totalSlaCoefficient: selectedDevices[0] ? (activeFullResult?.deviceItems[0]?.slaTotalFactor ?? 1.0) : 1.0,
+      region,
       regionCoefficient: 1.0,
-      years: parseInt(contractYears),
+      years,
       yearsDiscount: 1.0,
       equipmentCount: selectedDevices.reduce((sum, d) => sum + d.quantity, 0),
-      bulkDiscount: 1.0,
-      equipmentList: selectedDevices.map((device, index) => ({
-        name: `设备${index + 1}`,
-        category: '未分类',
-        brand: '-',
-        model: '-',
-        quantity: device.quantity,
-        maintenanceTier: 'C档 - 中级型',
-        ageRate: '一般',
-        ageCoefficient: 1.0,
-        warrantyStatus: device.inWarranty ? '在保' : '过保',
-        warrantyCoefficient: device.inWarranty ? 0.5 : 1.0,
-        subtotalInspection: 0,
-        subtotalOnsite: 0,
-        subtotalRepair: 0,
-        subtotalTools: 0,
-        subtotalConsumables: 0,
-        subtotalSpareParts: 0,
-        subtotal: 0,
-      })),
+      bulkDiscount: useFull ? (1 - activeFullResult!.bulkDiscountAmount / activeFullResult!.subtotalBeforeDiscount) : 1.0,
+      equipmentList,
       summary: {
-        totalInspection: 0,
-        totalOnsite: 0,
-        totalRepair: 0,
-        totalTools: 0,
-        totalConsumables: 0,
-        totalSpareParts: 0,
-        subtotalBeforeDiscount: activeQuoteResult.subtotal,
+        totalInspection,
+        totalOnsite,
+        totalRepair,
+        totalTools,
+        totalConsumables,
+        totalSpareParts,
+        subtotalBeforeDiscount,
         slaAdjustment: 0,
         regionAdjustment: 0,
-        subtotalAfterCoefficients: activeQuoteResult.subtotal,
+        subtotalAfterCoefficients: subtotalAfterDiscount,
         yearsDiscountAmount: 0,
-        bulkDiscountAmount: 0,
-        subtotal: activeQuoteResult.subtotal,
-        tax: activeQuoteResult.taxAmount,
-        grandTotal: activeQuoteResult.totalByYear[parseInt(contractYears) as 1 | 2 | 3],
-        grandTotalRMB: convertToChineseCurrency(activeQuoteResult.totalByYear[parseInt(contractYears) as 1 | 2 | 3]),
+        bulkDiscountAmount,
+        subtotal: subtotalAfterDiscount,
+        tax: taxAmount,
+        grandTotal,
+        grandTotalRMB: convertToChineseCurrency(grandTotal),
       },
     };
 
-    const html = generateMaintenanceQuoteHTML(simpleExportData);
+    const html = generateMaintenanceQuoteHTML(exportData);
     downloadAsWord(html, `维保报价单_${quoteNumber}.doc`);
   };
 
@@ -4712,6 +4791,116 @@ export default function MaintenanceQuotePage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setShareDialogOpen(false)}>
               关闭
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 专业导出对话框 */}
+      <Dialog open={showProfessionalExportDialog} onOpenChange={setShowProfessionalExportDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>专业导出</DialogTitle>
+            <DialogDescription>选择导出格式，生成专业报价文档</DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-1 gap-3 py-4">
+            <button
+              onClick={() => handleProfessionalExport('standard')}
+              className="flex items-start gap-3 p-4 rounded-xl border border-border/50 bg-gradient-to-br from-card to-muted/30 text-left hover:border-primary/30 hover:shadow-sm transition-all"
+            >
+              <FileText className="h-5 w-5 text-blue-600 mt-0.5 shrink-0" />
+              <div>
+                <div className="font-medium">标准格式</div>
+                <div className="text-xs text-muted-foreground mt-0.5">Word报价单，含设备清单和费用汇总</div>
+              </div>
+            </button>
+            <button
+              onClick={() => handleProfessionalExport('detailed')}
+              className="flex items-start gap-3 p-4 rounded-xl border border-border/50 bg-gradient-to-br from-card to-muted/30 text-left hover:border-primary/30 hover:shadow-sm transition-all"
+            >
+              <FileSpreadsheet className="h-5 w-5 text-green-600 mt-0.5 shrink-0" />
+              <div>
+                <div className="font-medium">详细格式</div>
+                <div className="text-xs text-muted-foreground mt-0.5">Excel多Sheet，含设备清单、报价明细、费用汇总、成本测算</div>
+              </div>
+            </button>
+            <button
+              onClick={() => handleProfessionalExport('summary')}
+              className="flex items-start gap-3 p-4 rounded-xl border border-border/50 bg-gradient-to-br from-card to-muted/30 text-left hover:border-primary/30 hover:shadow-sm transition-all"
+            >
+              <Calculator className="h-5 w-5 text-orange-600 mt-0.5 shrink-0" />
+              <div>
+                <div className="font-medium">汇总格式</div>
+                <div className="text-xs text-muted-foreground mt-0.5">单页Excel汇总表，含报价金额、成本利润等核心数据</div>
+              </div>
+            </button>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowProfessionalExportDialog(false)}>
+              取消
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 保存版本对话框 */}
+      <Dialog open={showSaveVersionDialog} onOpenChange={setShowSaveVersionDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>保存版本</DialogTitle>
+            <DialogDescription>将当前报价保存为新版本，方便对比和回溯</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>版本名称</Label>
+              <Input
+                value={versionName}
+                onChange={e => setVersionName(e.target.value)}
+                placeholder="例如：初版报价、调整后版本..."
+              />
+            </div>
+            {!currentQuoteIdentity && (
+              <p className="text-xs text-muted-foreground">提示：报价尚未保存，点击确认后将自动保存并创建版本。</p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowSaveVersionDialog(false)}>
+              取消
+            </Button>
+            <Button onClick={handleSaveAsNewVersion} disabled={!versionName.trim()}>
+              保存版本
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 提交审核对话框 */}
+      <Dialog open={showReviewDialog} onOpenChange={setShowReviewDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>提交审核</DialogTitle>
+            <DialogDescription>提交报价单供审核人员审批</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>审核意见</Label>
+              <Textarea
+                value={reviewComment}
+                onChange={e => setReviewComment(e.target.value)}
+                placeholder="请填写提交说明或备注..."
+                rows={4}
+              />
+            </div>
+            {!currentQuoteIdentity && (
+              <p className="text-xs text-muted-foreground">提示：报价尚未保存，点击确认后将自动保存并提交审核。</p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowReviewDialog(false)}>
+              取消
+            </Button>
+            <Button onClick={handleSubmitForReview} disabled={!reviewComment.trim()}>
+              提交审核
             </Button>
           </DialogFooter>
         </DialogContent>
