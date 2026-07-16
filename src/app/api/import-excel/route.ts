@@ -56,10 +56,10 @@ export async function POST(request: NextRequest) {
         db.prepare(`
           UPDATE device_quotas SET
             brand = ?, model = ?, level = ?, engineer_level = ?,
-            year_fault_rate = ?, inspection_labor_price = ?,
-            arrival_service_price = ?, traffic_price = ?, fault_handling_fee = ?,
+            year_fault_rate = ?, inspection_labor_fee = ?,
+            visit_service_fee = ?, traffic_fee = ?, fault_handling_fee_total = ?,
             tool_amortization = ?, consumable_fee = ?, spare_part_reserve = ?,
-            spare_parts_price = ?,
+            spare_part_fee = ?,
             year1_total_price = ?, year2_total_price = ?, year3_total_price = ?,
             city_price = ?, town_price = ?, rural_price = ?,
             unit = ?, note = ?, updated_at = CURRENT_TIMESTAMP
@@ -94,9 +94,9 @@ export async function POST(request: NextRequest) {
         db.prepare(`
           INSERT INTO device_quotas (
             category, name, brand, model, level, engineer_level,
-            year_fault_rate, inspection_labor_price, arrival_service_price,
-            traffic_price, fault_handling_fee, tool_amortization,
-            consumable_fee, spare_part_reserve, spare_parts_price,
+            year_fault_rate, inspection_labor_fee, visit_service_fee,
+            traffic_fee, fault_handling_fee_total, tool_amortization,
+            consumable_fee, spare_part_reserve, spare_part_fee,
             year1_total_price, year2_total_price, year3_total_price,
             city_price, town_price, rural_price, unit, note
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)

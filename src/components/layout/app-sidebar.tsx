@@ -12,8 +12,6 @@ import {
   CheckSquare,
   User,
   LogOut,
-  Sun,
-  Moon,
   ListFilter,
   Users,
   LayoutDashboard,
@@ -41,7 +39,6 @@ import {
 } from '@/components/ui/sidebar';
 import Link from 'next/link';
 import { useUser } from '@/contexts/user-context';
-import { useTheme } from '@/contexts/theme-context';
 import { UserRole, Role } from '@/lib/roles';
 import { Button } from '@/components/ui/button';
 import { TiltIcon } from '@/components/ui/tilt-icon';
@@ -128,7 +125,6 @@ export function AppSidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const { user, logout, isLoggedIn } = useUser();
-  const { theme, toggleTheme } = useTheme();
   const { state, toggleSidebar } = useSidebar();
 
   // 如果未登录，不显示侧边栏
@@ -151,7 +147,7 @@ export function AppSidebar() {
             <FileText className="h-5 w-5" />
           </div>
           <div className="flex-1 min-w-0 group-data-[collapsible=icon]:hidden">
-            <h1 className="text-lg font-semibold truncate">ITS报价系统</h1>
+            <h1 className="text-sm font-semibold truncate">ITS报价系统</h1>
           </div>
           <Button
             variant="ghost"
@@ -176,10 +172,10 @@ export function AppSidebar() {
               {navItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton asChild isActive={pathname === item.url} tooltip={item.title}>
-                    <Link href={item.url} className="flex items-center gap-3">
-                      <TiltIcon className="icon-3d icon-3d-sm" max={15} scale={1.08}>
+                    <Link href={item.url} className="flex items-center gap-3 w-full">
+                      <div className="icon-3d icon-3d-sm flex items-center justify-center shrink-0 group-data-[collapsible=icon]:w-8 group-data-[collapsible=icon]:h-8 group-data-[collapsible=icon]:overflow-visible">
                         <item.icon className="h-4 w-4" />
-                      </TiltIcon>
+                      </div>
                       <span>{item.title}</span>
                     </Link>
                   </SidebarMenuButton>

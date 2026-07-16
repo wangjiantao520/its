@@ -5,7 +5,7 @@
  */
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import * as XLSX from 'xlsx-js-style';
 import { useUser } from '@/contexts/user-context';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -112,7 +112,7 @@ import {
   calculateSLATotalFactor,
   type FullDeviceQuota,
 } from '@/lib/device-quota-full';
-import { getDepreciationFactor, type DeviceGrade, type DepreciationGrade } from '@/lib/device-grade';
+import { getDepreciationFactor, DEVICE_GRADE_DATA, type DeviceGrade, type DepreciationGrade } from '@/lib/device-grade';
 import { 
   getTeamExperienceFactor, 
   getSecurityLevelFactor, 
@@ -158,6 +158,9 @@ export default function MaintenanceQuotePage() {
   const [showPriceSettings, setShowPriceSettings] = useState(false);
   const [priceSettings, setPriceSettings] = useState<Record<string, number>>({});
   const [saveType, setSaveType] = useState<'temp' | 'permanent'>('temp');
+
+  // 成本测算功能
+  const [costRatio, setCostRatio] = useState(65);
 
   // AI辅助报价处理函数
   const handleAiParse = async () => {
@@ -277,13 +280,15 @@ export default function MaintenanceQuotePage() {
       
       // 初始化费用项目（使用第一个设备的值作为默认值）
       const firstItem = fullQuoteResult.deviceItems[0];
-      initialPrices.inspectionFee = firstItem.inspectionFee;
-      initialPrices.onSiteFee = firstItem.onSiteFee;
-      initialPrices.faultHandlingFee = firstItem.faultHandlingFee;
-      initialPrices.toolAmortization = firstItem.toolAmortization;
-      initialPrices.consumableFee = firstItem.consumableFee;
-      initialPrices.sparePartReserve = firstItem.sparePartReserve;
-      initialPrices.inWarrantyFactor = 0.5; // 默认在保系数0.5
+      if (firstItem) {
+        initialPrices.inspectionFee = firstItem.inspectionFee;
+        initialPrices.onSiteFee = firstItem.onSiteFee;
+        initialPrices.faultHandlingFee = firstItem.faultHandlingFee;
+        initialPrices.toolAmortization = firstItem.toolAmortization;
+        initialPrices.consumableFee = firstItem.consumableFee;
+        initialPrices.sparePartReserve = firstItem.sparePartReserve;
+        initialPrices.inWarrantyFactor = 0.5; // 默认在保系数0.5
+      }
     }
     setPriceSettings(initialPrices);
     setShowPriceSettings(true);
@@ -356,30 +361,24 @@ export default function MaintenanceQuotePage() {
           }
           
           // 应用SLA系数、折旧系数、在保系数
+          // 从 DEVICE_GRADE_DATA 获取正确的折旧系数
+          const getDepreciationFactorByGrade = (deviceGrade: DeviceGrade, depreciationGrade: DepreciationGrade): number => {
+            const gradeData = DEVICE_GRADE_DATA.find(g => g.grade === deviceGrade);
+            if (gradeData) {
+              return gradeData.depreciationFactors[depreciationGrade];
+            }
+            return 1.0; // 默认值
+          };
+          
           const newCityPrice = basePrice * updatedItem.slaTotalFactor * 
-                              (() => {
-                                // 获取折旧系数，这里简化处理
-                                const grade = updatedItem.depreciationGrade;
-                                if (grade === 1) return 1.0;
-                                if (grade === 2) return 0.9;
-                                if (grade === 3) return 0.75;
-                                if (grade === 4) return 0.6;
-                                if (grade === 5) return 0.45;
-                                return 0.6; // 默认
-                              })() * 
+                              getDepreciationFactorByGrade(updatedItem.deviceGrade, updatedItem.depreciationGrade) * 
                               (updatedItem.inWarranty ? (priceSettings.inWarrantyFactor ?? 0.5) : 1.0);
           
           updatedItem.cityPrice = newCityPrice;
-          // 其他地区价格按城区价格计算
-          const REGION_FACTORS = {
-            '城区': 1,
-            '市区县城郊区': 1.1,
-            '乡镇': 1.3,
-            '农村': 1.5
-          };
-          updatedItem.urbanPrice = newCityPrice * REGION_FACTORS['市区县城郊区'];
-          updatedItem.townPrice = newCityPrice * REGION_FACTORS['乡镇'];
-          updatedItem.ruralPrice = newCityPrice * REGION_FACTORS['农村'];
+          // 其他地区价格按城区价格计算，使用正确的区域系数
+          updatedItem.urbanPrice = newCityPrice * FULL_REGION_FACTORS['市区县城郊区'];
+          updatedItem.townPrice = newCityPrice * FULL_REGION_FACTORS['乡镇'];
+          updatedItem.ruralPrice = newCityPrice * FULL_REGION_FACTORS['农村'];
         }
         
         // 重新计算小计
@@ -396,12 +395,6 @@ export default function MaintenanceQuotePage() {
       
       // 重新计算汇总数据
       const taxRate = 0.13;
-      const FULL_REGION_FACTORS = {
-        '城区': 1,
-        '市区县城郊区': 1.1,
-        '乡镇': 1.3,
-        '农村': 1.5
-      };
       
       updatedResult.totalDevices = updatedResult.deviceItems.reduce((sum, item) => sum + item.quantity, 0);
       updatedResult.subtotalBeforeDiscount = updatedResult.deviceItems.reduce((sum, item) => sum + item.totalBeforeDiscount, 0);
@@ -535,15 +528,15 @@ export default function MaintenanceQuotePage() {
             inspectionDays: item.inspection_days || 0,
             onSiteCount: item.on_site_count || 0,
             // 费用字段映射 - 同时支持计算函数需要的字段名
-            inspectionFee: item.inspection_fee || item.inspection_labor_fee || 0,
-            inspectionLaborFee: item.inspection_fee || item.inspection_labor_fee || 0,
+            inspectionFee: item.inspection_labor_fee || item.inspection_fee || 0,
+            inspectionLaborFee: item.inspection_labor_fee || item.inspection_fee || 0,
             arrivalFee: item.arrival_fee || 0,
-            onSiteFee: item.on_site_fee || 0,
-            onSiteFeeAnnual: item.on_site_fee || item.visit_service_fee || 0,
+            onSiteFee: item.visit_service_fee || item.on_site_fee || 0,
+            onSiteFeeAnnual: item.visit_service_fee || item.on_site_fee || 0,
             visitServiceFee: item.visit_service_fee || 0,
             trafficFee: item.traffic_fee || 0,
-            faultHandlingFee: item.fault_handling_fee || 0,
-            faultHandlingFeeTotal: item.fault_handling_fee || 0,
+            faultHandlingFee: item.fault_handling_fee_total || item.fault_handling_fee || 0,
+            faultHandlingFeeTotal: item.fault_handling_fee_total || item.fault_handling_fee || 0,
             toolAmortization: item.tool_amortization || 0,
             consumableFee: item.consumable_fee || 0,
             sparePartReserve: item.spare_part_reserve || 0,
@@ -1075,9 +1068,9 @@ export default function MaintenanceQuotePage() {
   };
 
   // 计算报价（支持新老两种模式）
-  const handleCalculate = () => {
+  // 计算报价
+  const handleCalculate = useCallback(() => {
     if (selectedDevices.length === 0) {
-      alert('请先添加设备到设备列表！');
       return;
     }
 
@@ -1119,14 +1112,23 @@ export default function MaintenanceQuotePage() {
       setQuoteResult(result);
       setFullQuoteResult(null);
     }
+  }, [selectedDevices, useFullData, slaConfig, region, contractYears]);
+
+  // 手动触发计算
+  const handleCalculateClick = () => {
+    if (selectedDevices.length === 0) {
+      alert('请先添加设备到设备列表！');
+      return;
+    }
+    handleCalculate();
   };
 
-  // 监听合同年限或设备变化，自动重新计算报价
+  // 监听设备变化，自动重新计算报价
   useEffect(() => {
-    if (selectedDevices.length > 0 && (quoteResult || fullQuoteResult)) {
+    if (selectedDevices.length > 0) {
       handleCalculate();
     }
-  }, [contractYears, selectedDevices]);
+  }, [selectedDevices, handleCalculate]);
 
   // 导出报价单 - 简化版本（导出Word）
   const handleExportQuote = () => {
@@ -1230,8 +1232,8 @@ export default function MaintenanceQuotePage() {
       quantity: item.quantity,
       unit_price: (item.quota as FullDeviceQuota).cityPrice || (item.quota as FullDeviceQuota).originalPrice || 0,
       total_price: ((item.quota as FullDeviceQuota).cityPrice || (item.quota as FullDeviceQuota).originalPrice || 0) * item.quantity,
-      maintenance_rate: (item.quota as FullDeviceQuota).maintenanceRate || 0,
-      maintenance_fee: (item.quota as FullDeviceQuota).maintenanceRate ? ((item.quota as FullDeviceQuota).cityPrice || (item.quota as FullDeviceQuota).originalPrice || 0) * item.quantity * (item.quota as FullDeviceQuota).maintenanceRate! / 100 : 0
+      maintenance_rate: (item.quota as FullDeviceQuota).maintenanceRate ?? 0,
+      maintenance_fee: ((item.quota as FullDeviceQuota).cityPrice || (item.quota as FullDeviceQuota).originalPrice || 0) * item.quantity * ((item.quota as FullDeviceQuota).maintenanceRate ?? 0) / 100
     }));
 
     try {
@@ -1585,7 +1587,7 @@ export default function MaintenanceQuotePage() {
             <FileSpreadsheet className="h-4 w-4" />
             导出Excel
           </Button>
-          <Button className="flex items-center gap-2 bg-blue-700 hover:bg-blue-800" onClick={handleCalculate}>
+          <Button className="flex items-center gap-2 bg-blue-700 hover:bg-blue-800" onClick={handleCalculateClick}>
             <Calculator className="h-4 w-4" />
             计算报价
           </Button>
@@ -2575,7 +2577,7 @@ export default function MaintenanceQuotePage() {
                                       { name: '故障处理费', amount: baseFaultHandlingFee * adjustmentFactor },
                                       { name: '工具仪表摊销', amount: baseToolAmortization * adjustmentFactor },
                                       { name: '耗材费', amount: baseConsumableFee * adjustmentFactor },
-                                      { name: '备件风险准备金', amount: baseSparePartReserve * adjustmentFactor },
+                                      { name: '备件风险准备金', amount: baseSparePartReserve },
                                     ];
 
                                     return feeItems.map((item, index) => (
@@ -2590,6 +2592,95 @@ export default function MaintenanceQuotePage() {
                                   })()}
                                 </TableBody>
                               </Table>
+                            </div>
+
+                            {/* 成本测算模块 */}
+                            <div className="mt-6 border rounded-lg overflow-hidden bg-gradient-to-br from-amber-50 to-orange-50">
+                              <div className="bg-amber-100 px-4 py-3 border-b">
+                                <CardTitle className="text-lg flex items-center gap-2 text-amber-800">
+                                  <Calculator className="h-4 w-4" />
+                                  成本测算
+                                </CardTitle>
+                              </div>
+                              <CardContent className="p-4">
+                                <div className="flex items-center gap-4 mb-4">
+                                  <Label className="text-sm font-medium text-amber-700">成本率设置</Label>
+                                  <div className="flex items-center gap-2">
+                                    <input
+                                      type="range"
+                                      min="40"
+                                      max="80"
+                                      value={costRatio}
+                                      onChange={(e) => setCostRatio(Number(e.target.value))}
+                                      className="w-32 h-2 bg-amber-200 rounded-lg appearance-none cursor-pointer accent-amber-600"
+                                    />
+                                    <div className="flex items-center gap-1">
+                                      <Input
+                                        type="number"
+                                        min="40"
+                                        max="80"
+                                        value={costRatio}
+                                        onChange={(e) => setCostRatio(Math.min(80, Math.max(40, Number(e.target.value) || 65)))}
+                                        className="w-16 text-center"
+                                      />
+                                      <span className="text-amber-700 font-medium">%</span>
+                                    </div>
+                                  </div>
+                                  <TooltipProvider>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-amber-600">
+                                          <Info className="h-4 w-4" />
+                                        </Button>
+                                      </TooltipTrigger>
+                                      <TooltipContent className="max-w-xs">
+                                        <div className="text-xs space-y-1">
+                                          <p>成本率 = 维保成本 / 维保报价</p>
+                                          <p>• 人力成本：工程师薪资、社保等</p>
+                                          <p>• 备件成本：备品备件预留资金</p>
+                                          <p>• 管理成本：运营管理费用</p>
+                                          <p>• 厂商支持：原厂技术支持费用</p>
+                                          <p>行业常规成本率：60%-70%</p>
+                                        </div>
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  </TooltipProvider>
+                                </div>
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                  <div className="p-3 bg-white rounded-lg border border-amber-100">
+                                    <div className="text-xs text-amber-600 font-medium mb-1">维保报价（不含税）</div>
+                                    <div className="text-xl font-bold text-amber-800">
+                                      {formatCurrencyLocal(fullQuoteResult.totalByRegion[selectedRegionForSummary].subtotal)}
+                                    </div>
+                                  </div>
+                                  <div className="p-3 bg-white rounded-lg border border-amber-100">
+                                    <div className="text-xs text-amber-600 font-medium mb-1">维保成本</div>
+                                    <div className="text-xl font-bold text-amber-800">
+                                      {formatCurrencyLocal(fullQuoteResult.totalByRegion[selectedRegionForSummary].subtotal * (costRatio / 100))}
+                                    </div>
+                                  </div>
+                                  <div className="p-3 bg-white rounded-lg border border-green-100">
+                                    <div className="text-xs text-green-600 font-medium mb-1">维保利润</div>
+                                    <div className="text-xl font-bold text-green-700">
+                                      {formatCurrencyLocal(fullQuoteResult.totalByRegion[selectedRegionForSummary].subtotal * ((100 - costRatio) / 100))}
+                                    </div>
+                                  </div>
+                                  <div className="p-3 bg-white rounded-lg border border-green-100">
+                                    <div className="text-xs text-green-600 font-medium mb-1">利润率</div>
+                                    <div className="text-xl font-bold text-green-700">
+                                      {(100 - costRatio).toFixed(1)}%
+                                    </div>
+                                  </div>
+                                </div>
+                                <div className="mt-4 pt-3 border-t border-amber-100">
+                                  <div className="flex justify-between items-center text-sm">
+                                    <span className="text-amber-700">含税总价</span>
+                                    <span className="text-lg font-bold text-amber-800">
+                                      {formatCurrencyLocal(fullQuoteResult.totalByRegion[selectedRegionForSummary].total)}
+                                    </span>
+                                  </div>
+                                </div>
+                              </CardContent>
                             </div>
                           </div>
                         ) : quoteResult ? (

@@ -135,14 +135,17 @@ export function calculateFullDeviceQuote(
     const basePrice = quota.originalPrice || quota.cityPrice || 0;
     const maintenanceRate = quota.maintenanceRate || 0;
     
-    // 不驻场调整系数：内网1.0，外网0.9（外网巡检频率低）
-    const offSiteFactor = quota.networkType === '内网' ? 1.0 : 0.9;
-    
+    // 不驻场调整系数：报价单中的年维保费率已包含该系数，不再额外乘以调整系数
+    const offSiteFactor = 1.0;
+
     // 计算年维保费用
     const annualMaintenanceFee = basePrice * maintenanceRate * offSiteFactor;
     
     // 计算总费用（考虑合同年限）
     const totalFee = annualMaintenanceFee * contractYears;
+    
+    // 巡检时长：优先使用设备配置值，否则使用默认值
+    const inspectionDuration = quota.inspectionDuration ?? (quota.networkType === '内网' ? 120 : 60);
     
     return {
       quota,
@@ -156,7 +159,7 @@ export function calculateFullDeviceQuote(
       slaConfig,
       slaTotalFactor: 1.0,
       yearDiscountFactor: 1.0,
-      inspectionDuration: quota.networkType === '内网' ? 120 : 60, // 内网2周1次，外网4周1次
+      inspectionDuration,
       inspectionFee: 0,
       onSiteFee: 0,
       faultHandlingFee: 0,
@@ -302,7 +305,7 @@ export function calculateFullMaintenanceQuote(
   
   const calculateRegionTotal = (regionType: RegionType) => {
     const subtotal = deviceResults.reduce((sum, item) => {
-      const regionPrice = 
+      const regionPrice =
         regionType === '城区' ? item.cityPrice :
         regionType === '市区县城郊区' ? item.urbanPrice :
         regionType === '乡镇' ? item.townPrice :
@@ -313,18 +316,22 @@ export function calculateFullMaintenanceQuote(
     const total = subtotal + taxAmount;
     return { subtotal, taxAmount, total };
   };
-  
+
+  // 计算按年汇总总价（假设所有设备合同年限分别为1年/2年/3年）
+  const yearlySubtotal = deviceResults.reduce((sum, item) => sum + item.cityPrice * item.quantity, 0);
+  const totalByYear = {
+    1: yearlySubtotal * 1 * (1 + taxRate),
+    2: yearlySubtotal * 2 * (1 + taxRate),
+    3: yearlySubtotal * 3 * (1 + taxRate),
+  };
+
   return {
     deviceItems: deviceResults,
     totalDevices,
     subtotalBeforeDiscount,
     subtotalAfterDiscount,
     bulkDiscountAmount,
-    totalByYear: {
-      1: 0,
-      2: 0,
-      3: 0,
-    },
+    totalByYear,
     totalByRegion: {
       '城区': calculateRegionTotal('城区'),
       '市区县城郊区': calculateRegionTotal('市区县城郊区'),

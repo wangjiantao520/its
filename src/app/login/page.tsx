@@ -22,7 +22,25 @@ function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const roleFromUrl = searchParams.get('role');
-  const { login } = useUser();
+  const { login, isLoggedIn } = useUser();
+
+  // 如果已登录，显示提示
+  if (isLoggedIn) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-6">
+        <div className="text-center">
+          <div className="w-20 h-20 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-6">
+            <ShieldCheck className="w-10 h-10 text-green-600" />
+          </div>
+          <h1 className="text-2xl font-bold text-foreground mb-2">您已登录</h1>
+          <p className="text-muted-foreground mb-6">您可以直接访问系统功能</p>
+          <Button onClick={() => window.location.href = '/'}>
+            进入系统
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   // 当前视图：select（选择入口）/ admin（管理员登录）/ its（成员登录）
   const [view, setView] = useState<'select' | 'admin' | 'its'>(

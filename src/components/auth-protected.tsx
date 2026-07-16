@@ -23,7 +23,7 @@ export function AuthProtected({ children, allowedRoles }: AuthProtectedProps) {
   const { user, isLoggedIn, isLoading } = useUser();
 
   useEffect(() => {
-    // 如果是公开路径，不需要登录
+    // 如果是公开路径，不需要登录，直接返回
     if (isPublicPath(pathname)) {
       return;
     }
@@ -36,7 +36,10 @@ export function AuthProtected({ children, allowedRoles }: AuthProtectedProps) {
 
     // 如果未登录，跳转到登录页
     if (!isLoggedIn || !user) {
-      router.push('/login');
+      // 使用 window.location.href 而不是 router.push，避免中断正在进行的 RSC 请求
+      if (pathname !== '/login') {
+        window.location.href = '/login';
+      }
       return;
     }
 
@@ -49,7 +52,7 @@ export function AuthProtected({ children, allowedRoles }: AuthProtectedProps) {
       if (!allowedRoles.includes(userRole)) {
         // 没有权限，跳转到对应角色的首页
         const homePath = allowedPaths[0] || '/';
-        router.push(homePath);
+        window.location.href = homePath;
         return;
       }
     }
@@ -62,7 +65,7 @@ export function AuthProtected({ children, allowedRoles }: AuthProtectedProps) {
       }
       // 跳转到对应角色的首页
       const homePath = allowedPaths[0] || '/';
-      router.push(homePath);
+      window.location.href = homePath;
     }
   }, [isLoggedIn, user, pathname, router, allowedRoles, isLoading]);
 
