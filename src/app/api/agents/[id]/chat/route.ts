@@ -119,7 +119,7 @@ const skillExecutors: Record<string, (params: Record<string, unknown>) => Promis
   quote_history: async (params) => {
     const keyword = (params.keyword as string) || '';
     const quotes = await pool.execute(
-      'SELECT quote_number, client_name, project_name, total_amount, status, created_at FROM quotations WHERE client_name LIKE ? OR project_name LIKE ? ORDER BY created_at DESC LIMIT 10',
+      'SELECT id, client_name, project_name, total_amount, status, created_at FROM quotation_records WHERE client_name LIKE ? OR project_name LIKE ? ORDER BY created_at DESC LIMIT 10',
       [`%${keyword}%`, `%${keyword}%`]
     );
     const quoteList = quotes[0] as Array<Record<string, unknown>>;
@@ -127,7 +127,7 @@ const skillExecutors: Record<string, (params: Record<string, unknown>) => Promis
       return `未找到与"${keyword}"相关的报价记录。`;
     }
     const list = quoteList.map((q) =>
-      `| ${q.quote_number || '-'} | ${q.client_name || '-'} | ${q.project_name || '-'} | ¥${Number(q.total_amount || 0).toLocaleString()} | ${q.status || '-'} |`
+      `| WB${String(q.id).padStart(4, '0')} | ${q.client_name || '-'} | ${q.project_name || '-'} | ¥${Number(q.total_amount || 0).toLocaleString()} | ${q.status || '-'} |`
     ).join('\n');
     return `查询到以下报价记录：\n\n| 报价单号 | 客户名称 | 项目名称 | 总金额 | 状态 |\n|---------|---------|---------|-------|------|\n${list}`;
   },
@@ -318,6 +318,7 @@ export async function POST(
 
         // 尝试调用AI模型
         const aiConfig = await getActiveAIModelConfig();
+        let fullAiResponse = ''; // 收集完整AI回复用于日志记录
 
         if (aiConfig) {
           // 构建AI对话消息
@@ -385,6 +386,7 @@ export async function POST(
                     const parsed = JSON.parse(data);
                     const delta = parsed.choices?.[0]?.delta?.content;
                     if (delta) {
+                      fullAiResponse += delta;
                       controller.enqueue(encoder.encode(
                         `data: ${JSON.stringify({ type: 'content', content: delta })}\n\n`
                       ));
@@ -397,6 +399,7 @@ export async function POST(
             } else {
               // AI调用失败，回退到技能结果
               if (skillResult) {
+                fullAiResponse = skillResult;
                 const words = skillResult.split(/(?<=[\u4e00-\u9fa5])|(?<=\s+)/);
                 for (const word of words) {
                   if (word.trim()) {
@@ -406,20 +409,23 @@ export async function POST(
                   }
                 }
               } else {
+                fullAiResponse = '抱歉，AI服务暂时不可用。请检查AI模型配置或稍后重试。';
                 controller.enqueue(encoder.encode(
-                  `data: ${JSON.stringify({ type: 'content', content: '抱歉，AI服务暂时不可用。请检查AI模型配置或稍后重试。' })}\n\n`
+                  `data: ${JSON.stringify({ type: 'content', content: fullAiResponse })}\n\n`
                 ));
               }
             }
           } catch (aiError) {
             console.error('AI调用失败:', aiError);
             if (skillResult) {
+              fullAiResponse = skillResult;
               controller.enqueue(encoder.encode(
                 `data: ${JSON.stringify({ type: 'content', content: skillResult })}\n\n`
               ));
             } else {
+              fullAiResponse = '抱歉，AI服务调用失败，请稍后重试。';
               controller.enqueue(encoder.encode(
-                `data: ${JSON.stringify({ type: 'content', content: '抱歉，AI服务调用失败，请稍后重试。' })}\n\n`
+                `data: ${JSON.stringify({ type: 'content', content: fullAiResponse })}\n\n`
               ));
             }
           }
@@ -427,6 +433,7 @@ export async function POST(
           // 没有AI配置，使用技能结果或默认回复
           const fallbackResponse = skillResult || `我理解您的问题："${message}"\n\n作为ITS报价系统智能助手，我可以帮助您：\n- 查询设备定额和单价\n- 查询维保费率配置\n- 计算维保报价\n- 查看报价记录\n- 介绍系统功能\n\n请告诉我您需要什么帮助？\n\n> 提示：配置AI模型后可获得更智能的回复。`;
 
+          fullAiResponse = fallbackResponse;
           const words = fallbackResponse.split(/(?<=[\u4e00-\u9fa5])|(?<=\s+)/);
           for (const word of words) {
             if (word.trim()) {
@@ -437,7 +444,7 @@ export async function POST(
           }
         }
 
-        // 记录日志
+        // 记录日志（使用完整的AI回复）
         await pool.execute(
           `INSERT INTO agent_logs (user_id, agent_id, session_id, user_message, agent_response, actions_executed)
            VALUES (?, ?, ?, ?, ?, ?)`,
@@ -446,7 +453,7 @@ export async function POST(
             id,
             finalSessionId,
             message,
-            skillResult || 'AI回复',
+            fullAiResponse || skillResult || '无回复',
             JSON.stringify(intent ? [intent.skill] : []),
           ]
         );

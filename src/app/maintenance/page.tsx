@@ -930,9 +930,8 @@ export default function MaintenanceQuotePage() {
   // 确保报价已保存（自动保存辅助函数）
   const ensureQuoteSaved = async (): Promise<string | null> => {
     if (currentQuoteIdentity) return currentQuoteIdentity;
-    // 自动先保存
-    await handleSaveQuote();
-    return currentQuoteIdentity;
+    // 自动先保存，使用返回值而非闭包中的 state
+    return await handleSaveQuote();
   };
 
   // SLA配置状态
@@ -1291,10 +1290,10 @@ export default function MaintenanceQuotePage() {
   };
 
   // 保存报价
-  const handleSaveQuote = async () => {
+  const handleSaveQuote = async (): Promise<string | null> => {
     if ((!quoteResult && !fullQuoteResult) || selectedDevices.length === 0) {
       alert('请先添加设备并点击"计算报价"按钮后再保存！');
-      return;
+      return null;
     }
 
     const timestamp = Date.now();
@@ -1338,17 +1337,22 @@ export default function MaintenanceQuotePage() {
       if (response.ok) {
         const saved = await response.json();
         if (saved.success && saved.data?.id) {
-          setCurrentQuoteIdentity(`quotation:${saved.data.id}`);
+          const identity = `quotation:${saved.data.id}`;
+          setCurrentQuoteIdentity(identity);
+          alert(`报价单 ${newQuoteNumber} 已保存！`);
+          return identity;
         }
         alert(`报价单 ${newQuoteNumber} 已保存！`);
-        console.log('保存报价单成功:', newQuoteNumber);
+        return null;
       } else {
         const error = await response.json();
         alert(`保存失败: ${error.error}`);
+        return null;
       }
     } catch (error) {
       console.error('保存报价单失败:', error);
       alert('保存失败，请重试');
+      return null;
     }
   };
 
