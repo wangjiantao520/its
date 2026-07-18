@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
 
     if (auth.session.role !== 'admin') {
       query += ' AND user_id = ?';
-      params.push(auth.session.userId ?? -1);
+      params.push(auth.session.userId ?? null);
     }
     if (agentId) {
       query += ' AND agent_id = ?';
@@ -70,7 +70,7 @@ export async function POST(request: NextRequest) {
         (?, ?, ?, ?, ?, 0, datetime('now'), datetime('now'))
     `).run(
       sessionId,
-      auth.session.userId ?? -1,
+      auth.session.userId ?? null,
       auth.session.name || auth.session.username || '',
       body.agent_id ?? 1,
       title,

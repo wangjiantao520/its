@@ -24,7 +24,24 @@ function LoginContent() {
   const roleFromUrl = searchParams.get('role');
   const { login, isLoggedIn } = useUser();
 
-  // 如果已登录，显示提示
+  // 所有 hooks 必须在 early return 之前调用
+  // 当前视图：select（选择入口）/ admin（管理员登录）/ its（成员登录）
+  const [view, setView] = useState<'select' | 'admin' | 'its'>(
+    roleFromUrl === 'admin' ? 'admin' : roleFromUrl === 'its' ? 'its' : 'select'
+  );
+
+  // 管理员登录状态
+  const [adminPassword, setAdminPassword] = useState('');
+  const [adminError, setAdminError] = useState('');
+  const [adminLoading, setAdminLoading] = useState(false);
+
+  // ITS成员登录状态
+  const [itsUsername, setItsUsername] = useState('');
+  const [itsPassword, setItsPassword] = useState('');
+  const [itsError, setItsError] = useState('');
+  const [itsLoading, setItsLoading] = useState(false);
+
+  // 如果已登录，显示提示（hooks 必须在 return 之前）
   if (isLoggedIn) {
     return (
       <div className="min-h-screen flex items-center justify-center p-6">
@@ -41,22 +58,6 @@ function LoginContent() {
       </div>
     );
   }
-
-  // 当前视图：select（选择入口）/ admin（管理员登录）/ its（成员登录）
-  const [view, setView] = useState<'select' | 'admin' | 'its'>(
-    roleFromUrl === 'admin' ? 'admin' : roleFromUrl === 'its' ? 'its' : 'select'
-  );
-
-  // 管理员登录状态
-  const [adminPassword, setAdminPassword] = useState('');
-  const [adminError, setAdminError] = useState('');
-  const [adminLoading, setAdminLoading] = useState(false);
-
-  // ITS成员登录状态
-  const [itsUsername, setItsUsername] = useState('');
-  const [itsPassword, setItsPassword] = useState('');
-  const [itsError, setItsError] = useState('');
-  const [itsLoading, setItsLoading] = useState(false);
 
   // 管理员登录
   const handleAdminLogin = async (e: React.FormEvent) => {

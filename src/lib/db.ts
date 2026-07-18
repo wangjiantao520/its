@@ -479,6 +479,78 @@ export async function initDatabase() {
       )
     `);
 
+    // AI 模型配置表
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS ai_model_configs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        model_name TEXT NOT NULL,
+        api_endpoint TEXT NOT NULL,
+        api_key TEXT NOT NULL,
+        temperature REAL DEFAULT 0.3,
+        max_tokens INTEGER DEFAULT 3000,
+        is_active INTEGER DEFAULT 0,
+        is_default INTEGER DEFAULT 0,
+        display_name TEXT,
+        base_url TEXT,
+        description TEXT,
+        sort_order INTEGER DEFAULT 0,
+        system_prompt TEXT,
+        created_by TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // AI 学习记忆表（用于 AI 报价学习）
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS ai_learning_memory (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        client_id INTEGER,
+        client_name TEXT,
+        device_signature TEXT NOT NULL,
+        device_name TEXT,
+        device_type TEXT,
+        use_years INTEGER,
+        unit_price REAL,
+        quantity INTEGER,
+        raw_data TEXT,
+        last_used_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (client_id) REFERENCES clients(id)
+      )
+    `);
+
+    // AI 反馈表
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS ai_feedback (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        original_text TEXT NOT NULL,
+        ai_result TEXT NOT NULL,
+        corrected_result TEXT,
+        feedback_type TEXT NOT NULL,
+        feedback_comment TEXT,
+        client_name TEXT,
+        operator TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // 报价设备历史表（用于 AI 推荐）
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS quote_device_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        client_id INTEGER,
+        client_name TEXT,
+        device_signature TEXT NOT NULL,
+        device_data TEXT,
+        quote_total REAL,
+        quote_id INTEGER,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
     console.log('✅ SQLite 数据库表初始化完成');
     return true;
   } catch (error) {

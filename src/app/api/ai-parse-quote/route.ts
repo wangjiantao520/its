@@ -1,9 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireApiAuth } from '@/lib/api-auth-server';
-
-// DeepSeek API 配置
-const DEEPSEEK_API_URL = process.env.DEEPSEEK_API_URL || 'https://api.deepseek.com/v1/chat/completions';
-const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || 'deepseek-chat';
+import { callAIModel } from '@/lib/ai-config';
 
 // 系统提示词（完整版）
 const SYSTEM_PROMPT = `你是专业的IT设备维保报价助手，帮助用户快速生成维保报价方案。
@@ -219,37 +216,13 @@ function calculateEstimatedPrice(devices: any[], region: string, serviceMode: st
   };
 }
 
-// 调用 DeepSeek API
+// 调用 DeepSeek API（使用统一配置入口）
 async function callDeepSeekAPI(messages: Array<{ role: string; content: string }>): Promise<string> {
-  // 支持多种环境变量名
-  const apiKey = process.env.DEEPSEEK_API_KEY || process.env.AI_API_KEY;
-
-  if (!apiKey || apiKey === 'your-deepseek-api-key-here' || apiKey === 'your-api-key-here') {
-    throw new Error('DeepSeek API Key 未配置');
+  const result = await callAIModel(messages, { temperature: 0.3, maxTokens: 3000 });
+  if (!result.success || !result.content) {
+    throw new Error(result.error || 'AI 调用失败');
   }
-
-  const response = await fetch(DEEPSEEK_API_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: DEEPSEEK_MODEL,
-      messages: messages,
-      temperature: 0.3,
-      max_tokens: 3000,
-    }),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error('DeepSeek API 错误:', response.status, errorText);
-    throw new Error(`API 调用失败: ${response.status}`);
-  }
-
-  const data = await response.json();
-  return data.choices?.[0]?.message?.content || '';
+  return result.content;
 }
 
 // 构建消息历史
