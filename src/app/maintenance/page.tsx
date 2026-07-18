@@ -154,6 +154,8 @@ export default function MaintenanceQuotePage() {
   const [aiChatHistory, setAiChatHistory] = useState<ChatMessage[]>([]);  // 新增：对话历史
   const [uploadedFileContent, setUploadedFileContent] = useState<string>('');  // 新增：上传文件内容
   const [uploadedFileName, setUploadedFileName] = useState<string>('');  // 新增：上传文件名
+  const [aiMatchingDevices, setAiMatchingDevices] = useState<any[]>([]);  // 新增：AI匹配的设备列表
+  const [isAiMatching, setIsAiMatching] = useState(false);  // 新增：AI匹配状态
 
   // 价格设置功能
   const [showPriceSettings, setShowPriceSettings] = useState(false);
@@ -178,6 +180,34 @@ export default function MaintenanceQuotePage() {
     } catch (error) {
       console.error('AI解析失败:', error);
       setAiRecognitionStatus('failed');
+    }
+  };
+
+  // AI设备匹配处理函数
+  const handleAiMatchDevices = async () => {
+    if (!aiRequirementText.trim()) {
+      return;
+    }
+    setIsAiMatching(true);
+    try {
+      const response = await fetch('/api/ai-match-devices', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: aiRequirementText })
+      });
+      const result = await response.json();
+      if (result.success) {
+        setAiMatchingDevices(result.devices);
+        setAiRecognitionStatus('success');
+      } else {
+        console.error('AI设备匹配失败:', result.error);
+        setAiRecognitionStatus('failed');
+      }
+    } catch (error) {
+      console.error('AI设备匹配失败:', error);
+      setAiRecognitionStatus('failed');
+    } finally {
+      setIsAiMatching(false);
     }
   };
 
@@ -211,34 +241,63 @@ export default function MaintenanceQuotePage() {
     setAiRecognitionStatus('recognizing');
 
     try {
-      const reader = new FileReader();
-      reader.onload = async (e) => {
-        const content = e.target?.result as string;
-        setUploadedFileContent(content);
-        
-        // 将文件内容作为需求文本进行AI识别
-        const fullText = `从文件 ${file.name} 中提取的设备清单：\n\n${content}`;
-        setAiRequirementText(fullText);
-        
-        // 自动触发AI识别
-        try {
-          const draft = await parseQuoteRequirement(fullText);
-          setAiDraft(draft);
-          setCompletionDraft(JSON.parse(JSON.stringify(draft)));
-          setAiRecognitionStatus(draft.missingFields.length > 0 && draft.devices.length === 0 ? 'needs_info' : 'success');
-          setShowAiCompletionDialog(true);
-        } catch (error) {
-          console.error('AI解析失败:', error);
-          setAiRecognitionStatus('failed');
-        }
-      };
-      
       // 根据文件类型选择读取方式
-      if (file.name.endsWith('.txt') || file.name.endsWith('.csv') || file.name.endsWith('.md')) {
+      if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
+        // Excel 文件解析
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+          const data = new Uint8Array(e.target?.result as ArrayBuffer);
+          const workbook = XLSX.read(data, { type: 'array' });
+          const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+          const jsonData = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
+          
+          // 转换为文本格式
+          const textContent = jsonData.map((row: any[]) => row.join('\t')).join('\n');
+          setUploadedFileContent(textContent);
+          
+          // 将文件内容作为需求文本进行AI识别
+          const fullText = `从文件 ${file.name} 中提取的设备清单：\n\n${textContent}`;
+          setAiRequirementText(fullText);
+          
+          // 自动触发AI识别
+          try {
+            const draft = await parseQuoteRequirement(fullText);
+            setAiDraft(draft);
+            setCompletionDraft(JSON.parse(JSON.stringify(draft)));
+            setAiRecognitionStatus(draft.missingFields.length > 0 && draft.devices.length === 0 ? 'needs_info' : 'success');
+            setShowAiCompletionDialog(true);
+          } catch (error) {
+            console.error('AI解析失败:', error);
+            setAiRecognitionStatus('failed');
+          }
+        };
+        reader.readAsArrayBuffer(file);
+      } else if (file.name.endsWith('.txt') || file.name.endsWith('.csv') || file.name.endsWith('.md')) {
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+          const content = e.target?.result as string;
+          setUploadedFileContent(content);
+          
+          // 将文件内容作为需求文本进行AI识别
+          const fullText = `从文件 ${file.name} 中提取的设备清单：\n\n${content}`;
+          setAiRequirementText(fullText);
+          
+          // 自动触发AI识别
+          try {
+            const draft = await parseQuoteRequirement(fullText);
+            setAiDraft(draft);
+            setCompletionDraft(JSON.parse(JSON.stringify(draft)));
+            setAiRecognitionStatus(draft.missingFields.length > 0 && draft.devices.length === 0 ? 'needs_info' : 'success');
+            setShowAiCompletionDialog(true);
+          } catch (error) {
+            console.error('AI解析失败:', error);
+            setAiRecognitionStatus('failed');
+          }
+        };
         reader.readAsText(file);
       } else {
         setAiRecognitionStatus('failed');
-        alert('暂不支持该文件格式，请上传 .txt, .csv, 或 .md 文件');
+        alert('暂不支持该文件格式，请上传 .xlsx, .xls, .csv, .txt 或 .md 文件');
       }
     } catch (error) {
       console.error('文件读取失败:', error);
@@ -1823,6 +1882,17 @@ export default function MaintenanceQuotePage() {
                     <><Sparkles className="h-4 w-4 mr-2" /> 智能识别{uploadedFileContent ? '文件' : '需求'}</>
                   )}
                 </Button>
+                <Button 
+                  onClick={handleAiMatchDevices} 
+                  disabled={(!aiRequirementText.trim() && !uploadedFileContent) || isAiMatching}
+                  variant="outline"
+                >
+                  {isAiMatching ? (
+                    <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> 匹配中...</>
+                  ) : (
+                    <><Database className="h-4 w-4 mr-2" /> AI匹配设备</>
+                  )}
+                </Button>
                 <Button variant="secondary" onClick={handleClearAi}>
                   清空
                 </Button>
@@ -1902,6 +1972,119 @@ export default function MaintenanceQuotePage() {
                       }}
                     >
                       应用到报价单
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {/* AI设备匹配结果 */}
+              {aiMatchingDevices.length > 0 && (
+                <div className="border rounded-lg p-4 space-y-4 bg-slate-50">
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-medium">AI 设备匹配结果</h4>
+                    <div className="flex gap-2">
+                      <Badge variant={aiMatchingDevices.some(d => d.matched) ? 'default' : 'outline'}>
+                        已匹配: {aiMatchingDevices.filter(d => d.matched).length}/{aiMatchingDevices.length}
+                      </Badge>
+                    </div>
+                  </div>
+                  <div className="space-y-3">
+                    {aiMatchingDevices.map((device, idx) => (
+                      <Card key={idx} className={device.matched ? 'border-green-200' : 'border-amber-200'}>
+                        <CardContent className="pt-3">
+                          <div className="flex items-start justify-between">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium">{device.deviceName}</span>
+                                <span className="text-slate-500">x{device.quantity}</span>
+                                {device.matched && (
+                                  <CheckCircle2 className="h-4 w-4 text-green-600" />
+                                )}
+                              </div>
+                              {device.model && <div className="text-sm text-slate-500">型号: {device.model}</div>}
+                              {device.brand && <div className="text-sm text-slate-500">品牌: {device.brand}</div>}
+                              <div className="text-xs text-slate-400 mt-1">置信度: {(device.confidence * 100).toFixed(0)}%</div>
+                            </div>
+                            {device.matched && device.matchedDeviceName && (
+                              <div className="text-right">
+                                <div className="text-sm text-green-700 font-medium">匹配设备</div>
+                                <div className="text-xs text-green-600">{device.matchedDeviceName}</div>
+                                {device.matchedPrice && (
+                                  <div className="text-xs text-slate-600">单价: ¥{device.matchedPrice.toLocaleString()}</div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                          {device.candidates && device.candidates.length > 0 && !device.matched && (
+                            <div className="mt-3 pt-3 border-t">
+                              <div className="text-xs text-slate-500 mb-2">备选设备:</div>
+                              <div className="flex flex-wrap gap-2">
+                                {device.candidates.map((candidate, cIdx) => (
+                                  <Button
+                                    key={cIdx}
+                                    variant="outline"
+                                    size="sm"
+                                    className="text-xs"
+                                    onClick={() => {
+                                      const quota = dbDeviceQuotas.find((q: any) => String(q.id) === candidate.id);
+                                      if (quota) {
+                                        handleAddFullDevice(quota);
+                                      }
+                                    }}
+                                  >
+                                    {candidate.name} ¥{candidate.price}
+                                  </Button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        const matchedDevices = aiMatchingDevices.filter(d => d.matched && d.matchedDeviceId);
+                        matchedDevices.forEach(device => {
+                          const quota = dbDeviceQuotas.find((q: any) => String(q.id) === device.matchedDeviceId);
+                          if (quota) {
+                            const existing = selectedDevices.find((d: any) => d.quota.id === quota.id);
+                            if (existing) {
+                              handleUpdateQuantity(selectedDevices.indexOf(existing), existing.quantity + (device.quantity || 1));
+                            } else {
+                              handleAddFullDevice(quota);
+                            }
+                          }
+                        });
+                        alert(`已添加 ${matchedDevices.length} 个匹配设备到报价单`);
+                      }}
+                    >
+                      <Plus className="h-4 w-4 mr-2" />
+                      添加所有匹配设备
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        aiMatchingDevices.forEach(device => {
+                          if (device.matched && device.matchedDeviceId) {
+                            const quota = dbDeviceQuotas.find((q: any) => String(q.id) === device.matchedDeviceId);
+                            if (quota) {
+                              handleAddFullDevice(quota);
+                            }
+                          } else if (device.candidates && device.candidates.length > 0) {
+                            const quota = dbDeviceQuotas.find((q: any) => String(q.id) === device.candidates[0].id);
+                            if (quota) {
+                              handleAddFullDevice(quota);
+                            }
+                          }
+                        });
+                        alert(`已添加所有设备到报价单`);
+                      }}
+                    >
+                      添加所有设备
                     </Button>
                   </div>
                 </div>

@@ -167,25 +167,7 @@ const skillExecutors: Record<string, (params: Record<string, unknown>) => Promis
 function detectIntent(message: string): { skill: string; params: Record<string, unknown> } | null {
   const lowerMsg = message.toLowerCase();
 
-  // 报价历史查询
-  if (lowerMsg.includes('报价记录') || lowerMsg.includes('历史报价') || lowerMsg.includes('报价单') && (lowerMsg.includes('查看') || lowerMsg.includes('列表'))) {
-    const keyword = message.replace(/.*?(报价记录|历史报价|报价单).*?/, '').trim() || '';
-    return { skill: 'quote_history', params: { keyword } };
-  }
-
-  // 定额查询
-  if (lowerMsg.includes('定额') || lowerMsg.includes('单价') || (lowerMsg.includes('价格') && lowerMsg.includes('查询'))) {
-    const keyword = message.replace(/.*?(定额|单价|价格|查询).*?/g, '').trim() || '设备';
-    return { skill: 'quota_query', params: { keyword } };
-  }
-
-  // 维保费率查询
-  if (lowerMsg.includes('费率') || lowerMsg.includes('维保率')) {
-    const category = message.replace(/.*?(费率|维保率).*?/, '').trim() || '设备';
-    return { skill: 'maintenance_rate_query', params: { category } };
-  }
-
-  // 报价计算
+  // 报价计算（优先级最高，避免被定额查询拦截）
   if (lowerMsg.includes('计算') && (lowerMsg.includes('报价') || lowerMsg.includes('维保'))) {
     const params: Record<string, unknown> = {};
 
@@ -206,6 +188,30 @@ function detectIntent(message: string): { skill: string; params: Record<string, 
     if (nameMatch) params.device_name = nameMatch[1];
 
     return { skill: 'quote_calculation', params };
+  }
+
+  // 报价历史查询
+  if (lowerMsg.includes('报价记录') || lowerMsg.includes('历史报价') || (lowerMsg.includes('报价单') && (lowerMsg.includes('查看') || lowerMsg.includes('列表')))) {
+    const keyword = message.replace(/.*?(报价记录|历史报价|报价单).*?/, '').trim() || '';
+    return { skill: 'quote_history', params: { keyword } };
+  }
+
+  // 定额查询
+  if (lowerMsg.includes('定额') || lowerMsg.includes('单价') || (lowerMsg.includes('价格') && lowerMsg.includes('查询'))) {
+    let keyword = message
+      .replace(/查询|定额|单价|价格|设备|的|一下|帮我|请|给我|看看|有哪些|什么|多少|怎么|如何/gi, '')
+      .trim();
+    keyword = keyword || '交换机';
+    return { skill: 'quota_query', params: { keyword } };
+  }
+
+  // 维保费率查询
+  if (lowerMsg.includes('费率') || lowerMsg.includes('维保率')) {
+    let category = message
+      .replace(/查询|费率|维保率|维保|设备|的|一下|帮我|请|给我|看看|有哪些|什么|多少/gi, '')
+      .trim();
+    category = category || '网络';
+    return { skill: 'maintenance_rate_query', params: { category } };
   }
 
   // 系统介绍
@@ -240,7 +246,7 @@ export async function POST(
       return NextResponse.json({ success: false, error: '智能体不存在或未启用' }, { status: 404 });
     }
 
-    const userId = auth.session.userId ?? -1;
+    const userId = auth.session.userId ?? null;
     const userName = auth.session.name || auth.session.username || '用户';
 
     const finalSessionId = sessionId || `sess_${crypto.randomUUID()}`;
@@ -476,6 +482,7 @@ export async function POST(
     });
   } catch (error) {
     console.error('智能体对话错误:', error);
-    return NextResponse.json({ success: false, error: '对话失败' }, { status: 500 });
+    const errMsg = error instanceof Error ? error.message : String(error);
+    return NextResponse.json({ success: false, error: '对话失败', detail: errMsg }, { status: 500 });
   }
 }
