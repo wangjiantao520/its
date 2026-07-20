@@ -266,9 +266,9 @@ export async function POST(request: NextRequest) {
       return matchDeviceToQuota(device);
     });
 
-    const totalCount = matchedDevices.reduce((sum, d) => sum + (d.quantity || 1), 0);
-    const matchedCount = matchedDevices.filter(d => d.matched).length;
-    const unmatchedCount = matchedDevices.filter(d => !d.matched).length;
+    const totalCount = matchedDevices.reduce((sum: number, d: MatchedDevice) => sum + (d.quantity || 1), 0);
+    const matchedCount = matchedDevices.filter((d: MatchedDevice) => d.matched).length;
+    const unmatchedCount = matchedDevices.filter((d: MatchedDevice) => !d.matched).length;
 
     return NextResponse.json({
       success: true,
@@ -278,7 +278,7 @@ export async function POST(request: NextRequest) {
         totalCount,
         matchedCount,
         unmatchedCount,
-        categories: [...new Set(matchedDevices.map(d => d.category))]
+        categories: [...new Set(matchedDevices.map((d: MatchedDevice) => d.category))]
       },
       suggestions: parsedResult.suggestions || []
     });
