@@ -4,6 +4,7 @@ import { useState, useMemo, useEffect } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { useUser } from '@/contexts/user-context';
 import { getAuthHeader } from '@/contexts/user-context';
+import { apiFetch } from '@/lib/api-fetch';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -434,16 +435,14 @@ export default function QuotesPage() {
       return;
     }
     try {
-      const res = await fetch(`/api/quotes/${encodeURIComponent(quote.id)}`, {
+      const result = await apiFetch(`/api/quotes/${encodeURIComponent(quote.id)}`, {
         method: 'DELETE',
-        headers: { Authorization: `Bearer ${token ?? ''}` },
       });
-      const data = await res.json();
-      if (data.success) {
+      if (result.success) {
         toast.success(`已删除：${quote.quote_number}`);
         void loadQuotes();
-      } else {
-        toast.error(data.error || '删除失败');
+      } else if (result.status !== 401) {
+        toast.error(result.error || '删除失败');
       }
     } catch (e) {
       const err = e instanceof Error ? e : new Error(String(e));
@@ -533,14 +532,14 @@ export default function QuotesPage() {
   const loadQuotes = async () => {
     setIsLoading(true);
     try {
-      const res = await fetch('/api/quotes', {
-        headers: { Authorization: `Bearer ${token ?? ''}` },
-      });
-      const data = await res.json();
-      if (data.success && Array.isArray(data.data)) {
-        setQuotes(data.data);
+      const result = await apiFetch<Quote[]>('/api/quotes');
+      if (result.success && Array.isArray(result.data)) {
+        setQuotes(result.data);
       } else {
-        toast.error('加载报价失败：' + (data.error ?? '返回数据格式异常'));
+        // 401 时已由 apiFetch 自动处理跳转，这里只提示其他错误
+        if (result.status !== 401) {
+          toast.error('加载报价失败：' + (result.error ?? '返回数据格式异常'));
+        }
       }
     } catch (e) {
       const err = e instanceof Error ? e : new Error(String(e));
