@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
 
     if (auth.session.role !== 'admin') {
       query += ' AND user_id = ?';
-      params.push(auth.session.userId ?? null);
+      params.push(auth.session.userId ?? 0);
     }
     if (agentId) {
       query += ' AND agent_id = ?';

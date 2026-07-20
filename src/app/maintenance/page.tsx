@@ -252,7 +252,7 @@ export default function MaintenanceQuotePage() {
           const jsonData = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
           
           // 转换为文本格式
-          const textContent = jsonData.map((row: any[]) => row.join('\t')).join('\n');
+          const textContent = (jsonData as unknown[][]).map((row: unknown[]) => Array.isArray(row) ? row.join('\t') : String(row)).join('\n');
           setUploadedFileContent(textContent);
           
           // 将文件内容作为需求文本进行AI识别
@@ -1262,7 +1262,7 @@ export default function MaintenanceQuotePage() {
       return {
         name: device.quota.name || `设备${index + 1}`,
         category: device.quota.category || '未分类',
-        brand: (device.quota as FullDeviceQuota).brand || '-',
+        brand: '-',
         model: device.quota.model || '-',
         quantity: device.quantity,
         maintenanceTier: fullItem
@@ -2019,7 +2019,7 @@ export default function MaintenanceQuotePage() {
                             <div className="mt-3 pt-3 border-t">
                               <div className="text-xs text-slate-500 mb-2">备选设备:</div>
                               <div className="flex flex-wrap gap-2">
-                                {device.candidates.map((candidate, cIdx) => (
+                                {device.candidates.map((candidate: { id: string; name: string; category: string; price: number; matchScore: number }, cIdx: number) => (
                                   <Button
                                     key={cIdx}
                                     variant="outline"
