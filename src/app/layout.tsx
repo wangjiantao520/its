@@ -1,12 +1,7 @@
 import type { Metadata } from 'next';
-import { Inspector } from 'react-dev-inspector';
 import './globals.css';
-import { AppLayout } from '@/components/layout/app-layout';
 import { FontPreload } from '@/components/font-preload';
-import { UserProvider } from '@/contexts/user-context';
-import { ThemeProvider } from '@/contexts/theme-context';
-import { AuthProtected } from '@/components/auth-protected';
-import { Toaster } from 'sonner';
+import { Providers } from '@/components/providers';
 
 export const metadata: Metadata = {
   title: {
@@ -23,21 +18,11 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const isDev = process.env.COZE_PROJECT_ENV === 'DEV';
-
   return (
     <html lang="zh-CN" suppressHydrationWarning>
       <body className={`antialiased bg-background text-foreground`}>
         <FontPreload />
-        {isDev && <Inspector />}
-        <ThemeProvider>
-          <UserProvider>
-            <AuthProtected>
-              <AppLayout>{children}</AppLayout>
-              <Toaster position="top-right" />
-            </AuthProtected>
-          </UserProvider>
-        </ThemeProvider>
+        <Providers>{children}</Providers>
       </body>
     </html>
   );
