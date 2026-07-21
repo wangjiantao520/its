@@ -1,5 +1,4 @@
 import type { Metadata } from 'next';
-import { Inspector } from 'react-dev-inspector';
 import './globals.css';
 import { FontPreload } from '@/components/font-preload';
 import { Providers } from '@/components/providers';
@@ -19,13 +18,10 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const isDev = process.env.COZE_PROJECT_ENV === 'DEV';
-
   return (
     <html lang="zh-CN" suppressHydrationWarning>
       <body className={`antialiased bg-background text-foreground`}>
         <FontPreload />
-        {isDev && <Inspector />}
         <Providers>{children}</Providers>
       </body>
     </html>

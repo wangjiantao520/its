@@ -85,63 +85,60 @@ export function UserProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [token, setToken] = useState<string | null>(null);
+  // 初始为 true，客户端 useEffect 中同步读取 localStorage 后立即置为 false
   const [isLoading, setIsLoading] = useState(true);
 
-  // 初始化时检查本地存储的会话
+  // 初始化：同步读取本地会话，立即结束加载状态，然后异步验证服务端会话
   useEffect(() => {
     let cancelled = false;
-    // 超时保护：5秒后强制结束加载状态，防止网络问题导致页面卡住
-    const timeoutId = setTimeout(() => {
-      if (!cancelled) {
-        setIsLoading(false);
-      }
-    }, 5000);
 
-    const initAuth = async () => {
+    const savedToken = localStorage.getItem('authToken');
+    const savedRole = localStorage.getItem('userRole') as UserRole | null;
+    const savedName = localStorage.getItem('itsName');
+    const savedUsername = localStorage.getItem('itsUsername');
+
+    // 没有本地 token：立即结束加载，未登录状态
+    if (!savedToken || !savedRole) {
+      setIsLoading(false);
+      return;
+    }
+
+    // 有本地 token：先乐观设置为已登录（立即结束加载，用户能看到页面）
+    setToken(savedToken);
+    setUser(createUser(savedRole, savedToken, savedName || undefined, savedUsername || undefined));
+    setIsLoggedIn(true);
+    setIsLoading(false);
+
+    // 后台异步验证服务端会话
+    const verifyAsync = async () => {
       try {
-        const savedToken = localStorage.getItem('authToken');
-        const savedRole = localStorage.getItem('userRole') as UserRole | null;
-        const savedName = localStorage.getItem('itsName');
-        const savedUsername = localStorage.getItem('itsUsername');
-
-        // 没有 token，直接结束加载
-        if (!savedToken || !savedRole) {
-          if (!cancelled) setIsLoading(false);
-          return;
-        }
-
-        // 有 token，向服务器验证
         const serverData = await verifyTokenOnServer(savedToken);
         if (cancelled) return;
-        
-        if (serverData) {
-          setToken(savedToken);
-          setUser(createUser(
-            serverData.role as UserRole,
-            savedToken,
-            savedName || undefined,
-            savedUsername || undefined
-          ));
-          setIsLoggedIn(true);
-        } else {
-          // 会话已过期，清除本地存储
+
+        if (!serverData) {
+          // 服务端会话已失效，清除本地状态
           localStorage.removeItem('authToken');
           localStorage.removeItem('userRole');
           localStorage.removeItem('itsName');
           localStorage.removeItem('itsUsername');
+          setToken(null);
+          setUser(null);
+          setIsLoggedIn(false);
+          // 跳转登录页
+          if (window.location.pathname !== '/login') {
+            window.location.href = '/login';
+          }
         }
       } catch (err) {
-        console.error('初始化认证失败:', err);
-      } finally {
-        if (!cancelled) setIsLoading(false);
+        // 验证失败不影响已显示的内容（网络问题等）
+        console.warn('验证会话失败:', err);
       }
     };
 
-    initAuth();
+    void verifyAsync();
 
     return () => {
       cancelled = true;
-      clearTimeout(timeoutId);
     };
   }, []);
 
