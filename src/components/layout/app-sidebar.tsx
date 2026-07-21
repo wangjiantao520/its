@@ -176,7 +176,7 @@ export function AppSidebar() {
                       <div className="icon-3d icon-3d-sm flex items-center justify-center shrink-0 group-data-[collapsible=icon]:w-8 group-data-[collapsible=icon]:h-8 group-data-[collapsible=icon]:overflow-visible">
                         <item.icon className="h-4 w-4" />
                       </div>
-                      <span>{item.title}</span>
+                      <span className="group-data-[collapsible=icon]:hidden">{item.title}</span>
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>

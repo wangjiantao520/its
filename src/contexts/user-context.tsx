@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { User, UserRole } from '@/lib/roles';
 import { readApiResponse } from '@/lib/api-response';
+import { verifySessionToken } from '@/lib/session-verification';
 
 interface AuthResponse {
   token: string;
@@ -35,73 +36,72 @@ function createUser(role: UserRole, token?: string, name?: string, username?: st
   };
 }
 
-// 存储会话到服务端
-async function verifyTokenOnServer(token: string): Promise<{ role: UserRole; name?: string; username?: string } | null> {
-  try {
-    const response = await fetch('/api/auth', {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${token}`
-      }
-    });
-
-    const data = await readApiResponse<{
-      role: UserRole;
-      name?: string;
-      username?: string;
-    }>(response);
-    if (!response.ok || !data.success || !data.data) return null;
-    return {
-      role: data.data.role as UserRole,
-      name: data.data.name,
-      username: data.data.username
-    };
-  } catch (e) {
-    if (typeof console !== 'undefined') {
-      console.warn('[UserContext] 解析本地用户信息失败:', e);
-    }
-    return null;
-  }
-}
-
 export function UserProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [token, setToken] = useState<string | null>(null);
+  // 初始为 true，客户端 useEffect 中同步读取 localStorage 后立即置为 false
   const [isLoading, setIsLoading] = useState(true);
 
-  // 初始化时检查本地存储的会话
+  // 初始化：同步读取本地会话，立即结束加载状态，然后异步验证服务端会话
   useEffect(() => {
-    const initAuth = async () => {
-      const savedToken = localStorage.getItem('authToken');
-      const savedRole = localStorage.getItem('userRole') as UserRole | null;
-      const savedName = localStorage.getItem('itsName');
-      const savedUsername = localStorage.getItem('itsUsername');
+    let cancelled = false;
 
-      if (savedToken && savedRole) {
-        // 验证服务器端的会话是否仍然有效
-        const serverData = await verifyTokenOnServer(savedToken);
-        if (serverData) {
-          setToken(savedToken);
-          setUser(createUser(
-            serverData.role as UserRole,
-            savedToken,
-            savedName || undefined,
-            savedUsername || undefined
-          ));
-          setIsLoggedIn(true);
-        } else {
-          // 会话已过期，清除本地存储
+    const savedToken = localStorage.getItem('authToken');
+    const savedRole = localStorage.getItem('userRole') as UserRole | null;
+    const savedName = localStorage.getItem('itsName');
+    const savedUsername = localStorage.getItem('itsUsername');
+
+    // 没有本地 token：立即结束加载，未登录状态
+    if (!savedToken || !savedRole) {
+      setIsLoading(false);
+      return;
+    }
+
+    // 有本地 token：先乐观设置为已登录（立即结束加载，用户能看到页面）
+    setToken(savedToken);
+    setUser(createUser(savedRole, savedToken, savedName || undefined, savedUsername || undefined));
+    setIsLoggedIn(true);
+    setIsLoading(false);
+
+    // 后台异步验证服务端会话
+    const verifyAsync = async () => {
+      try {
+        const verification = await verifySessionToken(savedToken);
+        if (cancelled) return;
+
+        if (verification.status === 'invalid') {
+          // 服务端会话已失效，清除本地状态
           localStorage.removeItem('authToken');
           localStorage.removeItem('userRole');
           localStorage.removeItem('itsName');
           localStorage.removeItem('itsUsername');
+          setToken(null);
+          setUser(null);
+          setIsLoggedIn(false);
+          // 跳转登录页
+          if (window.location.pathname !== '/login') {
+            window.location.href = '/login';
+          }
+        } else if (verification.status === 'valid') {
+          const { role, name, username } = verification.user;
+          localStorage.setItem('userRole', role);
+          setUser(createUser(role, savedToken, name, username));
+        } else {
+          // 网络超时或服务临时错误时保留本地会话；后续业务 API 仍会独立鉴权。
+          console.warn('[UserContext] 会话验证暂时不可用:', verification.error);
         }
+      } catch (err) {
+        // 验证失败不影响已显示的内容（网络问题等）
+        console.warn('验证会话失败:', err);
       }
-      setIsLoading(false);
     };
 
-    initAuth();
+    void verifyAsync();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const login = useCallback(async (role: UserRole, password: string): Promise<{ success: boolean; error?: string }> => {
