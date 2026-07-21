@@ -20,11 +20,21 @@ test('both login flows use the safe API response parser', () => {
   const loginPage = fs.readFileSync(path.join(root, 'src/app/login/page.tsx'), 'utf8');
   const userContext = fs.readFileSync(path.join(root, 'src/contexts/user-context.tsx'), 'utf8');
 
-  assert.match(loginPage, /readApiResponse\(response\)/);
-  assert.match(userContext, /readApiResponse\(response\)/);
+  const safeParserCall = /readApiResponse(?:<[^)]+>)?\(response\)/;
+  assert.match(loginPage, safeParserCall);
+  assert.match(userContext, safeParserCall);
 });
 
 test('lint excludes nested git worktrees and their dependency trees', () => {
   const eslintConfig = fs.readFileSync(path.join(root, 'eslint.config.mjs'), 'utf8');
   assert.match(eslintConfig, /'\.worktrees\/\*\*'/);
+});
+
+test('Next.js development resources allow the Coze preview origin', () => {
+  const nextConfig = fs.readFileSync(path.join(root, 'next.config.ts'), 'utf8');
+  assert.match(
+    nextConfig,
+    /['"]code\.coze\.cn['"]/,
+    'code.coze.cn must be allowed so the Coze preview can hydrate the client application',
+  );
 });

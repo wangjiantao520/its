@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { User, UserRole } from '@/lib/roles';
-import { type ApiResponse } from '@/lib/api-response';
+import { readApiResponse } from '@/lib/api-response';
 
 interface AuthResponse {
   token: string;
@@ -50,24 +50,12 @@ async function verifyTokenOnServer(token: string): Promise<{ role: UserRole; nam
     });
     clearTimeout(timeoutId);
 
-    // 检查响应状态，401 表示未登录
-    if (!response.ok) {
-      return null;
-    }
-
-    // 检查是否是 JSON 响应
-    const contentType = response.headers.get('content-type') || '';
-    if (!contentType.includes('application/json')) {
-      // 不是 JSON（可能是 HTML 错误页），不抛错，直接返回 null
-      return null;
-    }
-
-    const data = await response.json() as ApiResponse<{
+    const data = await readApiResponse<{
       role: UserRole;
       name?: string;
       username?: string;
-    }>;
-    if (!data.success || !data.data) return null;
+    }>(response);
+    if (!response.ok || !data.success || !data.data) return null;
     return {
       role: data.data.role as UserRole,
       name: data.data.name,
@@ -152,24 +140,8 @@ export function UserProvider({ children }: { children: ReactNode }) {
         body: JSON.stringify({ role, password })
       });
 
-      // 安全检查：先判断响应状态和内容类型
-      if (!response.ok) {
-        const contentType = response.headers.get('content-type') || '';
-        if (contentType.includes('application/json')) {
-          const data = await response.json() as ApiResponse<AuthResponse>;
-          return { success: false, error: data.error || '登录失败' };
-        }
-        return { success: false, error: `登录失败 (${response.status})` };
-      }
-
-      const contentType = response.headers.get('content-type') || '';
-      if (!contentType.includes('application/json')) {
-        return { success: false, error: '服务器响应格式异常' };
-      }
-
-      const data = await response.json() as ApiResponse<AuthResponse>;
-
-      if (!data.success || !data.data) {
+      const data = await readApiResponse<AuthResponse>(response);
+      if (!response.ok || !data.success || !data.data) {
         return { success: false, error: data.error || '登录失败' };
       }
 
