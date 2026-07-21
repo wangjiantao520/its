@@ -38,3 +38,20 @@ test('Next.js development resources allow the Coze preview origin', () => {
     'code.coze.cn must be allowed so the Coze preview can hydrate the client application',
   );
 });
+
+test('Coze development server uses Webpack to avoid the Turbopack router initialization race', () => {
+  const server = fs.readFileSync(path.join(root, 'src/server.ts'), 'utf8');
+  assert.match(
+    server,
+    /webpack:\s*dev/,
+    'the custom development server must use Webpack because Turbopack HMR can dispatch before the App Router initializes in Coze preview',
+  );
+});
+
+test('Webpack development uses Next.js SWC instead of the incompatible global Babel preset', () => {
+  assert.equal(
+    fs.existsSync(path.join(root, '.babelrc')),
+    false,
+    'a root Babel preset rewrites Unicode property escapes in react-markdown dependencies and breaks Coze routes',
+  );
+});

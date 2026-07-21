@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { User, UserRole } from '@/lib/roles';
 import { readApiResponse } from '@/lib/api-response';
+import { verifySessionToken } from '@/lib/session-verification';
 
 interface AuthResponse {
   token: string;
@@ -33,40 +34,6 @@ function createUser(role: UserRole, token?: string, name?: string, username?: st
     role: role,
     username: username
   };
-}
-
-// 存储会话到服务端
-async function verifyTokenOnServer(token: string): Promise<{ role: UserRole; name?: string; username?: string } | null> {
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 3000);
-    
-    const response = await fetch('/api/auth', {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${token}`
-      },
-      signal: controller.signal
-    });
-    clearTimeout(timeoutId);
-
-    const data = await readApiResponse<{
-      role: UserRole;
-      name?: string;
-      username?: string;
-    }>(response);
-    if (!response.ok || !data.success || !data.data) return null;
-    return {
-      role: data.data.role as UserRole,
-      name: data.data.name,
-      username: data.data.username
-    };
-  } catch (e) {
-    if (typeof console !== 'undefined') {
-      console.warn('[UserContext] 解析本地用户信息失败:', e);
-    }
-    return null;
-  }
 }
 
 export function UserProvider({ children }: { children: ReactNode }) {
@@ -100,10 +67,10 @@ export function UserProvider({ children }: { children: ReactNode }) {
     // 后台异步验证服务端会话
     const verifyAsync = async () => {
       try {
-        const serverData = await verifyTokenOnServer(savedToken);
+        const verification = await verifySessionToken(savedToken);
         if (cancelled) return;
 
-        if (!serverData) {
+        if (verification.status === 'invalid') {
           // 服务端会话已失效，清除本地状态
           localStorage.removeItem('authToken');
           localStorage.removeItem('userRole');
@@ -116,6 +83,13 @@ export function UserProvider({ children }: { children: ReactNode }) {
           if (window.location.pathname !== '/login') {
             window.location.href = '/login';
           }
+        } else if (verification.status === 'valid') {
+          const { role, name, username } = verification.user;
+          localStorage.setItem('userRole', role);
+          setUser(createUser(role, savedToken, name, username));
+        } else {
+          // 网络超时或服务临时错误时保留本地会话；后续业务 API 仍会独立鉴权。
+          console.warn('[UserContext] 会话验证暂时不可用:', verification.error);
         }
       } catch (err) {
         // 验证失败不影响已显示的内容（网络问题等）

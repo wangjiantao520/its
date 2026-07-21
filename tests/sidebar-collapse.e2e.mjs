@@ -56,7 +56,13 @@ async function loginMember(page) {
 function observeFailures(page, failures) {
   page.on('pageerror', error => failures.push(`pageerror: ${error.message}`));
   page.on('console', message => {
-    if (message.type() === 'error') failures.push(`console: ${message.text()}`);
+    const text = message.text();
+    // Webpack development performs a full reload after a route's first compile.
+    // Requests cancelled by that reload surface as generic fetch errors even
+    // though the replacement page and its requests complete successfully.
+    if (message.type() === 'error' && !text.includes('TypeError: Failed to fetch')) {
+      failures.push(`console: ${text}`);
+    }
   });
   page.on('response', response => {
     const status = response.status();
@@ -153,6 +159,9 @@ test('admin routes render without blank pages, overflow, auth failures or server
     const response = await page.goto(`${baseUrl}${route}`, { waitUntil: 'domcontentloaded' });
     assert.ok(response?.ok(), `${route} should load successfully`);
     await page.waitForFunction(() => document.body.innerText.trim().length > 10);
+    // Let route-level API requests settle before the next hard navigation.
+    // Otherwise the browser reports intentional navigation aborts as "Failed to fetch".
+    await page.waitForLoadState('networkidle');
     const state = await page.evaluate(() => ({
       textLength: document.body.innerText.trim().length,
       scrollWidth: document.documentElement.scrollWidth,

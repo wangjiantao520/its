@@ -8,8 +8,10 @@ const dev = process.env.COZE_PROJECT_ENV !== 'PROD';
 const hostname = process.env.HOSTNAME || 'localhost';
 const port = parseInt(process.env.PORT || '5000', 10);
 
-// Create Next.js app
-const app = next({ dev, hostname, port });
+// Coze preview proxies the dev server through an iframe. Turbopack HMR can
+// refresh before the App Router is initialized there, leaving the SSR loading
+// screen mounted forever. Webpack's HMR does not have that initialization race.
+const app = next({ dev, hostname, port, webpack: dev });
 const handle = app.getRequestHandler();
 
 app.prepare().then(() => {
