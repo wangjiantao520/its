@@ -28,13 +28,15 @@ export function AuthProtected({ children, allowedRoles }: AuthProtectedProps) {
       return;
     }
 
-    // 还在加载中（极少情况，一般几毫秒就结束）
+    // 关键：等 UserProvider 初始化完成（读取 localStorage 并调 verifyTokenOnServer）后，再判断登录状态
+    // 否则初次渲染时 isLoggedIn 始终为 false，会错误地跳转到登录页
     if (isLoading) {
       return;
     }
 
     // 如果未登录，跳转到登录页
     if (!isLoggedIn || !user) {
+      // 使用 window.location.href 而不是 router.push，避免中断正在进行的 RSC 请求
       if (pathname !== '/login') {
         window.location.href = '/login';
       }
@@ -72,7 +74,7 @@ export function AuthProtected({ children, allowedRoles }: AuthProtectedProps) {
     return <>{children}</>;
   }
 
-  // 还在加载中：显示加载占位符（通常只持续几毫秒）
+  // 加载中：显示加载占位符（避免闪烁和误判）
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">

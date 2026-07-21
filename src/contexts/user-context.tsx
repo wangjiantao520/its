@@ -38,17 +38,12 @@ function createUser(role: UserRole, token?: string, name?: string, username?: st
 // 存储会话到服务端
 async function verifyTokenOnServer(token: string): Promise<{ role: UserRole; name?: string; username?: string } | null> {
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 3000);
-    
     const response = await fetch('/api/auth', {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${token}`
-      },
-      signal: controller.signal
+      }
     });
-    clearTimeout(timeoutId);
 
     // 检查响应状态，401 表示未登录
     if (!response.ok) {
@@ -85,61 +80,40 @@ export function UserProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [token, setToken] = useState<string | null>(null);
-  // 初始为 true，客户端 useEffect 中同步读取 localStorage 后立即置为 false
   const [isLoading, setIsLoading] = useState(true);
 
-  // 初始化：同步读取本地会话，立即结束加载状态，然后异步验证服务端会话
+  // 初始化时检查本地存储的会话
   useEffect(() => {
-    let cancelled = false;
+    const initAuth = async () => {
+      const savedToken = localStorage.getItem('authToken');
+      const savedRole = localStorage.getItem('userRole') as UserRole | null;
+      const savedName = localStorage.getItem('itsName');
+      const savedUsername = localStorage.getItem('itsUsername');
 
-    const savedToken = localStorage.getItem('authToken');
-    const savedRole = localStorage.getItem('userRole') as UserRole | null;
-    const savedName = localStorage.getItem('itsName');
-    const savedUsername = localStorage.getItem('itsUsername');
-
-    // 没有本地 token：立即结束加载，未登录状态
-    if (!savedToken || !savedRole) {
-      setIsLoading(false);
-      return;
-    }
-
-    // 有本地 token：先乐观设置为已登录（立即结束加载，用户能看到页面）
-    setToken(savedToken);
-    setUser(createUser(savedRole, savedToken, savedName || undefined, savedUsername || undefined));
-    setIsLoggedIn(true);
-    setIsLoading(false);
-
-    // 后台异步验证服务端会话
-    const verifyAsync = async () => {
-      try {
+      if (savedToken && savedRole) {
+        // 验证服务器端的会话是否仍然有效
         const serverData = await verifyTokenOnServer(savedToken);
-        if (cancelled) return;
-
-        if (!serverData) {
-          // 服务端会话已失效，清除本地状态
+        if (serverData) {
+          setToken(savedToken);
+          setUser(createUser(
+            serverData.role as UserRole,
+            savedToken,
+            savedName || undefined,
+            savedUsername || undefined
+          ));
+          setIsLoggedIn(true);
+        } else {
+          // 会话已过期，清除本地存储
           localStorage.removeItem('authToken');
           localStorage.removeItem('userRole');
           localStorage.removeItem('itsName');
           localStorage.removeItem('itsUsername');
-          setToken(null);
-          setUser(null);
-          setIsLoggedIn(false);
-          // 跳转登录页
-          if (window.location.pathname !== '/login') {
-            window.location.href = '/login';
-          }
         }
-      } catch (err) {
-        // 验证失败不影响已显示的内容（网络问题等）
-        console.warn('验证会话失败:', err);
       }
+      setIsLoading(false);
     };
 
-    void verifyAsync();
-
-    return () => {
-      cancelled = true;
-    };
+    initAuth();
   }, []);
 
   const login = useCallback(async (role: UserRole, password: string): Promise<{ success: boolean; error?: string }> => {
