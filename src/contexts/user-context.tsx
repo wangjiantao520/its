@@ -38,12 +38,17 @@ function createUser(role: UserRole, token?: string, name?: string, username?: st
 // 存储会话到服务端
 async function verifyTokenOnServer(token: string): Promise<{ role: UserRole; name?: string; username?: string } | null> {
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3000);
+    
     const response = await fetch('/api/auth', {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${token}`
-      }
+      },
+      signal: controller.signal
     });
+    clearTimeout(timeoutId);
 
     // 检查响应状态，401 表示未登录
     if (!response.ok) {
@@ -84,15 +89,31 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
   // 初始化时检查本地存储的会话
   useEffect(() => {
-    const initAuth = async () => {
-      const savedToken = localStorage.getItem('authToken');
-      const savedRole = localStorage.getItem('userRole') as UserRole | null;
-      const savedName = localStorage.getItem('itsName');
-      const savedUsername = localStorage.getItem('itsUsername');
+    let cancelled = false;
+    // 超时保护：5秒后强制结束加载状态，防止网络问题导致页面卡住
+    const timeoutId = setTimeout(() => {
+      if (!cancelled) {
+        setIsLoading(false);
+      }
+    }, 5000);
 
-      if (savedToken && savedRole) {
-        // 验证服务器端的会话是否仍然有效
+    const initAuth = async () => {
+      try {
+        const savedToken = localStorage.getItem('authToken');
+        const savedRole = localStorage.getItem('userRole') as UserRole | null;
+        const savedName = localStorage.getItem('itsName');
+        const savedUsername = localStorage.getItem('itsUsername');
+
+        // 没有 token，直接结束加载
+        if (!savedToken || !savedRole) {
+          if (!cancelled) setIsLoading(false);
+          return;
+        }
+
+        // 有 token，向服务器验证
         const serverData = await verifyTokenOnServer(savedToken);
+        if (cancelled) return;
+        
         if (serverData) {
           setToken(savedToken);
           setUser(createUser(
@@ -109,11 +130,19 @@ export function UserProvider({ children }: { children: ReactNode }) {
           localStorage.removeItem('itsName');
           localStorage.removeItem('itsUsername');
         }
+      } catch (err) {
+        console.error('初始化认证失败:', err);
+      } finally {
+        if (!cancelled) setIsLoading(false);
       }
-      setIsLoading(false);
     };
 
     initAuth();
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timeoutId);
+    };
   }, []);
 
   const login = useCallback(async (role: UserRole, password: string): Promise<{ success: boolean; error?: string }> => {
