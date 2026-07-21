@@ -19,6 +19,12 @@ interface ApiResult<T = unknown> {
   status: number;
 }
 
+interface JsonApiPayload {
+  success?: boolean;
+  data?: unknown;
+  error?: string;
+}
+
 /**
  * 获取认证头
  * 优先从 localStorage 读取 token，同时也依赖 cookie（后端会自动读取）
@@ -32,14 +38,21 @@ function getAuthHeaders(): HeadersInit {
 /**
  * 安全的 JSON 解析：如果响应不是 JSON（比如 HTML 错误页），返回 null 而不是抛错
  */
-async function safeJsonResponse(response: Response): Promise<any | null> {
+async function safeJsonResponse(response: Response): Promise<JsonApiPayload | null> {
   const contentType = response.headers.get('content-type') || '';
   if (!contentType.includes('application/json')) {
     // 不是 JSON，可能是 HTML 错误页
     return null;
   }
   try {
-    return await response.json();
+    const payload = await response.json() as unknown;
+    if (!payload || typeof payload !== 'object') return null;
+    const record = payload as Record<string, unknown>;
+    return {
+      success: typeof record.success === 'boolean' ? record.success : undefined,
+      data: record.data,
+      error: typeof record.error === 'string' ? record.error : undefined,
+    };
   } catch {
     return null;
   }
@@ -105,7 +118,7 @@ export async function apiFetch<T = unknown>(
 
     return {
       success: data.success ?? response.ok,
-      data: data.data,
+      data: data.data as T | undefined,
       error: data.error,
       status: response.status,
     };
