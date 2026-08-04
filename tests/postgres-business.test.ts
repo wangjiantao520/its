@@ -9,6 +9,7 @@ import { hashAuthToken, saveSession } from '../src/lib/auth-session-store';
 import { canAccessQuote } from '../src/lib/quote-access';
 import { consumeQuoteShare } from '../src/lib/quote-share';
 import { getQuoteSummaries, updateQuoteDetails, updateQuoteStatus } from '../src/lib/quote-summary';
+import { normalizeQuoteVersionSnapshot } from '../src/lib/quote-version-snapshot';
 import { runPostgresMigrations } from '../src/lib/database/postgres-migrations';
 import * as engineeringRoutes from '../src/app/api/engineering-quotes/route';
 import * as engineeringDetailRoutes from '../src/app/api/engineering-quotes/[id]/route';
@@ -220,9 +221,21 @@ class RouteDatabase implements DatabaseClient {
     if (sql.startsWith('SELECT id, quote_id, quote_type, version, change_summary')) return rows(this.versions.filter((row) => Number(row.quote_id) === Number(params[0]) && row.quote_type === params[1]));
     if (sql.startsWith('SELECT id, quote_id, quote_type, version, data')) return rows(this.versions.filter((row) => Number(row.id) === Number(params[0])));
     if (sql.startsWith('SELECT id FROM maintenance_quotes WHERE id=$1')) return rows(this.maintenance.some((row) => row.id === Number(params[0]) && (params[1] === undefined || row.created_by === String(params[1]))) ? [{ id: String(params[0]) }] : []);
+    if (sql.startsWith('SELECT id FROM engineering_quotes WHERE id=$1')) return rows(this.engineering.some((row) => row.id === Number(params[0]) && (params[1] === undefined || row.created_by === String(params[1]))) ? [{ id: String(params[0]) }] : []);
     if (sql.startsWith('SELECT COALESCE(MAX(version)')) return rows([{ max_version: Math.max(0, ...this.versions.filter((row) => Number(row.quote_id) === Number(params[0]) && row.quote_type === params[1]).map((row) => Number(row.version))) }]);
     if (sql.startsWith('UPDATE maintenance_quotes SET')) {
       const quote = this.maintenance.find((row) => row.id === Number(params.at(-1))); if (!quote) return rows([]);
+      const assignments = / SET (.+) WHERE /.exec(sql)?.[1].split(', ') ?? [];
+      for (const assignment of assignments) {
+        const match = /^(\w+)=\$(\d+)(::jsonb)?$/.exec(assignment);
+        if (!match) continue;
+        const raw = params[Number(match[2]) - 1];
+        quote[match[1]] = match[3] && typeof raw === 'string' ? JSON.parse(raw) : raw;
+      }
+      return rows([{ id: String(quote.id) }]);
+    }
+    if (sql.startsWith('UPDATE engineering_quotes SET')) {
+      const quote = this.engineering.find((row) => row.id === Number(params.at(-1))); if (!quote) return rows([]);
       const assignments = / SET (.+) WHERE /.exec(sql)?.[1].split(', ') ?? [];
       for (const assignment of assignments) {
         const match = /^(\w+)=\$(\d+)(::jsonb)?$/.exec(assignment);
@@ -371,6 +384,58 @@ test('version restore rejects a legacy snapshot outside numeric(18,2)', async ()
     const restored = await versionDetailRoutes.POST(request('/api/quotes/versions/1', 'member-a-token', 'POST'), { params: Promise.resolve({ id: '1' }) });
     assert.equal(restored.status, 400);
     assert.equal(database.maintenance[0]?.total, '100.00');
+  } finally { delete globalDatabase.__itsPostgresDatabaseClient__; }
+});
+
+test('version snapshot normalization covers every restored numeric(18,2) alias', () => {
+  const fields = [
+    'total', 'totalAmount', 'total_amount',
+    'tax', 'subtotal', 'managementFee', 'management_fee', 'profit', 'regulatoryFee', 'regulatory_fee',
+    'subtotalBeforeDiscount', 'subtotal_before_discount', 'slaAdjustment', 'sla_adjustment',
+    'regionAdjustment', 'region_adjustment', 'subtotalAfterCoefficients', 'subtotal_after_coefficients',
+    'yearsDiscountAmount', 'years_discount_amount', 'bulkDiscountAmount', 'bulk_discount_amount',
+  ];
+  for (const field of fields) {
+    assert.equal(normalizeQuoteVersionSnapshot({ [field]: '100.005' }), null, `${field} accepted more than two decimals`);
+  }
+  const normalized = normalizeQuoteVersionSnapshot(Object.fromEntries(fields.map((field) => [field, '000100.5'])));
+  assert.ok(normalized);
+  for (const field of fields) assert.equal(normalized[field], '100.50', `${field} was not canonicalized`);
+});
+
+test('engineering and maintenance restore every mapped monetary field from its canonical snapshot', async () => {
+  const database = new RouteDatabase();
+  database.engineering.push({ id: 101, quote_number: 'ENG-MONEY', project_name: '工程', client_name: '客户', total: '0.00', status: 'draft', created_by: '11', created_by_name: '成员甲', created_at: '2026-08-04T01:00:00.000Z', updated_at: '2026-08-04T01:00:00.000Z' });
+  database.maintenance.push({ id: 201, quote_number: 'MAINT-MONEY-ALL', project_name: '维保', client_name: '客户', total: '0.00', status: 'draft', created_by: '11', created_by_name: '成员甲', created_at: '2026-08-04T01:00:00.000Z', updated_at: '2026-08-04T01:00:00.000Z' });
+  const globalDatabase = globalThis as typeof globalThis & { __itsPostgresDatabaseClient__?: DatabaseClient };
+  globalDatabase.__itsPostgresDatabaseClient__ = database;
+  try {
+    const engineeringData = {
+      tax: '001.1', subtotal: '002.2', managementFee: '003.3', profit: '004.4',
+      regulatory_fee: '005.5', total: '006.6', items: [],
+    };
+    assert.equal((await versionRoutes.POST(request('/api/quotes/versions', 'member-a-token', 'POST', { quoteId: 101, quoteType: 'engineering', quoteData: engineeringData }))).status, 200);
+    const engineeringSnapshot = database.versions[0]?.data as Record<string, unknown>;
+    assert.equal((await versionDetailRoutes.POST(request('/api/quotes/versions/1', 'member-a-token', 'POST'), { params: Promise.resolve({ id: '1' }) })).status, 200);
+    for (const [snapshotField, column] of [['tax', 'tax'], ['subtotal', 'subtotal'], ['managementFee', 'management_fee'], ['profit', 'profit'], ['regulatory_fee', 'regulatory_fee'], ['total', 'total']] as const) {
+      assert.equal(database.engineering[0]?.[column], engineeringSnapshot[snapshotField], column);
+    }
+
+    const maintenanceData = {
+      tax: '011.1', subtotalBeforeDiscount: '012.2', sla_adjustment: '013.3',
+      regionAdjustment: '014.4', subtotal_after_coefficients: '015.5',
+      yearsDiscountAmount: '016.6', bulk_discount_amount: '017.7', total: '018.8', devices: [],
+    };
+    assert.equal((await versionRoutes.POST(request('/api/quotes/versions', 'member-a-token', 'POST', { quoteId: 201, quoteType: 'maintenance', quoteData: maintenanceData }))).status, 200);
+    const maintenanceSnapshot = database.versions[2]?.data as Record<string, unknown>;
+    assert.equal((await versionDetailRoutes.POST(request('/api/quotes/versions/3', 'member-a-token', 'POST'), { params: Promise.resolve({ id: '3' }) })).status, 200);
+    for (const [snapshotField, column] of [
+      ['tax', 'tax'], ['subtotalBeforeDiscount', 'subtotal_before_discount'], ['sla_adjustment', 'sla_adjustment'],
+      ['regionAdjustment', 'region_adjustment'], ['subtotal_after_coefficients', 'subtotal_after_coefficients'],
+      ['yearsDiscountAmount', 'years_discount_amount'], ['bulk_discount_amount', 'bulk_discount_amount'], ['total', 'total'],
+    ] as const) {
+      assert.equal(database.maintenance[0]?.[column], maintenanceSnapshot[snapshotField], column);
+    }
   } finally { delete globalDatabase.__itsPostgresDatabaseClient__; }
 });
 
