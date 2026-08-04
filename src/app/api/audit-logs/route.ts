@@ -3,8 +3,10 @@ import pool from '@/lib/db';
 import { verifySession } from '@/lib/auth';
 
 // 认证中间件（仅限管理员）
-function requireAdmin(request: NextRequest): { authorized: boolean; response?: NextResponse } {
-  const session = verifySession(request);
+async function requireAdmin(
+  request: NextRequest,
+): Promise<{ authorized: boolean; response?: NextResponse }> {
+  const session = await verifySession(request);
   if (!session) {
     return {
       authorized: false,
@@ -28,7 +30,7 @@ function requireAdmin(request: NextRequest): { authorized: boolean; response?: N
 
 // GET - 获取审核日志列表（管理员）
 export async function GET(request: NextRequest) {
-  const auth = requireAdmin(request);
+  const auth = await requireAdmin(request);
   if (!auth.authorized) return auth.response!;
 
   try {

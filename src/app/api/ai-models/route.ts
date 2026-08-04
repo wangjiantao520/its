@@ -27,7 +27,7 @@ const aiModelSchema = z.object({
 
 // GET - 获取所有AI模型配置列表
 export async function GET(request: NextRequest) {
-  const auth = requireApiAuth(request, ['admin']);
+  const auth = await requireApiAuth(request, ['admin']);
   if (!auth.ok) return auth.response;
 
   try {
@@ -61,7 +61,7 @@ export async function GET(request: NextRequest) {
 
 // POST - 创建新的AI模型配置
 export async function POST(request: NextRequest) {
-  const auth = requireApiAuth(request, ['admin']);
+  const auth = await requireApiAuth(request, ['admin']);
   if (!auth.ok) return auth.response;
 
   const parsed = await validateBody(request, aiModelSchema);
@@ -125,7 +125,7 @@ export async function POST(request: NextRequest) {
 
 // PUT - 更新AI模型配置（通过query参数指定id）
 export async function PUT(request: NextRequest) {
-  const auth = requireApiAuth(request, ['admin']);
+  const auth = await requireApiAuth(request, ['admin']);
   if (!auth.ok) return auth.response;
 
   try {
@@ -192,7 +192,7 @@ export async function PUT(request: NextRequest) {
 
 // DELETE - 删除AI模型配置
 export async function DELETE(request: NextRequest) {
-  const auth = requireApiAuth(request, ['admin']);
+  const auth = await requireApiAuth(request, ['admin']);
   if (!auth.ok) return auth.response;
 
   try {

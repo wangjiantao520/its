@@ -4,7 +4,7 @@ import { db } from '@/lib/db';
 import { requireApiAuth } from '@/lib/api-auth-server';
 
 export async function POST(request: NextRequest) {
-  const auth = requireApiAuth(request, ['admin']);
+  const auth = await requireApiAuth(request, ['admin']);
   if (!auth.ok) return auth.response;
 
   try {

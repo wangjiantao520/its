@@ -54,7 +54,7 @@ function generateChangeSummary(
 
 // POST - 保存当前报价为新版本
 export async function POST(request: NextRequest) {
-  const auth = requireApiAuth(request);
+  const auth = await requireApiAuth(request);
   if (!auth.ok) return auth.response;
 
   try {
@@ -131,7 +131,7 @@ export async function POST(request: NextRequest) {
 
 // GET - 获取报价版本列表
 export async function GET(request: NextRequest) {
-  const auth = requireApiAuth(request);
+  const auth = await requireApiAuth(request);
   if (!auth.ok) return auth.response;
 
   try {

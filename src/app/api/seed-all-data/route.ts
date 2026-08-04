@@ -5,7 +5,7 @@ import { FULL_DEVICE_QUOTAS } from '@/lib/complete-device-data';
 import { SELF_CONSTRUCTION_QUOTA, INTELLIGENT_PROJECT_QUOTA } from '@/lib/self-construction-quota';
 
 export async function POST(request: NextRequest) {
-  const auth = requireApiAuth(request, ['admin']);
+  const auth = await requireApiAuth(request, ['admin']);
   if (!auth.ok) return auth.response;
 
   try {

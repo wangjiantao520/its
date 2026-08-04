@@ -4,7 +4,7 @@ import { requireApiAuth } from '@/lib/api-auth-server';
 // 价格同步API：价格变更时重新计算AI识别结果
 // 这里复用ai-parse-quote的逻辑
 export async function POST(request: NextRequest) {
-  const auth = requireApiAuth(request, ['admin']);
+  const auth = await requireApiAuth(request, ['admin']);
   if (!auth.ok) return auth.response;
 
   try {
@@ -93,7 +93,7 @@ export async function POST(request: NextRequest) {
 
 // GET: 获取当前价格版本信息
 export async function GET(request: NextRequest) {
-  const auth = requireApiAuth(request, ['admin']);
+  const auth = await requireApiAuth(request, ['admin']);
   if (!auth.ok) return auth.response;
 
   return NextResponse.json({

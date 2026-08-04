@@ -3,7 +3,7 @@ import pool from '@/lib/db';
 import { requireApiAuth } from '@/lib/api-auth-server';
 
 export async function GET(request: NextRequest) {
-  const auth = requireApiAuth(request);
+  const auth = await requireApiAuth(request);
   if (!auth.ok) return auth.response;
 
   try {
@@ -74,7 +74,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const auth = requireApiAuth(request);
+  const auth = await requireApiAuth(request);
   if (!auth.ok) return auth.response;
 
   try {
@@ -159,7 +159,7 @@ export async function POST(request: NextRequest) {
 }
 
 export async function PUT(request: NextRequest) {
-  const auth = requireApiAuth(request);
+  const auth = await requireApiAuth(request);
   if (!auth.ok) return auth.response;
 
   try {
@@ -249,7 +249,7 @@ export async function PUT(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
-  const auth = requireApiAuth(request, ['admin']);
+  const auth = await requireApiAuth(request, ['admin']);
   if (!auth.ok) return auth.response;
 
   try {

@@ -27,7 +27,7 @@ function nonNegativeNumber(value: unknown, fallback: number): number | null {
 
 // GET /api/quotations - 获取报价记录列表
 export async function GET(request: NextRequest) {
-  const auth = requireApiAuth(request);
+  const auth = await requireApiAuth(request);
   if (!auth.ok) return auth.response;
 
   try {
@@ -72,7 +72,7 @@ export async function GET(request: NextRequest) {
 
 // POST /api/quotations - 创建报价记录
 export async function POST(request: NextRequest) {
-  const auth = requireApiAuth(request);
+  const auth = await requireApiAuth(request);
   if (!auth.ok) return auth.response;
 
   try {

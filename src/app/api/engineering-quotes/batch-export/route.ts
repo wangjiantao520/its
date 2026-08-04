@@ -4,7 +4,7 @@ import pool, { initDatabase } from '@/lib/db';
 
 // POST /api/engineering-quotes/batch-export - 批量获取报价单详情
 export async function POST(request: NextRequest) {
-  const auth = requireApiAuth(request);
+  const auth = await requireApiAuth(request);
   if (!auth.ok) return auth.response;
 
   try {

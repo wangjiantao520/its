@@ -11,7 +11,7 @@ function buildDeviceSignature(deviceName: string, useYears?: number): string {
 
 // 查询客户历史学习记忆
 export async function GET(request: NextRequest) {
-  const auth = requireApiAuth(request, ['admin']);
+  const auth = await requireApiAuth(request, ['admin']);
   if (!auth.ok) return auth.response;
 
   const { searchParams } = new URL(request.url);
@@ -63,7 +63,7 @@ export async function GET(request: NextRequest) {
 
 // 保存学习记忆
 export async function POST(request: NextRequest) {
-  const auth = requireApiAuth(request, ['admin']);
+  const auth = await requireApiAuth(request, ['admin']);
   if (!auth.ok) return auth.response;
 
   try {

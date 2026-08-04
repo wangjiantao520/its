@@ -4,7 +4,7 @@ import { requireApiAuth } from '@/lib/api-auth-server';
 
 // POST - 测试AI模型连接
 export async function POST(request: NextRequest) {
-  const auth = requireApiAuth(request, ['admin']);
+  const auth = await requireApiAuth(request, ['admin']);
   if (!auth.ok) return auth.response;
 
   const startTime = Date.now();

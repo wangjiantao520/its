@@ -243,7 +243,7 @@ function buildMessages(userMessage: string, history?: Array<{ role: string; cont
 }
 
 export async function POST(request: NextRequest) {
-  const auth = requireApiAuth(request);
+  const auth = await requireApiAuth(request);
   if (!auth.ok) return auth.response;
 
   console.log('[AI] 收到解析请求');

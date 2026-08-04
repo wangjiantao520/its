@@ -13,7 +13,7 @@ function rangeStart(range: string): Date | null {
 }
 
 export async function GET(request: NextRequest) {
-  const auth = requireApiAuth(request);
+  const auth = await requireApiAuth(request);
   if (!auth.ok) return auth.response;
 
   try {

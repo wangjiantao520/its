@@ -6,7 +6,7 @@ import { getQuoteSummaries, type QuoteSource } from '@/lib/quote-summary';
 const SOURCES = new Set<QuoteSource>(['engineering', 'maintenance', 'quotation']);
 
 export async function GET(request: NextRequest) {
-  const auth = requireApiAuth(request);
+  const auth = await requireApiAuth(request);
   if (!auth.ok) return auth.response;
 
   try {

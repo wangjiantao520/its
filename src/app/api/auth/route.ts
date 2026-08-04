@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
 
 // 登出接口
 export async function DELETE(request: NextRequest) {
-  const result = handleLogout(request);
+  const result = await handleLogout(request);
 
   if (!result.success) {
     return NextResponse.json(result, { status: 401 });
@@ -67,7 +67,7 @@ export async function DELETE(request: NextRequest) {
 
 // 获取当前会话信息
 export async function GET(request: NextRequest) {
-  const session = getSessionUser(request);
+  const session = await getSessionUser(request);
 
   if (!session) {
     return NextResponse.json(

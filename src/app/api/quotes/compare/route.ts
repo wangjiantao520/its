@@ -99,7 +99,7 @@ function compareArrays(
 
 // POST - 比较两个版本
 export async function POST(request: NextRequest) {
-  const auth = requireApiAuth(request);
+  const auth = await requireApiAuth(request);
   if (!auth.ok) return auth.response;
 
   try {

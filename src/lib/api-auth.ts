@@ -7,18 +7,18 @@ export interface ApiSession {
   name?: string;
 }
 
-export type SessionResolver = (request: NextRequest) => ApiSession | null;
+export type SessionResolver = (request: NextRequest) => Promise<ApiSession | null>;
 
 export type AuthorizationResult =
   | { ok: true; session: ApiSession }
   | { ok: false; response: NextResponse };
 
-export function authorizeRequest(
+export async function authorizeRequest(
   request: NextRequest,
   allowedRoles: readonly string[] | undefined,
   resolveSession: SessionResolver,
-): AuthorizationResult {
-  const session = resolveSession(request);
+): Promise<AuthorizationResult> {
+  const session = await resolveSession(request);
   if (!session) {
     return {
       ok: false,

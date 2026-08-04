@@ -5,7 +5,7 @@ import { SELF_CONSTRUCTION_QUOTA, INTELLIGENT_PROJECT_QUOTA } from '@/lib/self-c
 
 // POST /api/quotas-seed - 将前端定额数据初始化到数据库
 export async function POST(request: NextRequest) {
-  const auth = requireApiAuth(request, ['admin']);
+  const auth = await requireApiAuth(request, ['admin']);
   if (!auth.ok) return auth.response;
 
   try {

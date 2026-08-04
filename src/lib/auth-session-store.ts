@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
-import type Database from 'better-sqlite3';
+
+import type { DatabaseClient } from './database/client';
 
 export interface AuthSession {
   role: string;
@@ -9,96 +10,128 @@ export interface AuthSession {
   expiresAt: number;
 }
 
-interface AuthSessionRow {
+interface AuthSessionRow extends Record<string, unknown> {
   role: string;
-  user_id: number | null;
+  user_id: string | number | bigint | null;
   username: string | null;
   name: string | null;
-  expires_at: number;
+  expires_at: string | number | bigint;
+}
+
+const SESSION_CLEANUP_INTERVAL_MS = 60_000;
+const lastCleanupByDatabase = new WeakMap<DatabaseClient, number>();
+
+function toSafeInteger(value: string | number | bigint, field: string): number {
+  const parsed = typeof value === 'bigint' ? value : BigInt(value);
+  if (parsed > BigInt(Number.MAX_SAFE_INTEGER) || parsed < BigInt(Number.MIN_SAFE_INTEGER)) {
+    throw new RangeError(`${field} exceeds JavaScript's safe integer range.`);
+  }
+  return Number(parsed);
+}
+
+async function maybeCleanupExpiredSessions(
+  database: DatabaseClient,
+  now: number,
+): Promise<void> {
+  const lastCleanup = lastCleanupByDatabase.get(database);
+  if (lastCleanup !== undefined && now - lastCleanup < SESSION_CLEANUP_INTERVAL_MS) return;
+
+  lastCleanupByDatabase.set(database, now);
+  await cleanupExpiredSessions(database, now);
 }
 
 export function hashAuthToken(token: string): string {
   return crypto.createHash('sha256').update(token).digest('hex');
 }
 
-export function createAuthSession(
-  database: Database.Database,
+export async function saveSession(
+  database: DatabaseClient,
   token: string,
   session: AuthSession,
-): void {
-  database
-    .prepare(`
-      INSERT INTO auth_sessions
-        (token_hash, role, user_id, username, name, expires_at, last_seen_at)
-      VALUES
-        (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-      ON CONFLICT(token_hash) DO UPDATE SET
-        role = excluded.role,
-        user_id = excluded.user_id,
-        username = excluded.username,
-        name = excluded.name,
-        expires_at = excluded.expires_at,
-        last_seen_at = CURRENT_TIMESTAMP
-    `)
-    .run(
-      hashAuthToken(token),
-      session.role,
-      session.userId ?? null,
-      session.username ?? null,
-      session.name ?? null,
-      session.expiresAt,
-    );
+  now = Date.now(),
+): Promise<void> {
+  await maybeCleanupExpiredSessions(database, now);
+  await database.query(`
+    INSERT INTO auth_sessions
+      (token_hash, role, user_id, username, name, expires_at, last_seen_at)
+    VALUES
+      ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
+    ON CONFLICT(token_hash) DO UPDATE SET
+      role = EXCLUDED.role,
+      user_id = EXCLUDED.user_id,
+      username = EXCLUDED.username,
+      name = EXCLUDED.name,
+      expires_at = EXCLUDED.expires_at,
+      last_seen_at = CURRENT_TIMESTAMP
+  `, [
+    hashAuthToken(token),
+    session.role,
+    session.userId ?? null,
+    session.username ?? null,
+    session.name ?? null,
+    session.expiresAt,
+  ]);
 }
 
-export function findAuthSession(
-  database: Database.Database,
+export async function findSession(
+  database: DatabaseClient,
   token: string,
   now = Date.now(),
-): AuthSession | null {
+): Promise<AuthSession | null> {
+  await maybeCleanupExpiredSessions(database, now);
   const tokenHash = hashAuthToken(token);
-  const row = database
-    .prepare(`
-      SELECT role, user_id, username, name, expires_at
-      FROM auth_sessions
-      WHERE token_hash = ?
-    `)
-    .get(tokenHash) as AuthSessionRow | undefined;
-
+  const result = await database.query<AuthSessionRow>(
+    'SELECT role, user_id, username, name, expires_at FROM auth_sessions WHERE token_hash = $1',
+    [tokenHash],
+  );
+  const row = result.rows[0];
   if (!row) return null;
-  if (row.expires_at <= now) {
-    database.prepare('DELETE FROM auth_sessions WHERE token_hash = ?').run(tokenHash);
+
+  const expiresAt = toSafeInteger(row.expires_at, 'auth_sessions.expires_at');
+  if (expiresAt <= now) {
+    await database.query('DELETE FROM auth_sessions WHERE token_hash = $1', [tokenHash]);
     return null;
   }
 
-  database
-    .prepare('UPDATE auth_sessions SET last_seen_at = CURRENT_TIMESTAMP WHERE token_hash = ?')
-    .run(tokenHash);
+  await database.query(
+    'UPDATE auth_sessions SET last_seen_at = CURRENT_TIMESTAMP WHERE token_hash = $1',
+    [tokenHash],
+  );
 
   return {
     role: row.role,
-    ...(row.user_id === null ? {} : { userId: row.user_id }),
+    ...(row.user_id === null ? {} : { userId: toSafeInteger(row.user_id, 'auth_sessions.user_id') }),
     ...(row.username === null ? {} : { username: row.username }),
     ...(row.name === null ? {} : { name: row.name }),
-    expiresAt: row.expires_at,
+    expiresAt,
   };
 }
 
-export function deleteAuthSession(database: Database.Database, token: string): void {
-  database
-    .prepare('DELETE FROM auth_sessions WHERE token_hash = ?')
-    .run(hashAuthToken(token));
+export async function deleteSession(database: DatabaseClient, token: string): Promise<void> {
+  await database.query(
+    'DELETE FROM auth_sessions WHERE token_hash = $1',
+    [hashAuthToken(token)],
+  );
 }
 
-export function deleteAuthSessionsForUser(
-  database: Database.Database,
+export async function deleteSessionsForUser(
+  database: DatabaseClient,
   userId: number,
-): number {
-  return database.prepare('DELETE FROM auth_sessions WHERE user_id = ?').run(userId).changes;
+): Promise<number> {
+  const result = await database.query(
+    'DELETE FROM auth_sessions WHERE user_id = $1',
+    [userId],
+  );
+  return result.rowCount;
 }
 
-export function cleanupExpiredAuthSessions(
-  database: Database.Database,
+export async function cleanupExpiredSessions(
+  database: DatabaseClient,
   now = Date.now(),
-): number {
-  return database.prepare('DELETE FROM auth_sessions WHERE expires_at <= ?').run(now).changes;
+): Promise<number> {
+  const result = await database.query(
+    'DELETE FROM auth_sessions WHERE expires_at <= $1',
+    [now],
+  );
+  return result.rowCount;
 }

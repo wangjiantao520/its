@@ -5,7 +5,7 @@ import { pool, type DbRows } from '@/lib/db';
 type RouteContext = { params: Promise<{ id: string }> };
 
 export async function GET(request: NextRequest, { params }: RouteContext) {
-  const auth = requireApiAuth(request);
+  const auth = await requireApiAuth(request);
   if (!auth.ok) return auth.response;
 
   try {
@@ -47,7 +47,7 @@ export async function GET(request: NextRequest, { params }: RouteContext) {
 }
 
 export async function DELETE(request: NextRequest, { params }: RouteContext) {
-  const auth = requireApiAuth(request);
+  const auth = await requireApiAuth(request);
   if (!auth.ok) return auth.response;
 
   try {

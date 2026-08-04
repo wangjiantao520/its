@@ -24,14 +24,19 @@ function validationError(error: z.ZodError) {
 }
 
 export async function GET(request: NextRequest) {
-  const auth = requireApiAuth(request, ['admin']);
+  const auth = await requireApiAuth(request, ['admin']);
   if (!auth.ok) return auth.response;
 
-  return NextResponse.json({ success: true, data: await getUsers() });
+  try {
+    return NextResponse.json({ success: true, data: await getUsers() });
+  } catch (error) {
+    console.error('获取用户列表失败:', error);
+    return NextResponse.json({ success: false, error: '获取用户列表失败' }, { status: 500 });
+  }
 }
 
 export async function POST(request: NextRequest) {
-  const auth = requireApiAuth(request, ['admin']);
+  const auth = await requireApiAuth(request, ['admin']);
   if (!auth.ok) return auth.response;
 
   const parsed = createUserSchema.safeParse(await request.json());
@@ -50,7 +55,7 @@ export async function POST(request: NextRequest) {
 }
 
 export async function PUT(request: NextRequest) {
-  const auth = requireApiAuth(request, ['admin']);
+  const auth = await requireApiAuth(request, ['admin']);
   if (!auth.ok) return auth.response;
 
   const parsed = updateUserSchema.safeParse(await request.json());
@@ -62,7 +67,7 @@ export async function PUT(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
-  const auth = requireApiAuth(request, ['admin']);
+  const auth = await requireApiAuth(request, ['admin']);
   if (!auth.ok) return auth.response;
 
   const id = Number(new URL(request.url).searchParams.get('id'));

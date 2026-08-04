@@ -4,7 +4,7 @@ import pool from '@/lib/db';
 
 // 保存用户对AI识别的反馈
 export async function POST(request: NextRequest) {
-  const auth = requireApiAuth(request);
+  const auth = await requireApiAuth(request);
   if (!auth.ok) return auth.response;
 
   try {
@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
 
 // 查询反馈列表（管理员用）
 export async function GET(request: NextRequest) {
-  const auth = requireApiAuth(request, ['admin']);
+  const auth = await requireApiAuth(request, ['admin']);
   if (!auth.ok) return auth.response;
 
   const { searchParams } = new URL(request.url);

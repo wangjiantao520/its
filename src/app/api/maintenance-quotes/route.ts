@@ -5,7 +5,7 @@ import { requireApiAuth } from '@/lib/api-auth-server';
 // GET - 获取维保报价列表
 export async function GET(request: NextRequest) {
   // 认证检查
-  const auth = requireApiAuth(request);
+  const auth = await requireApiAuth(request);
   if (!auth.ok) return auth.response;
 
   try {
@@ -50,7 +50,7 @@ export async function GET(request: NextRequest) {
 // POST - 创建维保报价
 export async function POST(request: NextRequest) {
   // 认证检查
-  const auth = requireApiAuth(request);
+  const auth = await requireApiAuth(request);
   if (!auth.ok) return auth.response;
 
   try {
@@ -131,7 +131,7 @@ export async function POST(request: NextRequest) {
 // DELETE - 删除维保报价（需要管理员权限）
 export async function DELETE(request: NextRequest) {
   // 认证检查
-  const auth = requireApiAuth(request, ['admin']);
+  const auth = await requireApiAuth(request, ['admin']);
   if (!auth.ok) return auth.response;
 
   try {

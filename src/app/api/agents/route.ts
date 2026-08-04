@@ -15,7 +15,7 @@ const agentSchema = z.object({
 
 // GET /api/agents - 获取智能体列表
 export async function GET(request: NextRequest) {
-  const auth = requireApiAuth(request, ['admin']);
+  const auth = await requireApiAuth(request, ['admin']);
   if (!auth.ok) return auth.response;
 
   try {
@@ -34,7 +34,7 @@ export async function GET(request: NextRequest) {
 
 // POST /api/agents - 创建智能体
 export async function POST(request: NextRequest) {
-  const auth = requireApiAuth(request, ['admin']);
+  const auth = await requireApiAuth(request, ['admin']);
   if (!auth.ok) return auth.response;
 
   const parsed = await validateBody(request, agentSchema);

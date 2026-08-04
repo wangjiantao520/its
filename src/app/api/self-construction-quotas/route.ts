@@ -4,7 +4,7 @@ import pool, { initDatabase } from '@/lib/db';
 
 // GET /api/self-construction-quotas - 获取自施工定额列表
 export async function GET(request: NextRequest) {
-  const auth = requireApiAuth(request);
+  const auth = await requireApiAuth(request);
   if (!auth.ok) return auth.response;
 
   try {
@@ -70,7 +70,7 @@ export async function GET(request: NextRequest) {
 
 // POST /api/self-construction-quotas - 新增自施工定额
 export async function POST(request: NextRequest) {
-  const auth = requireApiAuth(request, ['admin']);
+  const auth = await requireApiAuth(request, ['admin']);
   if (!auth.ok) return auth.response;
 
   try {
@@ -119,7 +119,7 @@ export async function POST(request: NextRequest) {
 
 // PUT /api/self-construction-quotas - 编辑自施工定额
 export async function PUT(request: NextRequest) {
-  const auth = requireApiAuth(request, ['admin']);
+  const auth = await requireApiAuth(request, ['admin']);
   if (!auth.ok) return auth.response;
 
   try {
@@ -169,7 +169,7 @@ export async function PUT(request: NextRequest) {
 
 // DELETE /api/self-construction-quotas - 删除自施工定额
 export async function DELETE(request: NextRequest) {
-  const auth = requireApiAuth(request, ['admin']);
+  const auth = await requireApiAuth(request, ['admin']);
   if (!auth.ok) return auth.response;
 
   try {

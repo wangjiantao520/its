@@ -13,7 +13,7 @@ interface AgentLogRow {
 }
 
 export async function GET(request: NextRequest) {
-  const auth = requireApiAuth(request, ['admin']);
+  const auth = await requireApiAuth(request, ['admin']);
   if (!auth.ok) return auth.response;
 
   const agentId = Number(new URL(request.url).searchParams.get('agent_id'));

@@ -4,7 +4,7 @@ import { db } from '@/lib/db';
 import { getQuoteSummaries } from '@/lib/quote-summary';
 
 export async function GET(request: NextRequest) {
-  const auth = requireApiAuth(request);
+  const auth = await requireApiAuth(request);
   if (!auth.ok) return auth.response;
 
   try {

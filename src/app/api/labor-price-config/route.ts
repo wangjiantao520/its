@@ -5,7 +5,7 @@ import pool, { initDatabase } from '@/lib/db';
 
 // GET /api/labor-price-config - 获取人工单价配置列表
 export async function GET(request: NextRequest) {
-  const auth = requireApiAuth(request);
+  const auth = await requireApiAuth(request);
   if (!auth.ok) return auth.response;
 
   try {
@@ -52,7 +52,7 @@ export async function GET(request: NextRequest) {
 
 // POST /api/labor-price-config - 新增人工单价档位
 export async function POST(request: NextRequest) {
-  const auth = requireApiAuth(request, ['admin']);
+  const auth = await requireApiAuth(request, ['admin']);
   if (!auth.ok) return auth.response;
 
   try {
@@ -114,7 +114,7 @@ export async function POST(request: NextRequest) {
 
 // PUT /api/labor-price-config - 更新人工单价档位
 export async function PUT(request: NextRequest) {
-  const auth = requireApiAuth(request, ['admin']);
+  const auth = await requireApiAuth(request, ['admin']);
   if (!auth.ok) return auth.response;
 
   try {
@@ -174,7 +174,7 @@ export async function PUT(request: NextRequest) {
 
 // DELETE /api/labor-price-config - 删除人工单价档位
 export async function DELETE(request: NextRequest) {
-  const auth = requireApiAuth(request, ['admin']);
+  const auth = await requireApiAuth(request, ['admin']);
   if (!auth.ok) return auth.response;
 
   try {

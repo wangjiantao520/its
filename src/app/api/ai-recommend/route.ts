@@ -4,7 +4,7 @@ import pool from '@/lib/db';
 
 // 根据客户/设备信息推荐相似历史报价
 export async function GET(request: NextRequest) {
-  const auth = requireApiAuth(request);
+  const auth = await requireApiAuth(request);
   if (!auth.ok) return auth.response;
 
   const { searchParams } = new URL(request.url);
@@ -79,7 +79,7 @@ export async function GET(request: NextRequest) {
 
 // 保存报价设备历史（供后续推荐使用）
 export async function POST(request: NextRequest) {
-  const auth = requireApiAuth(request);
+  const auth = await requireApiAuth(request);
   if (!auth.ok) return auth.response;
 
   try {

@@ -6,7 +6,7 @@ import { z } from 'zod';
 
 // 获取所有设备参数
 export async function GET(request: NextRequest) {
-  const auth = requireApiAuth(request);
+  const auth = await requireApiAuth(request);
   if (!auth.ok) return auth.response;
 
   try {
@@ -198,7 +198,7 @@ const deviceParamsSchema = z.discriminatedUnion('type', [
 ]);
 
 export async function POST(request: NextRequest) {
-  const auth = requireApiAuth(request, ['admin']);
+  const auth = await requireApiAuth(request, ['admin']);
   if (!auth.ok) return auth.response;
 
   const parsed = await validateBody(request, deviceParamsSchema);

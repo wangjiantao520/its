@@ -4,7 +4,7 @@ import { pool } from '@/lib/db';
 
 // 更新设备参数
 export async function PUT(request: NextRequest) {
-  const auth = requireApiAuth(request, ['admin']);
+  const auth = await requireApiAuth(request, ['admin']);
   if (!auth.ok) return auth.response;
 
   try {
@@ -121,7 +121,7 @@ export async function PUT(request: NextRequest) {
 
 // 删除设备参数
 export async function DELETE(request: NextRequest) {
-  const auth = requireApiAuth(request, ['admin']);
+  const auth = await requireApiAuth(request, ['admin']);
   if (!auth.ok) return auth.response;
 
   try {

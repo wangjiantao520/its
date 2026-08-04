@@ -3,7 +3,7 @@ import { requireApiAuth } from '@/lib/api-auth-server';
 
 // 获取指定API Key可用的模型列表
 export async function POST(request: NextRequest) {
-  const auth = requireApiAuth(request, ['admin']);
+  const auth = await requireApiAuth(request, ['admin']);
   if (!auth.ok) return auth.response;
 
   try {

@@ -238,7 +238,7 @@ async function callDeepSeekAPI(userMessage: string): Promise<string> {
 }
 
 export async function POST(request: NextRequest) {
-  const auth = requireApiAuth(request);
+  const auth = await requireApiAuth(request);
   if (!auth.ok) return auth.response;
 
   try {
