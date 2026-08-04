@@ -31,3 +31,32 @@ test('ignores malformed events but reports a server error event', () => {
 
   assert.deepEqual(events, [{ type: 'error', error: '模型超时' }]);
 });
+
+test('reports an interrupted stream when it ends after start without a terminal event', () => {
+  const events: AssistantStreamEvent[] = [];
+  const parser = createAssistantStreamParser((event) => events.push(event));
+
+  parser.push('data: {"type":"start","session_id":"sess_interrupted"}\n\n');
+  parser.push('data: {"type":"content","content":"部分回复"}\n\n');
+  parser.finish();
+
+  assert.deepEqual(events, [
+    { type: 'start', session_id: 'sess_interrupted' },
+    { type: 'content', content: '部分回复' },
+    { type: 'error', error: '连接中断，请重试' },
+  ]);
+});
+
+test('does not report interruption after an explicit server error', () => {
+  const events: AssistantStreamEvent[] = [];
+  const parser = createAssistantStreamParser((event) => events.push(event));
+
+  parser.push('data: {"type":"start","session_id":"sess_failed"}\n\n');
+  parser.push('data: {"type":"error","error":"AI服务返回格式异常"}\n\n');
+  parser.finish();
+
+  assert.deepEqual(events, [
+    { type: 'start', session_id: 'sess_failed' },
+    { type: 'error', error: 'AI服务返回格式异常' },
+  ]);
+});

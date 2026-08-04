@@ -15,6 +15,7 @@ interface AIClientOptions {
   maxTokens?: number;
   fetcher?: typeof fetch;
   timeoutMs?: number;
+  signal?: AbortSignal;
 }
 
 export async function callAIModelWithConfig(
@@ -24,6 +25,9 @@ export async function callAIModelWithConfig(
 ): Promise<{ success: boolean; content?: string; error?: string; config: AIModelConfig }> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), options.timeoutMs ?? 60_000);
+  const abortFromCaller = () => controller.abort();
+  if (options.signal?.aborted) controller.abort();
+  else options.signal?.addEventListener('abort', abortFromCaller, { once: true });
 
   try {
     const response = await (options.fetcher ?? fetch)(config.api_endpoint, {
@@ -61,6 +65,9 @@ export async function callAIModelWithConfig(
     return { success: true, content, config };
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
+      if (options.signal?.aborted) {
+        return { success: false, error: 'AI请求已中断', config };
+      }
       return { success: false, error: 'AI服务调用超时', config };
     }
     return {
@@ -70,5 +77,6 @@ export async function callAIModelWithConfig(
     };
   } finally {
     clearTimeout(timeoutId);
+    options.signal?.removeEventListener('abort', abortFromCaller);
   }
 }

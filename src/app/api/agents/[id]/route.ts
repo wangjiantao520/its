@@ -1,88 +1,85 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { pool } from '@/lib/db';
-import { requireApiAuth } from '@/lib/api-auth-server';
+import { z } from 'zod';
 
-// GET /api/agents/[id] - 获取单个智能体
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+import { requireApiAuth } from '@/lib/api-auth-server';
+import { parsePositiveDatabaseId, serializeAssistantRow } from '@/lib/assistant-db';
+import { getDatabase } from '@/lib/database/client';
+import { validateBody } from '@/lib/api-validate';
+
+interface RouteContext { params: Promise<{ id: string }> }
+
+const agentSchema = z.object({
+  name: z.string().trim().min(1).max(100),
+  description: z.string().max(500).optional().default(''),
+  system_prompt: z.string().trim().min(1),
+  model: z.string().trim().max(100).optional().default('doubao-seed-1-8-251228'),
+  temperature: z.coerce.number().min(0).max(2).optional().default(0.7),
+  enabled: z.union([z.boolean(), z.literal(0), z.literal(1)]).transform(Boolean).optional().default(true),
+});
+
+async function routeId(context: RouteContext): Promise<string | null> {
+  return parsePositiveDatabaseId((await context.params).id);
+}
+
+export async function GET(request: NextRequest, context: RouteContext) {
   const auth = await requireApiAuth(request, ['admin']);
   if (!auth.ok) return auth.response;
-
-  const { id } = await params;
-  
+  const id = await routeId(context);
+  if (!id) return NextResponse.json({ success: false, error: '无效的智能体ID' }, { status: 400 });
   try {
-    const [rows] = await pool.execute(
-      'SELECT * FROM agent_configs WHERE id = ?',
-      [id]
+    const result = await getDatabase().query<Record<string, unknown>>(
+      'SELECT * FROM agent_configs WHERE id = $1', [id],
     );
-    
-    if ((rows as any[]).length === 0) {
-      return NextResponse.json({ success: false, error: '智能体不存在' }, { status: 404 });
-    }
-    
-    return NextResponse.json({ success: true, data: (rows as any[])[0] });
+    if (!result.rows[0]) return NextResponse.json({ success: false, error: '智能体不存在' }, { status: 404 });
+    return NextResponse.json({ success: true, data: serializeAssistantRow(result.rows[0]) });
   } catch (error) {
     console.error('获取智能体失败:', error);
     return NextResponse.json({ success: false, error: '获取智能体失败' }, { status: 500 });
   }
 }
 
-// PUT /api/agents/[id] - 更新智能体
-export async function PUT(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function PUT(request: NextRequest, context: RouteContext) {
   const auth = await requireApiAuth(request, ['admin']);
   if (!auth.ok) return auth.response;
-
-  const { id } = await params;
-  
+  const id = await routeId(context);
+  if (!id) return NextResponse.json({ success: false, error: '无效的智能体ID' }, { status: 400 });
+  const parsed = await validateBody(request, agentSchema);
+  if (!parsed.ok) return parsed.response;
   try {
-    const body = await request.json();
-    const { name, description, system_prompt, model, temperature, enabled } = body;
-
-    if (!name || !system_prompt) {
-      return NextResponse.json(
-        { success: false, error: '名称和系统提示词不能为空' },
-        { status: 400 }
-      );
-    }
-
-    await pool.execute(
-      `UPDATE agent_configs 
-       SET name = ?, description = ?, system_prompt = ?, model = ?, temperature = ?, enabled = ?, updated_at = CURRENT_TIMESTAMP
-       WHERE id = ?`,
-      [name, description || '', system_prompt, model || 'doubao-seed-1-8-251228', temperature || 0.7, enabled !== undefined ? enabled : 1, id]
-    );
-
-    return NextResponse.json({ success: true, data: { message: '智能体更新成功' } });
+    const value = parsed.data;
+    const result = await getDatabase().query<Record<string, unknown>>(`
+      UPDATE agent_configs
+      SET name=$1, description=$2, system_prompt=$3, model=$4, temperature=$5,
+          enabled=$6, updated_at=now()
+      WHERE id=$7
+      RETURNING *
+    `, [value.name, value.description, value.system_prompt, value.model, value.temperature, value.enabled, id]);
+    if (!result.rows[0]) return NextResponse.json({ success: false, error: '智能体不存在' }, { status: 404 });
+    return NextResponse.json({ success: true, data: serializeAssistantRow(result.rows[0]) });
   } catch (error) {
     console.error('更新智能体失败:', error);
     return NextResponse.json({ success: false, error: '更新智能体失败' }, { status: 500 });
   }
 }
 
-// DELETE /api/agents/[id] - 删除智能体
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function DELETE(request: NextRequest, context: RouteContext) {
   const auth = await requireApiAuth(request, ['admin']);
   if (!auth.ok) return auth.response;
-
-  const { id } = await params;
-  
+  const id = await routeId(context);
+  if (!id) return NextResponse.json({ success: false, error: '无效的智能体ID' }, { status: 400 });
   try {
-    // 先删除关联的技能和知识库
-    await pool.execute('DELETE FROM agent_skills WHERE agent_id = ?', [id]);
-    await pool.execute('DELETE FROM agent_knowledge_base WHERE agent_id = ?', [id]);
-    await pool.execute('DELETE FROM agent_configs WHERE id = ?', [id]);
-
+    const deleted = await getDatabase().transaction(async (database) => {
+      const result = await database.query<{ id: DatabaseIdentifier }>(
+        'DELETE FROM agent_configs WHERE id=$1 RETURNING id', [id],
+      );
+      return result.rows[0];
+    });
+    if (!deleted) return NextResponse.json({ success: false, error: '智能体不存在' }, { status: 404 });
     return NextResponse.json({ success: true, data: { message: '智能体删除成功' } });
   } catch (error) {
     console.error('删除智能体失败:', error);
     return NextResponse.json({ success: false, error: '删除智能体失败' }, { status: 500 });
   }
 }
+
+type DatabaseIdentifier = string | number | bigint;

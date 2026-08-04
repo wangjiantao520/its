@@ -49,3 +49,18 @@ test('aborts and reports a simulated upstream timeout', async () => {
   assert.equal(result.success, false);
   assert.equal(result.error, 'AI服务调用超时');
 });
+
+test('distinguishes a caller-disconnected request from an upstream timeout', async () => {
+  const controller = new AbortController();
+  const fetcher: typeof fetch = async (_input, init) => new Promise((_resolve, reject) => {
+    init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+  });
+  setTimeout(() => controller.abort(), 1);
+  const result = await callAIModelWithConfig(config, [{ role: 'user', content: 'hello' }], {
+    fetcher,
+    timeoutMs: 100,
+    signal: controller.signal,
+  });
+  assert.equal(result.success, false);
+  assert.equal(result.error, 'AI请求已中断');
+});

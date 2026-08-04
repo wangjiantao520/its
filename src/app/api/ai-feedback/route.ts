@@ -1,113 +1,76 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireApiAuth } from '@/lib/api-auth-server';
-import pool from '@/lib/db';
+import { z } from 'zod';
 
-// 保存用户对AI识别的反馈
+import { requireApiAuth } from '@/lib/api-auth-server';
+import { serializeAssistantRow, serializeDatabaseId } from '@/lib/assistant-db';
+import { getDatabase } from '@/lib/database/client';
+import { validateBody, validateQuery } from '@/lib/api-validate';
+
+const feedbackTypes = ['correct', 'wrong_match', 'missing_info', 'extra_info', 'wrong_quantity', 'other', 'partial'] as const;
+const feedbackSchema = z.object({
+  originalText: z.string().trim().min(1).max(100_000),
+  aiResult: z.unknown().refine((value) => value !== null && value !== undefined, '缺少 AI 结果'),
+  correctedResult: z.unknown().optional(),
+  feedbackType: z.enum(feedbackTypes),
+  feedbackComment: z.string().max(5_000).optional(),
+  clientName: z.string().max(200).optional(),
+  operator: z.string().max(200).optional(),
+});
+const listSchema = z.object({
+  clientName: z.string().max(200).optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional().default(50),
+});
+
 export async function POST(request: NextRequest) {
   const auth = await requireApiAuth(request);
   if (!auth.ok) return auth.response;
-
+  const parsed = await validateBody(request, feedbackSchema);
+  if (!parsed.ok) return parsed.response;
   try {
-    const body = await request.json();
-    const {
-      originalText,
-      aiResult,
-      correctedResult,
-      feedbackType,
-      feedbackComment,
-      clientName,
-      operator,
-    } = body;
-
-    if (!originalText || !aiResult || !feedbackType) {
-      return NextResponse.json(
-        { success: false, error: '缺少必要参数' },
-        { status: 400 }
-      );
-    }
-
-    const validTypes = ['correct', 'wrong_match', 'missing_info', 'extra_info', 'wrong_quantity', 'other', 'partial'];
-    if (!validTypes.includes(feedbackType)) {
-      return NextResponse.json(
-        { success: false, error: '无效的反馈类型' },
-        { status: 400 }
-      );
-    }
-
-    const conn = await pool.getConnection();
-    try {
-      const [result] = await conn.execute(
-        `INSERT INTO ai_feedback
-         (original_text, ai_result, corrected_result, feedback_type, feedback_comment, client_name, operator)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [
-          originalText,
-          JSON.stringify(aiResult),
-          correctedResult ? JSON.stringify(correctedResult) : null,
-          feedbackType,
-          feedbackComment || null,
-          clientName || null,
-          operator || null,
-        ]
-      );
-
-      return NextResponse.json({
-        success: true,
-        id: (result as any)[0]?.insertId,
-      });
-    } finally {
-      conn.release();
-    }
-  } catch (error: any) {
+    const value = parsed.data;
+    const inserted = await getDatabase().query<{ id: string | number | bigint }>(`
+      INSERT INTO ai_feedback
+        (original_text, ai_result, corrected_result, feedback_type, feedback_comment, client_name, operator)
+      VALUES ($1, $2::jsonb, $3::jsonb, $4, $5, $6, $7)
+      RETURNING id
+    `, [
+      value.originalText,
+      JSON.stringify(value.aiResult),
+      value.correctedResult === undefined ? null : JSON.stringify(value.correctedResult),
+      value.feedbackType,
+      value.feedbackComment ?? null,
+      value.clientName ?? null,
+      value.operator ?? auth.session.name ?? auth.session.username ?? null,
+    ]);
+    return NextResponse.json({ success: true, id: serializeDatabaseId(inserted.rows[0]?.id) });
+  } catch (error) {
     console.error('[AI Feedback] 保存失败:', error);
-    // 数据库连接失败时，保存到内存作为降级
-    return NextResponse.json(
-      {
-        success: false,
-        error: '数据库暂时不可用，反馈已记录待重试',
-        details: process.env.NODE_ENV === 'development' ? error.message : undefined,
-      },
-      { status: 503 }
-    );
+    return NextResponse.json({ success: false, error: '数据库暂时不可用，反馈已记录待重试' }, { status: 503 });
   }
 }
 
-// 查询反馈列表（管理员用）
 export async function GET(request: NextRequest) {
   const auth = await requireApiAuth(request, ['admin']);
   if (!auth.ok) return auth.response;
-
-  const { searchParams } = new URL(request.url);
-  const clientName = searchParams.get('clientName');
-  const limit = parseInt(searchParams.get('limit') || '50');
-
+  const parsed = validateQuery(request, listSchema);
+  if (!parsed.ok) return parsed.response;
   try {
-    const conn = await pool.getConnection();
-    try {
-      let query = 'SELECT * FROM ai_feedback WHERE 1=1';
-      const params: any[] = [];
-
-      if (clientName) {
-        query += ' AND client_name = ?';
-        params.push(clientName);
-      }
-
-      query += ' ORDER BY created_at DESC LIMIT ?';
-      params.push(limit);
-
-      const [rows] = await conn.execute(query, params);
-      return NextResponse.json({
-        success: true,
-        data: rows,
-      });
-    } finally {
-      conn.release();
+    const values: unknown[] = [];
+    const conditions: string[] = [];
+    if (parsed.data.clientName) {
+      values.push(parsed.data.clientName);
+      conditions.push(`client_name=$${values.length}`);
     }
-  } catch (error: any) {
+    values.push(parsed.data.limit);
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const result = await getDatabase().query<Record<string, unknown>>(`
+      SELECT * FROM ai_feedback ${where}
+      ORDER BY created_at DESC, id DESC
+      LIMIT $${values.length}
+    `, values);
+    return NextResponse.json({ success: true, data: result.rows.map(serializeAssistantRow) });
+  } catch (error) {
     console.error('[AI Feedback] 查询失败:', error);
-    return NextResponse.json(
-      { success: false, error: error.message },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: '查询反馈失败' }, { status: 500 });
   }
 }

@@ -20,6 +20,8 @@ export function createAssistantStreamParser(
   onEvent: (event: AssistantStreamEvent) => void,
 ) {
   let buffer = '';
+  let started = false;
+  let terminal = false;
 
   const parseBlock = (block: string) => {
     const payload = block
@@ -31,7 +33,11 @@ export function createAssistantStreamParser(
 
     try {
       const event: unknown = JSON.parse(payload);
-      if (isAssistantStreamEvent(event)) onEvent(event);
+      if (isAssistantStreamEvent(event)) {
+        if (event.type === 'start') started = true;
+        if (event.type === 'end' || event.type === 'error') terminal = true;
+        onEvent(event);
+      }
     } catch {
       // 忽略无效事件，后续合法事件仍可继续处理。
     }
@@ -50,6 +56,10 @@ export function createAssistantStreamParser(
     finish() {
       if (buffer.trim()) parseBlock(buffer);
       buffer = '';
+      if (started && !terminal) {
+        terminal = true;
+        onEvent({ type: 'error', error: '连接中断，请重试' });
+      }
     },
   };
 }

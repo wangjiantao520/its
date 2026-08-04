@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import { requireApiAuth } from '@/lib/api-auth-server';
 import { callAIModel } from '@/lib/ai-config';
-import { db } from '@/lib/db';
+import { serializeDatabaseId } from '@/lib/assistant-db';
+import { getDatabase, type DatabaseClient } from '@/lib/database/client';
+import { validateBody } from '@/lib/api-validate';
 
 const SYSTEM_PROMPT = `你是专业的IT设备识别助手，帮助用户从设备清单中提取设备信息并进行标准化分类。
 
@@ -56,7 +59,7 @@ const SYSTEM_PROMPT = `你是专业的IT设备识别助手，帮助用户从设�
 
 现在分析用户提供的设备清单：`;
 
-function parseAIResponse(content: string): any {
+function parseAIResponse(content: string): unknown {
   try {
     let jsonStr = content;
 
@@ -91,6 +94,22 @@ interface ParsedDevice {
   confidence: number;
   warnings?: string[];
 }
+
+const requestSchema = z.object({ text: z.string().trim().min(1).max(100_000) });
+const parsedDeviceSchema = z.object({
+  rawText: z.string().default(''),
+  deviceName: z.string().trim().min(1),
+  model: z.string().optional(),
+  brand: z.string().optional(),
+  quantity: z.coerce.number().int().positive().default(1),
+  category: z.string().default('其他'),
+  confidence: z.coerce.number().min(0).max(1).default(0),
+  warnings: z.array(z.string()).optional(),
+});
+const parsedResponseSchema = z.object({
+  devices: z.array(parsedDeviceSchema),
+  suggestions: z.array(z.string()).optional().default([]),
+});
 
 interface MatchedDevice extends ParsedDevice {
   matched: boolean;
@@ -133,52 +152,52 @@ function calculateMatchScore(deviceName: string, targetName: string): number {
   return common.length / union.length * 0.8;
 }
 
-function matchDeviceToQuota(device: ParsedDevice): MatchedDevice {
+interface QuotaRow extends Record<string, unknown> {
+  id: string | number | bigint;
+  name: string;
+  category: string;
+  city_price: string | number;
+  maintenance_rate: string | number;
+  year1_total_price: string | number;
+  year2_total_price: string | number;
+  year3_total_price: string | number;
+}
+
+function quotaNumber(value: string | number): number {
+  const result = Number(value);
+  return Number.isFinite(result) ? result : 0;
+}
+
+async function matchDeviceToQuota(database: DatabaseClient, device: ParsedDevice): Promise<MatchedDevice> {
   const matchedDevice: MatchedDevice = { ...device, matched: false };
 
-  const allQuotas = db.prepare(`
+  const matched = await database.query<QuotaRow>(`
     SELECT id, name, category, city_price, 
            year1_total_price, year2_total_price, year3_total_price,
            0 as maintenance_rate
     FROM device_quotas 
-    WHERE is_active = 1 AND (name LIKE ? OR category LIKE ?)
+    WHERE is_active=true AND (name ILIKE $1 OR category ILIKE $2)
     ORDER BY city_price DESC
-  `).all(`%${device.deviceName}%`, `%${device.category}%`) as Array<{
-    id: number;
-    name: string;
-    category: string;
-    city_price: number;
-    maintenance_rate: number;
-    year1_total_price: number;
-    year2_total_price: number;
-    year3_total_price: number;
-  }>;
+    LIMIT 100
+  `, [`%${device.deviceName}%`, `%${device.category}%`]);
+  const allQuotas = matched.rows;
 
   if (allQuotas.length === 0) {
-    const altQuotas = db.prepare(`
+    const alternatives = await database.query<QuotaRow>(`
       SELECT id, name, category, city_price, 
              year1_total_price, year2_total_price, year3_total_price,
              0 as maintenance_rate
       FROM device_quotas 
-      WHERE is_active = 1
+      WHERE is_active=true
       ORDER BY city_price DESC
       LIMIT 20
-    `).all() as Array<{
-      id: number;
-      name: string;
-      category: string;
-      city_price: number;
-      maintenance_rate: number;
-      year1_total_price: number;
-      year2_total_price: number;
-      year3_total_price: number;
-    }>;
+    `);
 
-    const scored = altQuotas.map(q => ({
-      id: String(q.id),
+    const scored = alternatives.rows.map(q => ({
+      id: String(serializeDatabaseId(q.id)),
       name: q.name,
       category: q.category,
-      price: q.city_price,
+      price: quotaNumber(q.city_price),
       matchScore: calculateMatchScore(device.deviceName, q.name)
     })).filter(q => q.matchScore > 0.1).sort((a, b) => b.matchScore - a.matchScore);
 
@@ -196,18 +215,18 @@ function matchDeviceToQuota(device: ParsedDevice): MatchedDevice {
     matchedDevice.matched = true;
     matchedDevice.matchedDeviceId = String(bestMatch.id);
     matchedDevice.matchedDeviceName = bestMatch.name;
-    matchedDevice.matchedPrice = bestMatch.city_price;
-    matchedDevice.matchedMaintenanceRate = bestMatch.maintenance_rate;
-    matchedDevice.matchedYear1Price = bestMatch.year1_total_price;
-    matchedDevice.matchedYear2Price = bestMatch.year2_total_price;
-    matchedDevice.matchedYear3Price = bestMatch.year3_total_price;
+    matchedDevice.matchedPrice = quotaNumber(bestMatch.city_price);
+    matchedDevice.matchedMaintenanceRate = quotaNumber(bestMatch.maintenance_rate);
+    matchedDevice.matchedYear1Price = quotaNumber(bestMatch.year1_total_price);
+    matchedDevice.matchedYear2Price = quotaNumber(bestMatch.year2_total_price);
+    matchedDevice.matchedYear3Price = quotaNumber(bestMatch.year3_total_price);
 
     if (scoredQuotas.length > 1) {
       matchedDevice.candidates = scoredQuotas.slice(1, 4).map(q => ({
         id: String(q.id),
         name: q.name,
         category: q.category,
-        price: q.city_price,
+        price: quotaNumber(q.city_price),
         matchScore: q.matchScore
       }));
     }
@@ -216,7 +235,7 @@ function matchDeviceToQuota(device: ParsedDevice): MatchedDevice {
       id: String(q.id),
       name: q.name,
       category: q.category,
-      price: q.city_price,
+      price: quotaNumber(q.city_price),
       matchScore: q.matchScore
     }));
   }
@@ -241,30 +260,24 @@ export async function POST(request: NextRequest) {
   const auth = await requireApiAuth(request);
   if (!auth.ok) return auth.response;
 
+  const parsedBody = await validateBody(request, requestSchema);
+  if (!parsedBody.ok) return parsedBody.response;
   try {
-    const body = await request.json();
-    const { text } = body as { text?: string };
-
-    if (!text || !text.trim()) {
-      return NextResponse.json(
-        { error: '请输入设备清单文本' },
-        { status: 400 }
-      );
-    }
+    const { text } = parsedBody.data;
 
     const aiResponse = await callDeepSeekAPI(text);
-    const parsedResult = parseAIResponse(aiResponse);
-
-    if (!parsedResult.devices || !Array.isArray(parsedResult.devices)) {
+    const parsedResult = parsedResponseSchema.safeParse(parseAIResponse(aiResponse));
+    if (!parsedResult.success) {
       return NextResponse.json(
-        { error: 'AI 返回格式错误' },
+        { success: false, error: 'AI 返回格式错误', devices: [], suggestions: [] },
         { status: 500 }
       );
     }
 
-    const matchedDevices = parsedResult.devices.map((device: ParsedDevice) => {
-      return matchDeviceToQuota(device);
-    });
+    const database = getDatabase();
+    const matchedDevices = await Promise.all(
+      parsedResult.data.devices.map((device) => matchDeviceToQuota(database, device)),
+    );
 
     const totalCount = matchedDevices.reduce((sum: number, d: MatchedDevice) => sum + (d.quantity || 1), 0);
     const matchedCount = matchedDevices.filter((d: MatchedDevice) => d.matched).length;
@@ -280,13 +293,14 @@ export async function POST(request: NextRequest) {
         unmatchedCount,
         categories: [...new Set(matchedDevices.map((d: MatchedDevice) => d.category))]
       },
-      suggestions: parsedResult.suggestions || []
+      suggestions: parsedResult.data.suggestions
     });
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('[AI] 设备匹配失败:', error);
+    const message = error instanceof Error ? error.message : String(error);
 
-    if (error.message === 'DeepSeek API Key 未配置') {
+    if (message.includes('未找到可用的AI模型配置')) {
       return NextResponse.json(
         {
           success: false,
@@ -301,7 +315,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         success: false,
-        error: error.message,
+        error: message,
         devices: [],
         suggestions: ['AI服务暂时不可用，请稍后重试']
       },
