@@ -30,17 +30,36 @@ export async function GET(request: NextRequest, { params }: Context) {
 }
 
 function restoreFields(source: QuoteSource, snapshot: Record<string, unknown>): Array<[string, unknown]> {
-  const common = ['project_name', 'client_name', 'status'];
-  const fields = source === 'quotation'
-    ? [...common, 'total_amount', 'quote_data']
-    : source === 'engineering'
-      ? [...common, 'contact_person', 'contact_phone', 'construction_area', 'management_rate', 'profit_rate', 'regulatory_rate', 'tax_rate', 'subtotal', 'management_fee', 'profit', 'regulatory_fee', 'tax', 'total', 'items']
-      : [...common, 'contact_person', 'contact_phone', 'region', 'service_years', 'engineer_level', 'sla_config', 'subtotal_before_discount', 'sla_adjustment', 'region_adjustment', 'subtotal_after_coefficients', 'years_discount', 'bulk_discount', 'years_discount_amount', 'bulk_discount_amount', 'tax', 'total', 'devices'];
-  return fields.filter((field) => field in snapshot).map((field) => [field, snapshot[field]]);
+  const mappings: Array<[string, readonly string[]]> = [
+    ['project_name', ['projectName', 'project_name']], ['client_name', ['clientName', 'client_name']],
+    ['status', ['status']], ['contact_person', ['contactPerson', 'contact_person']],
+    ['contact_phone', ['contactPhone', 'contact_phone']], ['tax', ['tax']],
+  ];
+  if (source === 'quotation') mappings.push(['total_amount', ['total', 'totalAmount', 'total_amount']], ['quote_data', ['quoteData', 'quote_data']]);
+  if (source === 'engineering') mappings.push(
+    ['construction_area', ['constructionArea', 'construction_area']], ['management_rate', ['managementRate', 'management_rate']],
+    ['profit_rate', ['profitRate', 'profit_rate']], ['regulatory_rate', ['regulatoryRate', 'regulatory_rate']],
+    ['tax_rate', ['taxRate', 'tax_rate']], ['subtotal', ['subtotal']], ['management_fee', ['managementFee', 'management_fee']],
+    ['profit', ['profit']], ['regulatory_fee', ['regulatoryFee', 'regulatory_fee']], ['total', ['total']], ['items', ['items']],
+  );
+  if (source === 'maintenance') mappings.push(
+    ['region', ['region']], ['service_years', ['serviceYears', 'service_years']], ['engineer_level', ['engineerLevel', 'engineer_level']],
+    ['sla_config', ['slaConfig', 'sla_config']], ['subtotal_before_discount', ['subtotalBeforeDiscount', 'subtotal_before_discount']],
+    ['sla_adjustment', ['slaAdjustment', 'sla_adjustment']], ['region_adjustment', ['regionAdjustment', 'region_adjustment']],
+    ['subtotal_after_coefficients', ['subtotalAfterCoefficients', 'subtotal_after_coefficients']], ['years_discount', ['yearsDiscount', 'years_discount']],
+    ['bulk_discount', ['bulkDiscount', 'bulk_discount']], ['years_discount_amount', ['yearsDiscountAmount', 'years_discount_amount']],
+    ['bulk_discount_amount', ['bulkDiscountAmount', 'bulk_discount_amount']], ['total', ['total']], ['devices', ['devices']],
+  );
+  return mappings.flatMap(([column, keys]) => {
+    const key = keys.find((candidate) => candidate in snapshot);
+    if (!key) return [];
+    return [[column, snapshot[key]]];
+  });
 }
 
 async function updateFromSnapshot(database: DatabaseClient, source: QuoteSource, quoteId: number, version: number, snapshot: Record<string, unknown>): Promise<void> {
   const fields = restoreFields(source, snapshot);
+  if (source === 'quotation' && !fields.some(([field]) => field === 'quote_data')) fields.push(['quote_data', snapshot]);
   const assignments = fields.map(([field], index) => `${field}=$${index + 1}${['items', 'devices', 'sla_config', 'quote_data'].includes(field) ? '::jsonb' : ''}`);
   const values = fields.map(([field, value]) => ['items', 'devices', 'sla_config', 'quote_data'].includes(field) && value !== null ? JSON.stringify(value) : value);
   if (source !== 'quotation') { assignments.push(`version=$${values.length + 1}`); values.push(version); }

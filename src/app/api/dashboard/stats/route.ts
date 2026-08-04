@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireApiAuth } from '@/lib/api-auth-server';
 import { getDatabase } from '@/lib/database/client';
-import { getQuoteSummaries, quoteAmountToCents, quoteCentsToNumber, sumQuoteTotals, type QuoteSummary } from '@/lib/quote-summary';
+import { getQuoteSummaries, quoteCentsToNumber, quoteTotalToCents, sumQuoteTotals, type QuoteSummary } from '@/lib/quote-summary';
 
 function rangeStart(range: string): Date | null {
   const now = new Date();
@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
     const totalAmount = sum(quotes);
     const users = new Map<string, { userId: string; userName: string; engineeringCount: number; engineeringCents: bigint; maintenanceCount: number; maintenanceCents: bigint; totalCount: number; totalCents: bigint }>();
     for (const quote of quotes) {
-      const key = quote.createdBy || 'unknown'; const cents = quoteAmountToCents(quote.total);
+      const key = quote.createdBy || 'unknown'; const cents = quoteTotalToCents(quote);
       const item = users.get(key) ?? { userId: key, userName: quote.createdByName || '未知用户', engineeringCount: 0, engineeringCents: BigInt(0), maintenanceCount: 0, maintenanceCents: BigInt(0), totalCount: 0, totalCents: BigInt(0) };
       if (quote.source === 'engineering') { item.engineeringCount += 1; item.engineeringCents += cents; } else { item.maintenanceCount += 1; item.maintenanceCents += cents; }
       item.totalCount += 1; item.totalCents += cents; users.set(key, item);
@@ -41,7 +41,7 @@ export async function GET(request: NextRequest) {
       return { month, engineeringCount: monthEngineering.length, engineeringAmount: sum(monthEngineering), maintenanceCount: monthMaintenance.length, maintenanceAmount: sum(monthMaintenance), totalCount: monthQuotes.length, totalAmount: sum(monthQuotes) };
     });
     const statuses = new Map<string, { count: number; cents: bigint }>();
-    for (const quote of quotes) { const item = statuses.get(quote.status) ?? { count: 0, cents: BigInt(0) }; item.count += 1; item.cents += quoteAmountToCents(quote.total); statuses.set(quote.status, item); }
+    for (const quote of quotes) { const item = statuses.get(quote.status) ?? { count: 0, cents: BigInt(0) }; item.count += 1; item.cents += quoteTotalToCents(quote); statuses.set(quote.status, item); }
     return NextResponse.json({ success: true, data: {
       overview: { totalCount: quotes.length, totalAmount, avgAmount: quotes.length ? totalAmount / quotes.length : 0, engineeringCount: engineering.length, engineeringAmount: sum(engineering), maintenanceCount: maintenance.length, maintenanceAmount: sum(maintenance) },
       topUsers, monthlyStats, byStatus: [...statuses].map(([status, item]) => ({ status, count: item.count, amount: quoteCentsToNumber(item.cents) })),

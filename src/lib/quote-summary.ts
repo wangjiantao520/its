@@ -45,6 +45,7 @@ const SOURCE_TABLES: Record<QuoteSource, 'engineering_quotes' | 'maintenance_quo
   maintenance: 'maintenance_quotes',
   quotation: 'quotation_records',
 };
+const exactQuoteTotals = new WeakMap<QuoteSummary, bigint>();
 
 function toSafeId(value: string | number | bigint): number {
   const parsed = typeof value === 'bigint' ? value : BigInt(value);
@@ -62,30 +63,42 @@ function toIsoString(value: Date | string | null): string {
 }
 
 export function quoteAmountToNumber(value: string | number | null): number {
+  return quoteCentsToNumber(quoteAmountToCents(value));
+}
+
+export function quoteAmountToCents(value: string | number | null): bigint {
   const text = value === null ? '0' : String(value).trim();
   const match = /^(\d+)(?:\.(\d{1,2}))?$/.exec(text);
   if (!match) throw new RangeError('PostgreSQL returned an invalid quote amount.');
   const cents = BigInt(match[1]) * BigInt(100) + BigInt((match[2] ?? '').padEnd(2, '0') || '0');
-  if (cents > BigInt(Number.MAX_SAFE_INTEGER)) {
-    throw new RangeError('Quote amount exceeds frontend safe numeric range.');
-  }
-  return Number(cents) / 100;
-}
-
-export function quoteAmountToCents(value: string | number | null): bigint {
-  const normalized = quoteAmountToNumber(value);
-  return BigInt(normalized.toFixed(2).replace('.', ''));
+  return cents;
 }
 
 export function quoteCentsToNumber(value: bigint): number {
   if (value > BigInt(Number.MAX_SAFE_INTEGER) || value < BigInt(Number.MIN_SAFE_INTEGER)) {
     throw new RangeError('Quote aggregate exceeds frontend safe numeric range.');
   }
-  return Number(value) / 100;
+  const numericCents = Number(value);
+  const amount = numericCents / 100;
+  if (Math.round(amount * 100) !== numericCents) {
+    throw new RangeError('Quote aggregate exceeds frontend safe numeric range.');
+  }
+  return amount;
 }
 
 export function sumQuoteTotals(quotes: readonly Pick<QuoteSummary, 'total'>[]): number {
-  return quoteCentsToNumber(quotes.reduce((sum, quote) => sum + quoteAmountToCents(quote.total), BigInt(0)));
+  return quoteCentsToNumber(sumQuoteTotalCents(quotes));
+}
+
+export function sumQuoteTotalCents(quotes: readonly Pick<QuoteSummary, 'total'>[]): bigint {
+  return quotes.reduce(
+    (sum, quote) => sum + (exactQuoteTotals.get(quote as QuoteSummary) ?? quoteAmountToCents(quote.total)),
+    BigInt(0),
+  );
+}
+
+export function quoteTotalToCents(quote: Pick<QuoteSummary, 'total'>): bigint {
+  return exactQuoteTotals.get(quote as QuoteSummary) ?? quoteAmountToCents(quote.total);
 }
 
 export function parseQuoteIdentity(value: string): { source: QuoteSource; id: number } | null {
@@ -195,7 +208,7 @@ export async function getQuoteSummaries(
   return result.rows.map((row) => {
     const source = row.source as QuoteSource;
     const id = toSafeId(row.id);
-    return {
+    const summary: QuoteSummary = {
       identity: `${source}:${id}` as QuoteSummary['identity'],
       source,
       id,
@@ -209,5 +222,7 @@ export async function getQuoteSummaries(
       createdAt: toIsoString(row.created_at),
       updatedAt: toIsoString(row.updated_at ?? row.created_at),
     };
+    exactQuoteTotals.set(summary, quoteAmountToCents(row.total));
+    return summary;
   }).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || b.id - a.id);
 }

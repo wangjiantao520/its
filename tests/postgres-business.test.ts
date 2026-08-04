@@ -5,7 +5,7 @@ import test from 'node:test';
 import { NextRequest } from 'next/server';
 
 import type { DatabaseClient, QueryResult } from '../src/lib/database/client';
-import { hashAuthToken } from '../src/lib/auth-session-store';
+import { hashAuthToken, saveSession } from '../src/lib/auth-session-store';
 import { canAccessQuote } from '../src/lib/quote-access';
 import { consumeQuoteShare } from '../src/lib/quote-share';
 import { getQuoteSummaries, updateQuoteDetails, updateQuoteStatus } from '../src/lib/quote-summary';
@@ -13,9 +13,14 @@ import { runPostgresMigrations } from '../src/lib/database/postgres-migrations';
 import * as engineeringRoutes from '../src/app/api/engineering-quotes/route';
 import * as engineeringDetailRoutes from '../src/app/api/engineering-quotes/[id]/route';
 import * as maintenanceRoutes from '../src/app/api/maintenance-quotes/route';
+import * as quotationRoutes from '../src/app/api/quotations/route';
+import * as quotationDetailRoutes from '../src/app/api/quotations/[id]/route';
 import * as statusRoutes from '../src/app/api/quotes/[id]/status/route';
+import * as unifiedQuoteRoutes from '../src/app/api/quotes/[id]/route';
 import * as shareRoutes from '../src/app/api/quotes/share/route';
 import * as publicShareRoutes from '../src/app/api/share/[token]/route';
+import * as versionRoutes from '../src/app/api/quotes/versions/route';
+import * as versionDetailRoutes from '../src/app/api/quotes/versions/[id]/route';
 import * as dashboardRoutes from '../src/app/api/dashboard/stats/route';
 import { createPostgresTestHarness, POSTGRES_TEST_SKIP_REASON } from './helpers/postgres';
 
@@ -79,7 +84,15 @@ class RouteDatabase implements DatabaseClient {
   readonly maintenance: StoredQuote[] = [];
   readonly audits: Array<Record<string, unknown>> = [];
   readonly shares: Array<Record<string, unknown>> = [];
+  readonly quotations: Array<Record<string, unknown>> = [];
+  readonly quotationDevices: Array<Record<string, unknown>> = [];
+  readonly versions: Array<Record<string, unknown>> = [];
   transactionCount = 0;
+  summaryBarrierTarget = 0;
+  private summaryBarrierCount = 0;
+  private summaryBarrierRelease: (() => void) | null = null;
+  private summaryBarrierPromise: Promise<void> | null = null;
+  private transactionTail: Promise<void> = Promise.resolve();
 
   private readonly sessions = new Map([
     [hashAuthToken('admin-token'), { role: 'admin', user_id: null, username: null, name: '管理员', expires_at: Date.now() + 60_000 }],
@@ -136,11 +149,22 @@ class RouteDatabase implements DatabaseClient {
     }
     if (sql.includes('UNION ALL')) {
       const source = params[0] === null ? null : String(params[0]); const owner = params[1] === null ? null : String(params[1]);
-      return rows(this.summaryRows().filter((row) => (!source || row.source === source) && (!owner || row.created_by === owner)));
+      const snapshot = this.summaryRows().map((row) => ({ ...row })).filter((row) => (!source || row.source === source) && (!owner || row.created_by === owner));
+      if (this.summaryBarrierTarget > 0 && source === 'engineering') {
+        if (!this.summaryBarrierPromise) this.summaryBarrierPromise = new Promise<void>((resolve) => { this.summaryBarrierRelease = resolve; });
+        this.summaryBarrierCount += 1;
+        if (this.summaryBarrierCount >= this.summaryBarrierTarget) this.summaryBarrierRelease?.();
+        await this.summaryBarrierPromise;
+      }
+      return rows(snapshot);
     }
     if (sql.startsWith('UPDATE engineering_quotes SET status')) {
       const quote = this.engineering.find((row) => row.id === Number(params[1]));
-      if (!quote) return rows([]); quote.status = String(params[0]); quote.updated_at = '2026-08-04T03:00:00.000Z'; return rows([{ id: String(quote.id) }]);
+      if (!quote || (params[2] !== undefined && quote.status !== params[2])) return rows([]); quote.status = String(params[0]); quote.updated_at = '2026-08-04T03:00:00.000Z'; return rows([{ id: String(quote.id) }]);
+    }
+    if (sql.startsWith('SELECT id, quote_number AS quote_number, status FROM engineering_quotes')) {
+      const quote = this.engineering.find((row) => row.id === Number(params[0]) && (params[1] === undefined || row.created_by === String(params[1])));
+      return rows(quote ? [{ id: String(quote.id), quote_number: quote.quote_number, status: quote.status }] : []);
     }
     if (sql.includes('INSERT INTO quote_audit_logs')) {
       const id = this.audits.length + 1; this.audits.push({ id, quote_id: params[0], quote_type: params[1], action: params[2], from_status: params[3], to_status: params[4], operator: params[6] }); return rows([{ id: String(id) }]);
@@ -155,10 +179,70 @@ class RouteDatabase implements DatabaseClient {
       const share = this.shares.find((item) => item.id === String(params[0]));
       if (!share) return rows([]); share.view_count = Number(share.view_count) + 1; return rows([{ view_count: share.view_count }]);
     }
+    if (sql.startsWith('SELECT share.id, share.token')) {
+      const limit = Number(params[1]); const offset = Number(params[2]);
+      return rows(this.shares.slice(offset, offset + limit));
+    }
+    if (sql.startsWith('SELECT COUNT(*)::text AS total FROM quote_shares')) return rows([{ total: String(this.shares.length) }]);
+    if (sql.includes('INSERT INTO quotation_records')) {
+      const id = this.quotations.length + 301;
+      const quotation = { id: String(id), user_id: String(params[0]), client_name: params[1], client_region: params[2], project_name: params[3], quote_type: params[4], total_amount: String(params[5]), device_count: params[6], quote_data: params[7] ? JSON.parse(String(params[7])) : null, status: 'draft', created_at: '2026-08-04T04:00:00.000Z', updated_at: '2026-08-04T04:00:00.000Z', name: String(params[0]) === '11' ? '成员甲' : '成员乙', username: String(params[0]) === '11' ? 'member-a' : 'member-b' };
+      this.quotations.push(quotation); return rows([{ id: String(id) }]);
+    }
+    if (sql.includes('INSERT INTO quotation_devices')) {
+      const id = this.quotationDevices.length + 1; this.quotationDevices.push({ id: String(id), quotation_id: String(params[0]), device_name: params[1] }); return rows([{ id: String(id) }]);
+    }
+    if (sql.startsWith('SELECT quotation.*, owner.name')) {
+      const detail = sql.includes('WHERE quotation.id = $1');
+      if (detail) return rows(this.quotations.filter((row) => Number(row.id) === Number(params[0])));
+      const owner = sql.includes('quotation.user_id = $1') ? String(params[0]) : null;
+      const limit = Number(params.at(-2)); const offset = Number(params.at(-1));
+      return rows(this.quotations.filter((row) => !owner || String(row.user_id) === owner).slice(offset, offset + limit));
+    }
+    if (sql.startsWith('SELECT COUNT(*)::text AS total FROM quotation_records')) {
+      const owner = sql.includes('user_id = $1') ? String(params[0]) : null; return rows([{ total: String(this.quotations.filter((row) => !owner || String(row.user_id) === owner).length) }]);
+    }
+    if (sql.startsWith('SELECT * FROM quotation_devices')) return rows(this.quotationDevices.filter((row) => Number(row.quotation_id) === Number(params[0])));
+    if (sql.startsWith('SELECT id, user_id FROM quotation_records')) return rows(this.quotations.filter((row) => Number(row.id) === Number(params[0])).map((row) => ({ id: row.id, user_id: row.user_id })));
+    if (sql.startsWith('DELETE FROM quotation_devices')) {
+      const deleted = this.quotationDevices.filter((row) => Number(row.quotation_id) === Number(params[0])); return rows(deleted.map((row) => ({ id: row.id })), deleted.length);
+    }
+    if (sql.startsWith('DELETE FROM quotation_records')) {
+      const index = this.quotations.findIndex((row) => Number(row.id) === Number(params[0])); if (index < 0) return rows([]); const [deleted] = this.quotations.splice(index, 1); return rows([{ id: deleted.id }]);
+    }
+    if (sql.startsWith('SELECT * FROM maintenance_quotes WHERE id=$1 FOR UPDATE')) return rows(this.maintenance.filter((row) => row.id === Number(params[0])));
+    if (sql.startsWith('SELECT id, version, data FROM quote_versions')) {
+      const matches = this.versions.filter((row) => Number(row.quote_id) === Number(params[0]) && row.quote_type === params[1]).sort((a, b) => Number(b.version) - Number(a.version)); return rows(matches.slice(0, 1));
+    }
+    if (sql.includes('INSERT INTO quote_versions')) {
+      const id = this.versions.length + 1; const version = { id: String(id), quote_id: String(params[0]), quote_type: params[1], version: params[2], data: JSON.parse(String(params[3])), change_summary: params[4], created_by: params[5], created_at: '2026-08-04T05:00:00.000Z' }; this.versions.push(version); return rows([version]);
+    }
+    if (sql.startsWith('SELECT id, quote_id, quote_type, version, change_summary')) return rows(this.versions.filter((row) => Number(row.quote_id) === Number(params[0]) && row.quote_type === params[1]));
+    if (sql.startsWith('SELECT id, quote_id, quote_type, version, data')) return rows(this.versions.filter((row) => Number(row.id) === Number(params[0])));
+    if (sql.startsWith('SELECT id FROM maintenance_quotes WHERE id=$1')) return rows(this.maintenance.some((row) => row.id === Number(params[0]) && (params[1] === undefined || row.created_by === String(params[1]))) ? [{ id: String(params[0]) }] : []);
+    if (sql.startsWith('SELECT COALESCE(MAX(version)')) return rows([{ max_version: Math.max(0, ...this.versions.filter((row) => Number(row.quote_id) === Number(params[0]) && row.quote_type === params[1]).map((row) => Number(row.version))) }]);
+    if (sql.startsWith('UPDATE maintenance_quotes SET')) {
+      const quote = this.maintenance.find((row) => row.id === Number(params.at(-1))); if (!quote) return rows([]);
+      const assignments = / SET (.+) WHERE /.exec(sql)?.[1].split(', ') ?? [];
+      for (const assignment of assignments) {
+        const match = /^(\w+)=\$(\d+)(::jsonb)?$/.exec(assignment);
+        if (!match) continue;
+        const raw = params[Number(match[2]) - 1];
+        quote[match[1]] = match[3] && typeof raw === 'string' ? JSON.parse(raw) : raw;
+      }
+      return rows([{ id: String(quote.id) }]);
+    }
     throw new Error(`Unexpected SQL: ${sql}`);
   }
 
-  async transaction<T>(work: (client: DatabaseClient) => Promise<T>): Promise<T> { this.transactionCount += 1; return await work(this); }
+  async transaction<T>(work: (client: DatabaseClient) => Promise<T>): Promise<T> {
+    this.transactionCount += 1;
+    const previous = this.transactionTail;
+    let release: (() => void) | undefined;
+    this.transactionTail = new Promise<void>((resolve) => { release = resolve; });
+    await previous;
+    try { return await work(this); } finally { release?.(); }
+  }
   async healthCheck(): Promise<void> {}
   async close(): Promise<void> {}
 }
@@ -185,6 +269,7 @@ test('route business flow distinguishes auth, validation, ownership, admin, audi
     assert.equal((await engineeringDetailRoutes.GET(request('/api/engineering-quotes/101', 'member-b-token'), { params: Promise.resolve({ id: '101' }) })).status, 404);
     assert.equal((await engineeringDetailRoutes.GET(request('/api/engineering-quotes/101', 'admin-token'), { params: Promise.resolve({ id: '101' }) })).status, 200);
     assert.equal((await engineeringRoutes.PUT(request('/api/engineering-quotes', 'member-b-token', 'PUT', { id: 101, quoteNumber: 'ENG-20260804-001', projectName: '越权修改' }))).status, 403);
+    assert.equal((await unifiedQuoteRoutes.DELETE(request('/api/quotes/engineering%3A101', 'member-b-token', 'DELETE'), { params: Promise.resolve({ id: 'engineering:101' }) })).status, 403);
 
     const transitioned = await statusRoutes.PUT(request('/api/quotes/engineering%3A101/status', 'member-a-token', 'PUT', { action: 'submit_review', comment: '请审核' }), { params: Promise.resolve({ id: 'engineering:101' }) });
     assert.equal(transitioned.status, 200); assert.equal(database.audits.length, 1); assert.equal(database.engineering[0]?.status, 'pending_review'); assert.ok(database.transactionCount >= 1);
@@ -203,6 +288,79 @@ test('route business flow distinguishes auth, validation, ownership, admin, audi
   } finally {
     delete globalDatabase.__itsPostgresDatabaseClient__;
   }
+});
+
+test('concurrent status transitions lock the current status and write exactly one audit record', async () => {
+  const database = new RouteDatabase();
+  database.engineering.push({ id: 101, quote_number: 'ENG-RACE', project_name: '并发工程', client_name: '客户甲', total: '100.00', status: 'draft', created_by: '11', created_by_name: '成员甲', created_at: '2026-08-04T01:00:00.000Z', updated_at: '2026-08-04T01:00:00.000Z' });
+  database.summaryBarrierTarget = 2;
+  const globalDatabase = globalThis as typeof globalThis & { __itsPostgresDatabaseClient__?: DatabaseClient };
+  globalDatabase.__itsPostgresDatabaseClient__ = database;
+  try {
+    const invoke = () => statusRoutes.PUT(request('/api/quotes/engineering%3A101/status', 'member-a-token', 'PUT', { action: 'submit_review' }), { params: Promise.resolve({ id: 'engineering:101' }) });
+    const responses = await Promise.all([invoke(), invoke()]);
+    const statuses = responses.map((response) => response.status);
+    assert.equal(statuses.filter((status) => status === 200).length, 1);
+    assert.ok(statuses.some((status) => status === 400 || status === 409));
+    assert.equal(database.audits.length, 1);
+  } finally { delete globalDatabase.__itsPostgresDatabaseClient__; }
+});
+
+test('version save/list/detail/restore preserves supplied maintenance DTO fields', async () => {
+  const database = new RouteDatabase();
+  database.maintenance.push({ id: 201, quote_number: 'MAINT-VERSION', project_name: '旧项目', client_name: '旧客户', total: '100.00', status: 'draft', created_by: '11', created_by_name: '成员甲', created_at: '2026-08-04T01:00:00.000Z', updated_at: '2026-08-04T01:00:00.000Z' });
+  const globalDatabase = globalThis as typeof globalThis & { __itsPostgresDatabaseClient__?: DatabaseClient };
+  globalDatabase.__itsPostgresDatabaseClient__ = database;
+  try {
+    const quoteData = { versionName: '客户确认版', projectName: '新项目', clientName: '新客户', total: 345.67, devices: [{ name: '摄像机', quantity: 2 }] };
+    const saved = await payload(await versionRoutes.POST(request('/api/quotes/versions', 'member-a-token', 'POST', { quoteId: 201, quoteType: 'maintenance', quoteData })));
+    assert.equal((saved.data as Record<string, unknown>).version, 1);
+    const listed = await payload(await versionRoutes.GET(request('/api/quotes/versions?quoteId=201&quoteType=maintenance', 'member-a-token')));
+    assert.equal((listed.data as unknown[]).length, 1);
+    const detail = await payload(await versionDetailRoutes.GET(request('/api/quotes/versions/1', 'member-a-token'), { params: Promise.resolve({ id: '1' }) }));
+    assert.deepEqual((detail.data as Record<string, unknown>).data, quoteData);
+    const revised = { ...quoteData, versionName: '最终审定版', total: 456.78 };
+    const second = await payload(await versionRoutes.POST(request('/api/quotes/versions', 'member-a-token', 'POST', { quoteId: 201, quoteType: 'maintenance', quoteData: revised })));
+    assert.equal((second.data as Record<string, unknown>).version, 2);
+    assert.match(String((second.data as Record<string, unknown>).changeSummary), /versionName/);
+    assert.match(String((second.data as Record<string, unknown>).changeSummary), /total/);
+    const restored = await versionDetailRoutes.POST(request('/api/quotes/versions/1', 'member-a-token', 'POST'), { params: Promise.resolve({ id: '1' }) });
+    assert.equal(restored.status, 200);
+    assert.equal(database.maintenance[0]?.project_name, '新项目');
+    assert.equal(database.maintenance[0]?.client_name, '新客户');
+    assert.equal(database.maintenance[0]?.total, 345.67);
+    assert.deepEqual(database.maintenance[0]?.devices, [{ name: '摄像机', quantity: 2 }]);
+  } finally { delete globalDatabase.__itsPostgresDatabaseClient__; }
+});
+
+test('share list uses a visibility-matched count and public shares distinguish expiry', async () => {
+  const database = new RouteDatabase();
+  for (let index = 0; index < 3; index += 1) database.shares.push({ id: String(index + 1), token: `${index}`.padStart(32, 'a'), quote_id: 101, quote_type: 'engineering', expires_at: '2026-08-11T00:00:00.000Z', max_views: 0, view_count: 0, is_active: true, created_at: `2026-08-0${index + 1}T00:00:00.000Z` });
+  const globalDatabase = globalThis as typeof globalThis & { __itsPostgresDatabaseClient__?: DatabaseClient };
+  globalDatabase.__itsPostgresDatabaseClient__ = database;
+  try {
+    const secondPage = await payload(await shareRoutes.GET(request('/api/quotes/share?page=2&limit=2', 'admin-token')));
+    assert.deepEqual(secondPage.pagination, { page: 2, limit: 2, total: 3, totalPages: 2 });
+    const expiredToken = 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+    database.shares.push({ id: '4', token: expiredToken, quote_id: 101, quote_type: 'engineering', expires_at: '2026-08-03T00:00:00.000Z', max_views: 0, view_count: 0, is_active: true });
+    const expired = await publicShareRoutes.GET(request(`/api/share/${expiredToken}`), { params: Promise.resolve({ token: expiredToken }) });
+    assert.equal(expired.status, 410);
+  } finally { delete globalDatabase.__itsPostgresDatabaseClient__; }
+});
+
+test('quotation create/list/detail/delete remains isolated between two members', async () => {
+  const database = new RouteDatabase();
+  const globalDatabase = globalThis as typeof globalThis & { __itsPostgresDatabaseClient__?: DatabaseClient };
+  globalDatabase.__itsPostgresDatabaseClient__ = database;
+  try {
+    assert.equal((await quotationRoutes.POST(request('/api/quotations', 'member-a-token', 'POST', { client_name: '客户甲', project_name: '甲项目', total_amount: 10, devices: [] }))).status, 201);
+    assert.equal((await quotationRoutes.POST(request('/api/quotations', 'member-b-token', 'POST', { client_name: '客户乙', project_name: '乙项目', total_amount: 20, devices: [] }))).status, 201);
+    const memberA = await payload(await quotationRoutes.GET(request('/api/quotations', 'member-a-token')));
+    assert.equal(((memberA.data as Record<string, unknown>).records as unknown[]).length, 1);
+    assert.equal((await quotationDetailRoutes.GET(request('/api/quotations/301', 'member-b-token'), { params: Promise.resolve({ id: '301' }) })).status, 403);
+    assert.equal((await quotationDetailRoutes.DELETE(request('/api/quotations/301', 'member-b-token', 'DELETE'), { params: Promise.resolve({ id: '301' }) })).status, 403);
+    assert.equal((await quotationDetailRoutes.DELETE(request('/api/quotations/301', 'member-a-token', 'DELETE'), { params: Promise.resolve({ id: '301' }) })).status, 200);
+  } finally { delete globalDatabase.__itsPostgresDatabaseClient__; }
 });
 
 const scopedFiles = [
@@ -253,4 +411,27 @@ test('live PostgreSQL quote business flow', {
   `, [token, engineeringId]);
   assert.equal((await consumeQuoteShare(harness.client, token)).ok, true);
   assert.deepEqual(await consumeQuoteShare(harness.client, token), { ok: false, reason: 'view_limit' });
+
+  const raceQuote = await harness.client.query<{ id: string } & Record<string, unknown>>(`
+    INSERT INTO engineering_quotes (quote_number, project_name, total, status, created_by)
+    VALUES ($1,$2,$3,'draft',$4) RETURNING id::text AS id
+  `, ['ENG-LIVE-RACE', '并发状态集成', '10.00', '11']);
+  const raceId = Number(raceQuote.rows[0]?.id);
+  await saveSession(harness.client, 'live-admin-token', { role: 'admin', name: '集成管理员', expiresAt: Date.now() + 60_000 });
+  const globalDatabase = globalThis as typeof globalThis & { __itsPostgresDatabaseClient__?: DatabaseClient };
+  globalDatabase.__itsPostgresDatabaseClient__ = harness.client;
+  try {
+    const invoke = () => statusRoutes.PUT(
+      request(`/api/quotes/engineering%3A${raceId}/status`, 'live-admin-token', 'PUT', { action: 'submit_review' }),
+      { params: Promise.resolve({ id: `engineering:${raceId}` }) },
+    );
+    const statuses = (await Promise.all([invoke(), invoke()])).map((response) => response.status);
+    assert.equal(statuses.filter((status) => status === 200).length, 1);
+    assert.ok(statuses.some((status) => status === 400 || status === 409));
+    const audits = await harness.client.query<{ count: string } & Record<string, unknown>>(
+      "SELECT COUNT(*)::text AS count FROM quote_audit_logs WHERE quote_id=$1 AND quote_type='engineering'",
+      [raceId],
+    );
+    assert.equal(audits.rows[0]?.count, '1');
+  } finally { delete globalDatabase.__itsPostgresDatabaseClient__; }
 });

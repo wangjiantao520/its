@@ -6,6 +6,10 @@ import {
   deleteQuoteByIdentity,
   getQuoteSummaries,
   parseQuoteIdentity,
+  quoteAmountToCents,
+  quoteCentsToNumber,
+  sumQuoteTotalCents,
+  sumQuoteTotals,
   updateQuoteDetails,
   updateQuoteStatus,
 } from '../src/lib/quote-summary';
@@ -98,6 +102,18 @@ test('parses only explicit source-aware quote identities', () => {
   assert.equal(parseQuoteIdentity('unknown:1'), null);
   assert.equal(parseQuoteIdentity('engineering:-1'), null);
   assert.equal(parseQuoteIdentity('engineering:9007199254740992'), null);
+});
+
+test('parses high-value PostgreSQL numerics lexically without changing the final cent', () => {
+  assert.equal(quoteAmountToCents('90071992547409.90'), BigInt('9007199254740990'));
+  assert.equal(quoteAmountToCents('0.01') + quoteAmountToCents('0.02'), BigInt(3));
+});
+
+test('aggregates exact hidden cents and rejects final DTO numbers that cannot round-trip a cent', async () => {
+  const summaries = await getQuoteSummaries(summaryDatabase());
+  assert.equal(sumQuoteTotalCents(summaries), BigInt('600060'));
+  assert.equal(sumQuoteTotals(summaries), 6000.6);
+  assert.throws(() => quoteCentsToNumber(BigInt('9007199254740990')), /safe numeric range/);
 });
 
 test('updates and deletes only allowlisted source tables with RETURNING and PostgreSQL placeholders', async () => {

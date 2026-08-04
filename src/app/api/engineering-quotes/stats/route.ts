@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireApiAuth } from '@/lib/api-auth-server';
 import { getDatabase } from '@/lib/database/client';
-import { getQuoteSummaries, quoteAmountToCents, quoteCentsToNumber, sumQuoteTotals } from '@/lib/quote-summary';
+import { getQuoteSummaries, quoteCentsToNumber, quoteTotalToCents, sumQuoteTotals } from '@/lib/quote-summary';
 
 export async function GET(request: NextRequest) {
   const auth = await requireApiAuth(request);
@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
       const map = new Map<K, { count: number; cents: bigint }>();
       for (const quote of quotes) {
         const item = map.get(key(quote)) ?? { count: 0, cents: BigInt(0) };
-        item.count += 1; item.cents += quoteAmountToCents(quote.total); map.set(key(quote), item);
+        item.count += 1; item.cents += quoteTotalToCents(quote); map.set(key(quote), item);
       }
       return map;
     };
