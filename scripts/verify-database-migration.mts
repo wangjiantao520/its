@@ -20,7 +20,6 @@ const HELP = `Usage:
 
 Options:
   --source <path>   Source SQLite database (opened read-only)
-  --target <url>    Optional override; DATABASE_MIGRATION_URL is recommended
   --report <path>   Atomic JSON verification report output
   --help            Show this help
 `;
@@ -55,11 +54,10 @@ function parseArguments(
     const argument = argv[index];
     if (argument === '--help') {
       help = true;
-    } else if (argument === '--source' || argument === '--target' || argument === '--report') {
+    } else if (argument === '--source' || argument === '--report') {
       const value = argv[index + 1];
       if (!value || value.startsWith('--')) throw new Error(`Missing value for ${argument}.`);
       if (argument === '--source') source = value;
-      if (argument === '--target') target = value;
       if (argument === '--report') report = value;
       index += 1;
     } else {
@@ -67,7 +65,7 @@ function parseArguments(
     }
   }
   if (help) return { source, target, report, help };
-  target = target.trim() || (env.DATABASE_MIGRATION_URL ?? '').trim();
+  target = (env.DATABASE_MIGRATION_URL ?? '').trim();
   if (!source || !target || !report) throw new Error('Required verification options are missing.');
   return { source, target, report, help };
 }

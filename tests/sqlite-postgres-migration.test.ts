@@ -757,7 +757,7 @@ test('verification detects polymorphic quote orphans across versions, shares, au
   );
 });
 
-test('target schema contract rejects type, numeric scale, nullability, identity, and constraint drift', () => {
+test('target schema contract rejects type, precision, scale, default, nullability, identity, and constraint drift', () => {
   const expected = loadCanonicalTargetSchemaContract();
   const includedTables = new Set(MIGRATION_TABLES.map(({ name }) => name));
   const columns: TargetColumnMetadata[] = expected.columns
@@ -788,7 +788,9 @@ test('target schema contract rejects type, numeric scale, nullability, identity,
 
   const corruptions: Array<(values: TargetColumnMetadata[]) => void> = [
     (values) => { values.find(({ table_name, column_name }) => table_name === 'users' && column_name === 'id')!.udt_name = 'int4'; },
+    (values) => { values.find(({ table_name, column_name }) => table_name === 'engineering_quotes' && column_name === 'total')!.numeric_precision = 19; },
     (values) => { values.find(({ table_name, column_name }) => table_name === 'engineering_quotes' && column_name === 'total')!.numeric_scale = 3; },
+    (values) => { values.find(({ table_name, column_name }) => table_name === 'users' && column_name === 'role')!.column_default = "'unexpected_role'"; },
     (values) => { values.find(({ table_name, column_name }) => table_name === 'users' && column_name === 'username')!.is_nullable = 'YES'; },
     (values) => { values.find(({ table_name, column_name }) => table_name === 'users' && column_name === 'id')!.is_identity = 'NO'; },
   ];
@@ -807,6 +809,25 @@ test('target schema contract rejects type, numeric scale, nullability, identity,
   ));
   assert.throws(
     () => assertTargetSchemaContract(expected, columns, missingForeignKey, includedTables),
+    /constraints.*canonical manifest/i,
+  );
+
+  const missingPrimaryKey = constraints.filter((constraint) => !(
+    constraint.table_name === 'users'
+    && constraint.constraint_type === 'PRIMARY KEY'
+  ));
+  assert.throws(
+    () => assertTargetSchemaContract(expected, columns, missingPrimaryKey, includedTables),
+    /constraints.*canonical manifest/i,
+  );
+
+  const missingUniqueConstraint = constraints.filter((constraint) => !(
+    constraint.table_name === 'users'
+    && constraint.constraint_type === 'UNIQUE'
+    && constraint.column_name === 'username'
+  ));
+  assert.throws(
+    () => assertTargetSchemaContract(expected, columns, missingUniqueConstraint, includedTables),
     /constraints.*canonical manifest/i,
   );
 });
@@ -851,11 +872,10 @@ async function assertCliRejectsSourceReportAlias(
   const dependencies = {
     argv: [
       '--source', sourcePath,
-      '--target', 'postgres://redacted.invalid/db',
       '--report', reportPath,
       ...(cli === 'import' ? ['--maintenance-mode-confirmed'] : []),
     ],
-    env: {},
+    env: { DATABASE_MIGRATION_URL: 'postgres://redacted.invalid/db' },
     createClient: (): DatabaseClient => {
       clientCreated = true;
       throw new Error('client must not be created for an unsafe report path');
@@ -1000,7 +1020,8 @@ test('migration CLIs provide help and redact malformed target credentials', () =
     encoding: 'utf8',
   });
   assert.equal(importHelp.status, 0, importHelp.stderr);
-  assert.match(importHelp.stdout, /--source[\s\S]*--target[\s\S]*--report/);
+  assert.match(importHelp.stdout, /--source[\s\S]*--report/);
+  assert.doesNotMatch(importHelp.stdout, /--target/);
   assert.match(importHelp.stdout, /--allow-nonempty-target/);
   assert.match(importHelp.stdout, /--maintenance-mode-confirmed/);
 
@@ -1009,7 +1030,8 @@ test('migration CLIs provide help and redact malformed target credentials', () =
     encoding: 'utf8',
   });
   assert.equal(verifyHelp.status, 0, verifyHelp.stderr);
-  assert.match(verifyHelp.stdout, /--source[\s\S]*--target[\s\S]*--report/);
+  assert.match(verifyHelp.stdout, /--source[\s\S]*--report/);
+  assert.doesNotMatch(verifyHelp.stdout, /--target/);
 
   const username = 'migration_user_secret';
   const password = 'migration_password_secret';
@@ -1031,13 +1053,45 @@ test('migration CLIs provide help and redact malformed target credentials', () =
   for (const secret of [target, username, password]) assert.equal(output.includes(secret), false);
 });
 
+test('migration CLIs reject target URL arguments before creating a client', async (t) => {
+  const sourcePath = createFixture(t);
+  const directory = temporaryDirectory(t);
+  const target = 'postgres://argument-user:argument-password@invalid/db';
+  for (const cli of ['import', 'verify'] as const) {
+    let clientCreated = false;
+    const messages: string[] = [];
+    const dependencies = {
+      argv: [
+        '--source', sourcePath,
+        '--target', target,
+        '--report', path.join(directory, `${cli}-report.json`),
+        ...(cli === 'import' ? ['--maintenance-mode-confirmed'] : []),
+      ],
+      env: { DATABASE_MIGRATION_URL: 'postgres://environment.invalid/db' },
+      createClient: (): DatabaseClient => {
+        clientCreated = true;
+        throw new Error('client must not be created for a rejected target argument');
+      },
+      writeStdout: (message: string) => messages.push(message),
+      writeStderr: (message: string) => messages.push(message),
+    };
+    const exitCode = cli === 'import'
+      ? await runImportCli(dependencies)
+      : await runVerifyCli(dependencies);
+    assert.equal(exitCode, 1, cli);
+    assert.equal(clientCreated, false, cli);
+    assert.equal(messages.join('\n').includes(target), false, cli);
+    assert.equal(messages.join('\n').includes('argument-password'), false, cli);
+  }
+});
+
 test('import CLI requires explicit maintenance-mode confirmation before DB work', async (t) => {
   const sourcePath = createFixture(t);
   const reportPath = path.join(temporaryDirectory(t), 'report.json');
   let clientCreatedWithoutConfirmation = false;
   const withoutConfirmation = await runImportCli({
-    argv: ['--source', sourcePath, '--target', 'postgres://redacted.invalid/db', '--report', reportPath],
-    env: {},
+    argv: ['--source', sourcePath, '--report', reportPath],
+    env: { DATABASE_MIGRATION_URL: 'postgres://redacted.invalid/db' },
     createClient: () => {
       clientCreatedWithoutConfirmation = true;
       throw new Error('must not create client');
@@ -1052,11 +1106,10 @@ test('import CLI requires explicit maintenance-mode confirmation before DB work'
   await runImportCli({
     argv: [
       '--source', sourcePath,
-      '--target', 'postgres://redacted.invalid/db',
       '--report', reportPath,
       '--maintenance-mode-confirmed',
     ],
-    env: {},
+    env: { DATABASE_MIGRATION_URL: 'postgres://redacted.invalid/db' },
     createClient: () => {
       clientCreatedWithConfirmation = true;
       throw new Error('confirmation accepted');
@@ -1189,7 +1242,7 @@ test('completed ledger recovers a failed report write without duplicate imports'
       },
     });
   const common = {
-    env: {},
+    env: { DATABASE_MIGRATION_URL: 'postgres://redacted.invalid/db' },
     createClient: () => client,
     migrateDatabase,
     preflightReport: preflightJsonReport,
@@ -1201,7 +1254,6 @@ test('completed ledger recovers a failed report write without duplicate imports'
     ...common,
     argv: [
       '--source', sourcePath,
-      '--target', 'postgres://redacted.invalid/db',
       '--report', reportPath,
       '--maintenance-mode-confirmed',
     ],
@@ -1220,7 +1272,6 @@ test('completed ledger recovers a failed report write without duplicate imports'
     ...common,
     argv: [
       '--source', sourcePath,
-      '--target', 'postgres://redacted.invalid/db',
       '--report', reportPath,
       '--maintenance-mode-confirmed',
     ],
@@ -1243,7 +1294,6 @@ test('completed ledger recovers a failed report write without duplicate imports'
     ...common,
     argv: [
       '--source', differentSource,
-      '--target', 'postgres://redacted.invalid/db',
       '--report', path.join(directory, 'different-report.json'),
       '--maintenance-mode-confirmed',
     ],

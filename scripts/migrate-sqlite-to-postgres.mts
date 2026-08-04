@@ -19,7 +19,6 @@ const HELP = `Usage:
 
 Options:
   --source <path>              Source SQLite database (opened read-only)
-  --target <url>               Optional override; DATABASE_MIGRATION_URL is recommended
   --report <path>              Atomic JSON report output
   --allow-nonempty-target      Allow existing schema metadata only; business rows still refuse
   --maintenance-mode-confirmed Confirm application writers are stopped for cutover
@@ -65,11 +64,10 @@ function parseArguments(
       allowNonemptyTarget = true;
     } else if (argument === '--maintenance-mode-confirmed') {
       maintenanceModeConfirmed = true;
-    } else if (argument === '--source' || argument === '--target' || argument === '--report') {
+    } else if (argument === '--source' || argument === '--report') {
       const value = argv[index + 1];
       if (!value || value.startsWith('--')) throw new Error(`Missing value for ${argument}.`);
       if (argument === '--source') source = value;
-      if (argument === '--target') target = value;
       if (argument === '--report') report = value;
       index += 1;
     } else {
@@ -79,7 +77,7 @@ function parseArguments(
   if (help) return {
     source, target, report, allowNonemptyTarget, maintenanceModeConfirmed, help,
   };
-  target = target.trim() || (env.DATABASE_MIGRATION_URL ?? '').trim();
+  target = (env.DATABASE_MIGRATION_URL ?? '').trim();
   if (!source || !target || !report) throw new Error('Required migration options are missing.');
   if (!maintenanceModeConfirmed) {
     throw new Error('Import requires --maintenance-mode-confirmed after stopping application writers.');

@@ -286,7 +286,7 @@ Before importing, the script must run SQLite `PRAGMA integrity_check`, use `data
 Command interface:
 
 ```bash
-pnpm db:import-sqlite --source data/quotation.db --target "$DATABASE_MIGRATION_URL" --report data/migration-report.json
+pnpm db:import-sqlite --source data/quotation.db --report data/migration-report.json --maintenance-mode-confirmed
 ```
 
 The script must refuse to run when the target contains business rows unless `--allow-nonempty-target` is explicitly provided.
@@ -653,8 +653,8 @@ Run the server against an isolated PostgreSQL schema and test every route as adm
 - [ ] **Step 2: Rehearse the real SQLite migration into a disposable PostgreSQL schema**
 
 ```bash
-pnpm db:import-sqlite --source data/quotation.db --target "$TEST_DATABASE_URL" --report /tmp/its-migration-report.json
-pnpm db:verify-migration --source data/quotation.db --target "$TEST_DATABASE_URL" --report /tmp/its-migration-verification.json
+DATABASE_MIGRATION_URL="$TEST_DATABASE_URL" pnpm db:import-sqlite --source data/quotation.db --report /tmp/its-migration-report.json --maintenance-mode-confirmed
+DATABASE_MIGRATION_URL="$TEST_DATABASE_URL" pnpm db:verify-migration --source data/quotation.db --report /tmp/its-migration-verification.json
 ```
 
 Expected: both reports contain `"success": true`.

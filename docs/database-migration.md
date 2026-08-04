@@ -11,13 +11,13 @@
 4. 执行一次性导入：
 
    ```bash
-   pnpm db:import-sqlite --source data/quotation.db --report migration-report.json --maintenance-mode-confirmed
+   pnpm db:import-sqlite --source data/quotation.db --report data/migration-import-report.json --maintenance-mode-confirmed
    ```
 
 5. 保持维护模式，再执行独立逐行核验：
 
    ```bash
-   pnpm db:verify-migration --source data/quotation.db --report verification-report.json
+   pnpm db:verify-migration --source data/quotation.db --report data/migration-verification-report.json
    ```
 
 6. 只有两个命令均成功且报告中的 `success` 为 `true` 时，才把应用运行连接切换到 PostgreSQL 并恢复服务。SQLite 原库和生成的备份均保留，不做删除或覆盖。
