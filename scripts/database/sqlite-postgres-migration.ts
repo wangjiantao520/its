@@ -19,6 +19,7 @@ import {
   MIGRATION_GROUPS,
   MIGRATION_TABLES,
   MONEY_COLUMNS,
+  NULLABLE_TEMPORAL_COLUMNS,
   OBSOLETE_TABLE,
   POLYMORPHIC_QUOTE_TABLES,
   SOURCE_METADATA_TABLES,
@@ -44,6 +45,7 @@ import {
   loadCanonicalTargetSchemaContract,
   type TargetColumnMetadata,
   type TargetConstraintMetadata,
+  type TargetIndexMetadata,
 } from './migration/target-schema';
 import {
   MigrationVerificationError,
@@ -93,6 +95,7 @@ export {
   parseTargetSchemaContract,
   type TargetColumnMetadata,
   type TargetConstraintMetadata,
+  type TargetIndexMetadata,
   type TargetSchemaContract,
 } from './migration/target-schema';
 export {
@@ -231,11 +234,32 @@ export async function assertTargetSchema(client: DatabaseClient): Promise<void> 
       AND tc.constraint_type IN ('PRIMARY KEY', 'UNIQUE', 'FOREIGN KEY')
     ORDER BY tc.table_name, tc.constraint_type, kcu.ordinal_position
   `);
+  const indexes = await client.query<TargetIndexMetadata>(`
+    SELECT table_relation.relname AS table_name,
+           index_relation.relname AS index_name,
+           index_state.indisunique AS is_unique,
+           array_to_string(ARRAY(
+             SELECT pg_get_indexdef(index_state.indexrelid, position, true)
+             FROM generate_series(1, index_state.indnkeyatts) AS key_positions(position)
+             ORDER BY position
+           ), ', ') AS key_definitions
+    FROM pg_catalog.pg_index index_state
+    JOIN pg_catalog.pg_class index_relation
+      ON index_relation.oid = index_state.indexrelid
+    JOIN pg_catalog.pg_class table_relation
+      ON table_relation.oid = index_state.indrelid
+    JOIN pg_catalog.pg_namespace table_namespace
+      ON table_namespace.oid = table_relation.relnamespace
+    WHERE table_namespace.nspname = current_schema()
+      AND NOT index_state.indisprimary
+    ORDER BY table_relation.relname, index_relation.relname
+  `);
   assertTargetSchemaContract(
     loadCanonicalTargetSchemaContract(),
     columns.rows,
     constraints.rows,
     new Set(MIGRATION_TABLES.map(({ name }) => name)),
+    indexes.rows,
   );
 }
 
@@ -465,6 +489,7 @@ export function buildMigrationRowVerification(
     booleanColumns: BOOLEAN_COLUMNS,
     moneyColumns: MONEY_COLUMNS,
     jsonColumns: JSON_COLUMNS,
+    nullableTemporalColumns: NULLABLE_TEMPORAL_COLUMNS,
     timestampColumns: TIMESTAMP_COLUMNS,
   });
 }

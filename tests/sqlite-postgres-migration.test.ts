@@ -31,6 +31,7 @@ import {
   type MigrationSnapshot,
   type TargetColumnMetadata,
   type TargetConstraintMetadata,
+  type TargetIndexMetadata,
 } from '../scripts/database/sqlite-postgres-migration';
 import { runImportCli } from '../scripts/migrate-sqlite-to-postgres.mts';
 import { runVerifyCli } from '../scripts/verify-database-migration.mts';
@@ -716,6 +717,39 @@ test('row verification covers ownership, status, and secret fields without repor
   assert.equal(serialized.includes('approved'), false);
 });
 
+test('row verification treats empty optional source dates as target nulls', (t) => {
+  const sourcePath = createFixture(t);
+  const database = new DatabaseSync(sourcePath);
+  database.exec("ALTER TABLE engineering_quotes ADD COLUMN quote_date TEXT; UPDATE engineering_quotes SET quote_date = ''");
+  database.close();
+  const snapshot = readSqliteSnapshot(sourcePath);
+  const targetRows = targetRowsFromSnapshot(snapshot);
+
+  const report = buildMigrationRowVerification(snapshot, targetRows);
+  assert.equal(report.success, true);
+  assert.equal(report.tables.engineering_quotes.rowsMatch, true);
+  assert.deepEqual(report.tables.engineering_quotes.columns.quote_date, {
+    sourceNullCount: 1,
+    targetNullCount: 1,
+    matches: true,
+  });
+});
+
+test('row verification preserves unsafe JSON integers through nested deterministic canonicalization', (t) => {
+  const snapshot = readSqliteSnapshot(createFixture(t));
+  snapshot.rows.engineering_quotes[0].items = '[{"outer":{"b":2,"a":[9007199254740992,{"deep":true}]}}]';
+  const targetRows = targetRowsFromSnapshot(snapshot);
+  targetRows.engineering_quotes[0].items = '[{"outer":{"a":[9007199254740992,{"deep":true}],"b":2}}]';
+
+  const reordered = buildMigrationRowVerification(snapshot, targetRows);
+  assert.equal(reordered.success, true);
+
+  targetRows.engineering_quotes[0].items = '[{"outer":{"a":[9007199254740993,{"deep":true}],"b":2}}]';
+  const adjacentInteger = buildMigrationRowVerification(snapshot, targetRows);
+  assert.equal(adjacentInteger.success, false);
+  assert.equal(adjacentInteger.tables.engineering_quotes.mismatchedCount, 1);
+});
+
 test('verification detects polymorphic quote orphans across versions, shares, audits, and history', (t) => {
   const sourcePath = createFixture(t);
   const database = new DatabaseSync(sourcePath);
@@ -757,7 +791,7 @@ test('verification detects polymorphic quote orphans across versions, shares, au
   );
 });
 
-test('target schema contract rejects type, precision, scale, default, nullability, identity, and constraint drift', () => {
+test('target schema contract rejects column, constraint, and migration-002 index drift', () => {
   const expected = loadCanonicalTargetSchemaContract();
   const includedTables = new Set(MIGRATION_TABLES.map(({ name }) => name));
   const columns: TargetColumnMetadata[] = expected.columns
@@ -784,7 +818,21 @@ test('target schema contract rejects type, precision, scale, default, nullabilit
       delete_rule: constraint.deleteRule,
     }));
 
-  assert.doesNotThrow(() => assertTargetSchemaContract(expected, columns, constraints, includedTables));
+  assert.ok(expected.indexes.length, 'canonical target schema must include migration-002 indexes');
+  const indexes: TargetIndexMetadata[] = expected.indexes.map((index) => ({
+    table_name: index.tableName,
+    index_name: index.indexName,
+    is_unique: index.unique,
+    key_definitions: index.keyDefinitions.join(', '),
+  }));
+
+  assert.doesNotThrow(() => assertTargetSchemaContract(
+    expected,
+    columns,
+    constraints,
+    includedTables,
+    indexes,
+  ));
 
   const corruptions: Array<(values: TargetColumnMetadata[]) => void> = [
     (values) => { values.find(({ table_name, column_name }) => table_name === 'users' && column_name === 'id')!.udt_name = 'int4'; },
@@ -798,7 +846,7 @@ test('target schema contract rejects type, precision, scale, default, nullabilit
     const changed = structuredClone(columns);
     corrupt(changed);
     assert.throws(
-      () => assertTargetSchemaContract(expected, changed, constraints, includedTables),
+      () => assertTargetSchemaContract(expected, changed, constraints, includedTables, indexes),
       /canonical manifest/i,
     );
   }
@@ -808,7 +856,7 @@ test('target schema contract rejects type, precision, scale, default, nullabilit
     && constraint.constraint_type === 'FOREIGN KEY'
   ));
   assert.throws(
-    () => assertTargetSchemaContract(expected, columns, missingForeignKey, includedTables),
+    () => assertTargetSchemaContract(expected, columns, missingForeignKey, includedTables, indexes),
     /constraints.*canonical manifest/i,
   );
 
@@ -817,7 +865,7 @@ test('target schema contract rejects type, precision, scale, default, nullabilit
     && constraint.constraint_type === 'PRIMARY KEY'
   ));
   assert.throws(
-    () => assertTargetSchemaContract(expected, columns, missingPrimaryKey, includedTables),
+    () => assertTargetSchemaContract(expected, columns, missingPrimaryKey, includedTables, indexes),
     /constraints.*canonical manifest/i,
   );
 
@@ -827,8 +875,30 @@ test('target schema contract rejects type, precision, scale, default, nullabilit
     && constraint.column_name === 'username'
   ));
   assert.throws(
-    () => assertTargetSchemaContract(expected, columns, missingUniqueConstraint, includedTables),
+    () => assertTargetSchemaContract(expected, columns, missingUniqueConstraint, includedTables, indexes),
     /constraints.*canonical manifest/i,
+  );
+
+  for (const requiredIndex of ['idx_quote_versions_quote', 'idx_quote_shares_token']) {
+    const missingIndex = indexes.filter(({ index_name }) => index_name !== requiredIndex);
+    assert.throws(
+      () => assertTargetSchemaContract(expected, columns, constraints, includedTables, missingIndex),
+      /indexes.*canonical manifest/i,
+    );
+  }
+
+  const changedIndex = structuredClone(indexes);
+  changedIndex.find(({ index_name }) => index_name === 'idx_quote_versions_quote')!.key_definitions = 'quote_id, quote_type, version';
+  assert.throws(
+    () => assertTargetSchemaContract(expected, columns, constraints, includedTables, changedIndex),
+    /indexes.*canonical manifest/i,
+  );
+
+  const nonUniqueIndex = structuredClone(indexes);
+  nonUniqueIndex.find(({ index_name }) => index_name === 'idx_quote_shares_token')!.is_unique = false;
+  assert.throws(
+    () => assertTargetSchemaContract(expected, columns, constraints, includedTables, nonUniqueIndex),
+    /indexes.*canonical manifest/i,
   );
 });
 

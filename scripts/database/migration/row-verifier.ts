@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 
-import { canonicalizeSourceMoney } from './source-canonicalizer';
-import { canonicalizeTargetMoney } from './target-canonicalizer';
+import { canonicalizeSourceJson, canonicalizeSourceMoney } from './source-canonicalizer';
+import { canonicalizeTargetJson, canonicalizeTargetMoney } from './target-canonicalizer';
 
 export type CanonicalRowValue = bigint | number | string | boolean | null;
 export type CanonicalRow = Record<string, CanonicalRowValue>;
@@ -20,6 +20,7 @@ export interface RowVerificationInput {
   booleanColumns: ReadonlySet<string>;
   moneyColumns: ReadonlySet<string>;
   jsonColumns: ReadonlySet<string>;
+  nullableTemporalColumns: ReadonlySet<string>;
   timestampColumns: ReadonlySet<string>;
 }
 
@@ -51,19 +52,13 @@ export interface RowVerificationReport {
   tables: Record<string, TableRowVerification>;
 }
 
-function stableJson(value: unknown): string {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
-  const object = value as Record<string, unknown>;
-  return `{${Object.keys(object).sort().map((key) => `${JSON.stringify(key)}:${stableJson(object[key])}`).join(',')}}`;
-}
-
 function canonicalSourceValue(
   qualifiedColumn: string,
   value: CanonicalRowValue | undefined,
   input: RowVerificationInput,
 ): string {
   if (value === null || value === undefined) return 'null';
+  if (value === '' && input.nullableTemporalColumns.has(qualifiedColumn)) return 'null';
   if (input.moneyColumns.has(qualifiedColumn)) return `money:${canonicalizeSourceMoney(value)}`;
   if (input.booleanColumns.has(qualifiedColumn)) return `boolean:${Number(value) === 0 ? 'false' : 'true'}`;
   if (input.timestampColumns.has(qualifiedColumn)) {
@@ -76,7 +71,7 @@ function canonicalSourceValue(
     if (Number.isNaN(date.getTime())) throw new Error('SQLite source contains an invalid timestamp.');
     return `timestamp:${date.toISOString()}`;
   }
-  if (input.jsonColumns.has(qualifiedColumn)) return `json:${stableJson(JSON.parse(String(value)))}`;
+  if (input.jsonColumns.has(qualifiedColumn)) return `json:${canonicalizeSourceJson(String(value))}`;
   return `scalar:${String(value)}`;
 }
 
@@ -98,7 +93,7 @@ function canonicalTargetValue(
     if (Number.isNaN(date.getTime())) throw new Error('PostgreSQL returned an invalid timestamp.');
     return `timestamp:${date.toISOString()}`;
   }
-  if (input.jsonColumns.has(qualifiedColumn)) return `json:${stableJson(JSON.parse(String(value)))}`;
+  if (input.jsonColumns.has(qualifiedColumn)) return `json:${canonicalizeTargetJson(String(value))}`;
   return `scalar:${String(value)}`;
 }
 
@@ -151,7 +146,10 @@ export function buildRowVerification(input: RowVerificationInput): RowVerificati
       && targetDigests.has(key)).length;
 
     const columnReports = Object.fromEntries(columns.map((column) => {
-      const sourceNullCount = sourceRows.filter((row) => row[column] === null || row[column] === undefined).length;
+      const qualifiedColumn = `${table.name}.${column}`;
+      const sourceNullCount = sourceRows.filter((row) => row[column] === null
+        || row[column] === undefined
+        || (row[column] === '' && input.nullableTemporalColumns.has(qualifiedColumn))).length;
       const targetNullCount = targetRows.filter((row) => row[column] === null || row[column] === undefined).length;
       return [column, {
         sourceNullCount,

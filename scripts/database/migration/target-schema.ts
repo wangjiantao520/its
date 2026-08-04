@@ -21,9 +21,17 @@ export interface TargetConstraintContract {
   deleteRule: string | null;
 }
 
+export interface TargetIndexContract {
+  tableName: string;
+  indexName: string;
+  unique: boolean;
+  keyDefinitions: string[];
+}
+
 export interface TargetSchemaContract {
   columns: TargetColumnContract[];
   constraints: TargetConstraintContract[];
+  indexes: TargetIndexContract[];
 }
 
 export interface TargetColumnMetadata {
@@ -47,6 +55,14 @@ export interface TargetConstraintMetadata {
   foreign_table_name: string | null;
   foreign_column_name: string | null;
   delete_rule: string | null;
+}
+
+export interface TargetIndexMetadata {
+  [key: string]: unknown;
+  table_name: string;
+  index_name: string;
+  is_unique: boolean;
+  key_definitions: string;
 }
 
 const TYPE_UDT: Readonly<Record<string, string>> = {
@@ -155,13 +171,43 @@ export function parseTargetSchemaContract(sql: string): TargetSchemaContract {
       constraints.push(...parseConstraint(tableName, columnName, definition));
     }
   }
-  return { columns, constraints };
+  return { columns, constraints, indexes: [] };
+}
+
+function normalizeIndexKeyDefinition(value: string): string {
+  return value
+    .trim()
+    .replaceAll('"', '')
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
+}
+
+function parseTargetIndexContracts(sql: string): TargetIndexContract[] {
+  const indexes: TargetIndexContract[] = [];
+  const pattern = /CREATE\s+(UNIQUE\s+)?INDEX\s+IF\s+NOT\s+EXISTS\s+(\w+)\s+ON\s+(\w+)\s*\(([^;]+)\)\s*;/gi;
+  for (const match of sql.matchAll(pattern)) {
+    indexes.push({
+      tableName: match[3],
+      indexName: match[2],
+      unique: Boolean(match[1]),
+      keyDefinitions: match[4].split(',').map(normalizeIndexKeyDefinition),
+    });
+  }
+  return indexes;
 }
 
 export function loadCanonicalTargetSchemaContract(): TargetSchemaContract {
-  const initial = loadPostgresMigrations().find(({ version }) => version === 1);
+  const migrations = loadPostgresMigrations();
+  const initial = migrations.find(({ version }) => version === 1);
+  const indexMigration = migrations.find(({ version }) => version === 2);
   if (!initial) throw new Error('Canonical PostgreSQL schema migration is unavailable.');
-  return parseTargetSchemaContract(initial.sql);
+  if (!indexMigration) throw new Error('Canonical PostgreSQL index migration is unavailable.');
+  const contract = parseTargetSchemaContract(initial.sql);
+  contract.indexes = parseTargetIndexContracts(indexMigration.sql);
+  if (contract.indexes.length === 0) {
+    throw new Error('Canonical PostgreSQL index migration contains no indexes.');
+  }
+  return contract;
 }
 
 function columnFingerprint(column: TargetColumnContract): string {
@@ -203,11 +249,30 @@ function constraintFingerprint(constraint: TargetConstraintContract): string {
   ]);
 }
 
+function indexFingerprint(index: TargetIndexContract): string {
+  return JSON.stringify([
+    index.tableName,
+    index.indexName,
+    index.unique,
+    index.keyDefinitions.map(normalizeIndexKeyDefinition),
+  ]);
+}
+
+function metadataIndexContract(index: TargetIndexMetadata): TargetIndexContract {
+  return {
+    tableName: index.table_name,
+    indexName: index.index_name,
+    unique: index.is_unique,
+    keyDefinitions: index.key_definitions.split(',').map(normalizeIndexKeyDefinition),
+  };
+}
+
 export function assertTargetSchemaContract(
   expected: TargetSchemaContract,
   actualColumns: readonly TargetColumnMetadata[],
   actualConstraints: readonly TargetConstraintMetadata[],
   includedTables: ReadonlySet<string>,
+  actualIndexes: readonly TargetIndexMetadata[],
 ): void {
   const expectedColumns = expected.columns.filter(({ tableName }) => includedTables.has(tableName));
   const filteredActualColumns = actualColumns.filter(({ table_name }) => includedTables.has(table_name));
@@ -241,5 +306,17 @@ export function assertTargetSchemaContract(
   if (expectedConstraintSet.size !== actualConstraintSet.size
     || [...expectedConstraintSet].some((fingerprint) => !actualConstraintSet.has(fingerprint))) {
     throw new Error('Target PostgreSQL primary, unique, or foreign-key constraints do not match the canonical manifest.');
+  }
+
+  const expectedIndexes = expected.indexes.filter(({ tableName }) => includedTables.has(tableName));
+  const expectedIndexNames = new Set(expectedIndexes.map(({ indexName }) => indexName));
+  const actualIndexSet = new Set(actualIndexes
+    .filter(({ table_name, index_name }) => includedTables.has(table_name)
+      && expectedIndexNames.has(index_name))
+    .map((index) => indexFingerprint(metadataIndexContract(index))));
+  const expectedIndexSet = new Set(expectedIndexes.map(indexFingerprint));
+  if (expectedIndexSet.size !== actualIndexSet.size
+    || [...expectedIndexSet].some((fingerprint) => !actualIndexSet.has(fingerprint))) {
+    throw new Error('Target PostgreSQL indexes do not match the canonical manifest.');
   }
 }
