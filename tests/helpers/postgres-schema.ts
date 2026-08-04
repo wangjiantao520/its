@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { TABLE_COLUMNS } from '../../scripts/database/migration/manifest';
+
 export type ColumnManifest = Map<string, Set<string>>;
 export type PostgresColumnDefinitions = Map<string, Map<string, string>>;
 
@@ -57,28 +59,6 @@ function mergeManifest(target: ColumnManifest, source: ColumnManifest): void {
   }
 }
 
-function parseSqliteCreateTables(source: string): ColumnManifest {
-  const manifest: ColumnManifest = new Map();
-  const tablePattern = /CREATE TABLE(?: IF NOT EXISTS)?\s+([a-zA-Z_]\w*)\s*\(([\s\S]*?)\n\s*\)/g;
-  for (const match of source.matchAll(tablePattern)) {
-    const [, table, body] = match;
-    for (const line of body.split('\n')) {
-      const column = /^\s*([a-zA-Z_]\w*)\s+(?:INTEGER|TEXT|REAL|DATETIME|DATE)\b/i.exec(line)?.[1];
-      if (column) addColumn(manifest, table, column);
-    }
-  }
-  return manifest;
-}
-
-function parseAddedMigrationColumns(source: string): ColumnManifest {
-  const manifest: ColumnManifest = new Map();
-  const addColumnPattern = /addColumnIfMissing\(\s*database,\s*'([a-zA-Z_]\w*)',[^,]+,\s*'([a-zA-Z_]\w*)'/g;
-  for (const match of source.matchAll(addColumnPattern)) {
-    addColumn(manifest, match[1], match[2]);
-  }
-  return manifest;
-}
-
 export interface RouteSqlAudit {
   referencedTables: Set<string>;
   writeColumns: ColumnManifest;
@@ -116,11 +96,9 @@ export function extractRouteSqlAudit(): RouteSqlAudit {
 }
 
 export function buildCanonicalPostgresManifest(): ColumnManifest {
-  const manifest = parseSqliteCreateTables(fs.readFileSync('src/lib/database/schema.ts', 'utf8'));
-  const migrationSource = fs.readFileSync('src/lib/database/migrations.ts', 'utf8');
-  mergeManifest(manifest, parseSqliteCreateTables(migrationSource));
-  mergeManifest(manifest, parseAddedMigrationColumns(migrationSource));
-  manifest.delete('schema_migrations');
+  const manifest: ColumnManifest = new Map(
+    Object.entries(TABLE_COLUMNS).map(([table, columns]) => [table, new Set(columns)]),
+  );
 
   const routeAudit = extractRouteSqlAudit();
   mergeManifest(manifest, routeAudit.writeColumns);

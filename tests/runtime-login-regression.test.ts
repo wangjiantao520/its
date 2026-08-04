@@ -7,7 +7,7 @@ const root = path.resolve(import.meta.dirname, '..');
 
 test('native runtime dependencies have explicit pnpm build approval', () => {
   const workspace = fs.readFileSync(path.join(root, 'pnpm-workspace.yaml'), 'utf8');
-  for (const dependency of ['better-sqlite3', 'core-js', 'esbuild', 'sharp']) {
+  for (const dependency of ['core-js', 'esbuild', 'sharp']) {
     assert.match(
       workspace,
       new RegExp(`^\\s{2}${dependency}: true$`, 'm'),

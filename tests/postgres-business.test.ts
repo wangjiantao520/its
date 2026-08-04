@@ -486,7 +486,7 @@ test('all scoped quote workflow files use async PostgreSQL and no SQLite/MySQL A
   const root = path.resolve(import.meta.dirname, '..');
   for (const file of scopedFiles) {
     const source = readFileSync(path.join(root, file), 'utf8');
-    assert.doesNotMatch(source, /@\/lib\/db|better-sqlite3|\bdb\.(prepare|exec)\b/, file);
+    assert.doesNotMatch(source, /@\/lib\/db|better[-]sqlite3|\bdb\.(prepare|exec)\b/, file);
     assert.doesNotMatch(source, /(?:=|\(|,)\s*\?(?:\s|,|\))/, `${file} contains a positional ? placeholder`);
     assert.match(source, /DatabaseClient|getDatabase|quote-summary|quote-access|quote-share/, `${file} has no PostgreSQL boundary`);
   }

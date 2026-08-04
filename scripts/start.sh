@@ -9,9 +9,13 @@ PORT="${DEPLOY_RUN_PORT:-5000}"
 COZE_PROJECT_ENV="${COZE_PROJECT_ENV:-PROD}"
 export COZE_PROJECT_ENV
 
-start_service() {
-    echo "Starting HTTP service on port ${PORT} for deploy..."
-    PORT=${PORT} node dist/server.js
-}
+if [ -z "${DATABASE_URL:-}" ]; then
+    echo "DATABASE_URL is required for PostgreSQL startup." >&2
+    exit 1
+fi
 
-start_service
+echo "Applying PostgreSQL migrations and checking database health..."
+pnpm db:migrate
+
+echo "Starting HTTP service on port ${PORT} for deploy..."
+exec env PORT="${PORT}" node dist/server.js

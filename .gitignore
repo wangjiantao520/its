@@ -120,8 +120,9 @@ pids
 *.pid.lock
 data/*.db-wal
 data/*.db-shm
+data/*.db
+data/*.db-*
 data/*.migrate.lock
-data/quotations.db
 data/backups/
 data/migration-*.json
 # Diagnostic reports
