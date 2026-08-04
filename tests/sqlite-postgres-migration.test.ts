@@ -249,6 +249,44 @@ function createFixture(t: test.TestContext, options: { populatedObsolete?: boole
   return databasePath;
 }
 
+function createDisjointFixture(t: test.TestContext): string {
+  const databasePath = createFixture(t);
+  const database = new DatabaseSync(databasePath);
+  database.exec(`
+    UPDATE users
+      SET id = id + 100,
+          username = username || '_other',
+          created_by = CASE WHEN created_by IS NULL THEN NULL ELSE created_by || '_other' END;
+    UPDATE auth_sessions
+      SET token_hash = token_hash || '-other', user_id = user_id + 100,
+          username = username || '_other';
+    UPDATE clients SET id = id + 100, client_code = client_code || '-OTHER';
+    UPDATE engineering_quotes
+      SET id = id + 100, quote_number = quote_number || '-OTHER', client_id = client_id + 100,
+          created_by = created_by || '_other';
+    UPDATE maintenance_quotes
+      SET id = id + 100, quote_number = quote_number || '-OTHER', client_id = client_id + 100,
+          created_by = created_by || '_other';
+    UPDATE quote_versions SET id = id + 100, quote_id = quote_id + 100,
+          created_by = created_by || '_other';
+    UPDATE quote_shares SET id = id + 100, token = token || '-other', quote_id = quote_id + 100;
+    UPDATE quote_audit_logs SET id = id + 100, quote_id = quote_id + 100,
+          operator = operator || '_other';
+    UPDATE labor_price_config SET id = id + 100, level = level || '-other';
+    UPDATE agent_configs
+      SET id = id + 100, name = name || '-other', created_by = created_by + 100;
+    UPDATE agent_sessions
+      SET id = id + 100, session_id = session_id || '-other', user_id = user_id + 100,
+          agent_id = agent_id + 100;
+    UPDATE agent_logs
+      SET id = id + 100, user_id = user_id + 100, agent_id = agent_id + 100,
+          session_id = session_id || '-other';
+    UPDATE ai_model_configs SET id = id + 100, name = name || '-other';
+  `);
+  database.close();
+  return databasePath;
+}
+
 class RecordingClient implements DatabaseClient {
   readonly queries: Array<{ text: string; params: readonly unknown[]; transaction: number | null }> = [];
   readonly committed: Array<{ text: string; params: readonly unknown[]; transaction: number }> = [];
@@ -805,9 +843,471 @@ test('completed ledger recovers a failed report write without duplicate imports'
   assert.equal(messages.join('\n').includes('sha256:token-hash'), false);
 });
 
+interface ConcurrentImportState {
+  rows: Record<string, Set<string>>;
+  ledger: Map<string, DatabaseImportReport>;
+  sequences: Record<string, number>;
+  insertedBusinessRows: number;
+  ledgerInserts: number;
+  migrationMetadata: boolean;
+}
+
+interface ImportTransactionContext {
+  base: ConcurrentImportState;
+  state: ConcurrentImportState;
+  lockHeld: boolean;
+  releaseLock?: () => void;
+}
+
+class ConcurrentImportClient implements DatabaseClient {
+  private state: ConcurrentImportState = {
+    rows: {},
+    ledger: new Map(),
+    sequences: {},
+    insertedBusinessRows: 0,
+    ledgerInserts: 0,
+    migrationMetadata: false,
+  };
+  private readonly rootBarrierSize: number;
+  private readonly onFirstImportLock?: () => void;
+  private rootBarrierArrivals = 0;
+  private releaseRootBarrier: (() => void) | undefined;
+  private readonly rootBarrier: Promise<void>;
+  private lockTail = Promise.resolve();
+  private importLockHolders = 0;
+  importLockRequests = 0;
+  maxImportLockHolders = 0;
+  activeRootTransactions = 0;
+  maxActiveRootTransactions = 0;
+  duplicateIdAttempts = 0;
+
+  constructor(options: { rootBarrierSize?: number; onFirstImportLock?: () => void } = {}) {
+    this.rootBarrierSize = options.rootBarrierSize ?? 2;
+    this.onFirstImportLock = options.onFirstImportLock;
+    this.rootBarrier = this.rootBarrierSize <= 1
+      ? Promise.resolve()
+      : new Promise<void>((resolve) => {
+        this.releaseRootBarrier = resolve;
+      });
+  }
+
+  get completedRuns(): number {
+    return this.state.ledger.size;
+  }
+
+  get businessImports(): number {
+    return this.state.ledgerInserts;
+  }
+
+  get insertedBusinessRows(): number {
+    return this.state.insertedBusinessRows;
+  }
+
+  sequenceFor(table: string): number | undefined {
+    return this.state.sequences[table];
+  }
+
+  committedMaxId(table: string): number | undefined {
+    const ids = [...(this.state.rows[table] ?? [])]
+      .filter((value) => /^\d+$/.test(value))
+      .map(Number);
+    return ids.length === 0 ? undefined : Math.max(...ids);
+  }
+
+  private cloneState(source: ConcurrentImportState): ConcurrentImportState {
+    return {
+      rows: Object.fromEntries(
+        Object.entries(source.rows).map(([table, ids]) => [table, new Set(ids)]),
+      ),
+      ledger: new Map(source.ledger),
+      sequences: { ...source.sequences },
+      insertedBusinessRows: source.insertedBusinessRows,
+      ledgerInserts: source.ledgerInserts,
+      migrationMetadata: source.migrationMetadata,
+    };
+  }
+
+  private async waitForRootOverlap(): Promise<void> {
+    this.rootBarrierArrivals += 1;
+    if (this.rootBarrierArrivals === this.rootBarrierSize) this.releaseRootBarrier?.();
+    await this.rootBarrier;
+  }
+
+  private async acquireImportLock(): Promise<() => void> {
+    const previousHolder = this.lockTail;
+    let release = (): void => {};
+    this.lockTail = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await previousHolder;
+    return release;
+  }
+
+  private mergeUnlockedTransaction(context: ImportTransactionContext): void {
+    const merged = this.cloneState(this.state);
+    for (const [table, transactionRows] of Object.entries(context.state.rows)) {
+      const baseRows = context.base.rows[table] ?? new Set<string>();
+      const committedRows = merged.rows[table] ?? new Set<string>();
+      for (const id of transactionRows) {
+        if (baseRows.has(id)) continue;
+        if (committedRows.has(id)) {
+          this.duplicateIdAttempts += 1;
+          throw new Error(`duplicate key for ${table}`);
+        }
+        committedRows.add(id);
+      }
+      merged.rows[table] = committedRows;
+    }
+    for (const [fingerprint, report] of context.state.ledger) {
+      if (context.base.ledger.has(fingerprint)) continue;
+      if (merged.ledger.has(fingerprint)) throw new Error('duplicate source fingerprint');
+      merged.ledger.set(fingerprint, report);
+    }
+    Object.assign(merged.sequences, context.state.sequences);
+    merged.insertedBusinessRows += context.state.insertedBusinessRows
+      - context.base.insertedBusinessRows;
+    merged.ledgerInserts += context.state.ledgerInserts - context.base.ledgerInserts;
+    merged.migrationMetadata ||= context.state.migrationMetadata;
+    this.state = merged;
+  }
+
+  private createScopedClient(context: ImportTransactionContext): DatabaseClient {
+    return {
+      query: <ResultRow extends Row>(text: string, params: readonly unknown[] = []) =>
+        this.executeQuery<ResultRow>(context, text, params),
+      transaction: async <T>(work: (client: DatabaseClient) => Promise<T>): Promise<T> => {
+        const beforeSavepoint = context.state;
+        context.state = this.cloneState(beforeSavepoint);
+        try {
+          return await work(this.createScopedClient(context));
+        } catch (error) {
+          context.state = beforeSavepoint;
+          throw error;
+        }
+      },
+      healthCheck: async () => {},
+      close: async () => {},
+    };
+  }
+
+  private async executeQuery<ResultRow extends Row>(
+    context: ImportTransactionContext | null,
+    text: string,
+    params: readonly unknown[],
+  ): Promise<QueryResult<ResultRow>> {
+    if (/pg_advisory_xact_lock/i.test(text)) {
+      if (!context || !/^\s*SELECT\s+pg_advisory_xact_lock\(49375484\)\s*;?\s*$/i.test(text)) {
+        throw new Error('Unexpected SQLite import advisory lock query.');
+      }
+      this.importLockRequests += 1;
+      context.releaseLock = await this.acquireImportLock();
+      context.lockHeld = true;
+      this.importLockHolders += 1;
+      this.maxImportLockHolders = Math.max(this.maxImportLockHolders, this.importLockHolders);
+      context.base = this.cloneState(this.state);
+      context.state = this.cloneState(this.state);
+      if (this.importLockRequests === 1) this.onFirstImportLock?.();
+      return { rows: [], rowCount: 1 };
+    }
+
+    const state = context?.state ?? this.state;
+    if (/to_regclass\('schema_migrations'\)/i.test(text)) {
+      return {
+        rows: [{ relation_name: state.migrationMetadata ? 'schema_migrations' : null }] as unknown as ResultRow[],
+        rowCount: 1,
+      };
+    }
+    if (/TEST_CREATE_MIGRATION_METADATA/i.test(text)) {
+      state.migrationMetadata = true;
+      return { rows: [], rowCount: 0 };
+    }
+    if (/SELECT\s+import_id,\s*report_json\s+FROM\s+sqlite_import_runs/i.test(text)) {
+      const report = state.ledger.get(String(params[0]));
+      return {
+        rows: report ? [{ import_id: report.importId, report_json: report }] as unknown as ResultRow[] : [],
+        rowCount: report ? 1 : 0,
+      };
+    }
+    if (/INSERT\s+INTO\s+sqlite_import_runs/i.test(text)) {
+      const fingerprint = String(params[1]);
+      if (state.ledger.has(fingerprint)) throw new Error('duplicate source fingerprint');
+      state.ledger.set(fingerprint, JSON.parse(String(params[8])) as DatabaseImportReport);
+      state.ledgerInserts += 1;
+      return { rows: [], rowCount: 1 };
+    }
+    if (/SELECT\s+version\s+FROM\s+schema_migrations/i.test(text)) {
+      return {
+        rows: [1, 2, 3].map((version) => ({ version })) as unknown as ResultRow[],
+        rowCount: 3,
+      };
+    }
+    const countTable = /SELECT count\(\*\)::text AS count FROM "([a-z_]+)"/i.exec(text)?.[1];
+    if (countTable) {
+      const count = state.rows[countTable]?.size ?? 0;
+      return { rows: [{ count: String(count) }] as unknown as ResultRow[], rowCount: 1 };
+    }
+    const insertTable = /^INSERT INTO "([a-z_]+)"/i.exec(text)?.[1];
+    if (insertTable) {
+      const id = String(params[0]);
+      const ids = state.rows[insertTable] ?? new Set<string>();
+      if (ids.has(id)) throw new Error(`duplicate key for ${insertTable}`);
+      ids.add(id);
+      state.rows[insertTable] = ids;
+      state.insertedBusinessRows += 1;
+      return { rows: [], rowCount: 1 };
+    }
+    if (/SELECT\s+setval\(pg_get_serial_sequence/i.test(text)) {
+      const table = String(params[0]);
+      const ids = [...(state.rows[table] ?? [])]
+        .filter((value) => /^\d+$/.test(value))
+        .map(Number);
+      state.sequences[table] = ids.length === 0 ? 1 : Math.max(...ids);
+      return { rows: [], rowCount: 1 };
+    }
+    return { rows: [], rowCount: 0 };
+  }
+
+  async query<ResultRow extends Row>(
+    text: string,
+    params: readonly unknown[] = [],
+  ): Promise<QueryResult<ResultRow>> {
+    return this.executeQuery<ResultRow>(null, text, params);
+  }
+
+  async transaction<T>(work: (client: DatabaseClient) => Promise<T>): Promise<T> {
+    this.activeRootTransactions += 1;
+    this.maxActiveRootTransactions = Math.max(
+      this.maxActiveRootTransactions,
+      this.activeRootTransactions,
+    );
+    await this.waitForRootOverlap();
+    const context: ImportTransactionContext = {
+      base: this.cloneState(this.state),
+      state: this.cloneState(this.state),
+      lockHeld: false,
+    };
+    try {
+      const result = await work(this.createScopedClient(context));
+      if (context.lockHeld) this.state = this.cloneState(context.state);
+      else this.mergeUnlockedTransaction(context);
+      return result;
+    } finally {
+      if (context.lockHeld) {
+        this.importLockHolders -= 1;
+        context.releaseLock?.();
+      }
+      this.activeRootTransactions -= 1;
+    }
+  }
+
+  async healthCheck(): Promise<void> {}
+  async close(): Promise<void> {}
+}
+
+function migrateWithTestDependencies(
+  client: DatabaseClient,
+  sourcePath: string,
+  backupDirectory: string,
+): Promise<DatabaseImportReport> {
+  return migrateSqliteDatabase({
+    sourcePath,
+    client,
+    backupDirectory,
+    runMigrations: async () => ({ appliedVersions: [1, 2, 3] }),
+    validateTargetSchema: async () => {},
+    verifyMigration: async ({ sourcePath: verificationSource }) => {
+      const summary = readSqliteSnapshot(verificationSource).summary;
+      return buildMigrationVerification(summary, structuredClone(summary), {});
+    },
+  });
+}
+
+test('concurrent different-source imports serialize at the dedicated advisory lock', async (t) => {
+  const firstSource = createFixture(t);
+  const secondSource = createDisjointFixture(t);
+  const client = new ConcurrentImportClient();
+  const directory = temporaryDirectory(t);
+
+  const results = await Promise.allSettled([
+    migrateWithTestDependencies(client, firstSource, path.join(directory, 'first-backups')),
+    migrateWithTestDependencies(client, secondSource, path.join(directory, 'second-backups')),
+  ]);
+
+  assert.equal(results.filter(({ status }) => status === 'fulfilled').length, 1);
+  assert.equal(results.filter(({ status }) => status === 'rejected').length, 1);
+  assert.equal(client.maxActiveRootTransactions, 2);
+  assert.equal(client.importLockRequests, 2);
+  assert.equal(client.maxImportLockHolders, 1);
+  assert.equal(client.businessImports, 1);
+  assert.equal(client.completedRuns, 1);
+  assert.equal(client.duplicateIdAttempts, 0);
+  assert.equal(client.sequenceFor('users'), client.committedMaxId('users'));
+});
+
+test('concurrent same-source imports return one import and one completed-ledger no-op', async (t) => {
+  const sourcePath = createFixture(t);
+  const client = new ConcurrentImportClient();
+  const directory = temporaryDirectory(t);
+
+  const reports = await Promise.all([
+    migrateWithTestDependencies(client, sourcePath, path.join(directory, 'first-backups')),
+    migrateWithTestDependencies(client, sourcePath, path.join(directory, 'second-backups')),
+  ]);
+
+  assert.equal(reports[0].importId, reports[1].importId);
+  assert.equal(client.maxActiveRootTransactions, 2);
+  assert.equal(client.importLockRequests, 2);
+  assert.equal(client.maxImportLockHolders, 1);
+  assert.equal(client.businessImports, 1);
+  assert.equal(client.completedRuns, 1);
+  assert.equal(client.duplicateIdAttempts, 0);
+  assert.equal(client.sequenceFor('users'), client.committedMaxId('users'));
+});
+
+test('same-source recovery remains a no-op when the second runner starts after schema creation', async (t) => {
+  const sourcePath = createFixture(t);
+  const client = new ConcurrentImportClient({ rootBarrierSize: 1 });
+  const directory = temporaryDirectory(t);
+  let releaseFirstValidation = (): void => {};
+  let announceFirstValidation = (): void => {};
+  const firstValidationStarted = new Promise<void>((resolve) => {
+    announceFirstValidation = resolve;
+  });
+  const firstValidationGate = new Promise<void>((resolve) => {
+    releaseFirstValidation = resolve;
+  });
+  const migrationDependencies = {
+    runMigrations: async (migrationClient: DatabaseClient) => {
+      await migrationClient.query('SELECT TEST_CREATE_MIGRATION_METADATA');
+      return { appliedVersions: [1, 2, 3] };
+    },
+    verifyMigration: async ({ sourcePath: verificationSource }: { sourcePath: string }) => {
+      const summary = readSqliteSnapshot(verificationSource).summary;
+      return buildMigrationVerification(summary, structuredClone(summary), {});
+    },
+  };
+
+  const first = migrateSqliteDatabase({
+    sourcePath,
+    client,
+    backupDirectory: path.join(directory, 'first-backups'),
+    ...migrationDependencies,
+    validateTargetSchema: async () => {
+      announceFirstValidation();
+      await firstValidationGate;
+    },
+  });
+  await firstValidationStarted;
+  const second = migrateSqliteDatabase({
+    sourcePath,
+    client,
+    backupDirectory: path.join(directory, 'second-backups'),
+    ...migrationDependencies,
+    validateTargetSchema: async () => {},
+  });
+  const reportsPromise = Promise.all([first, second]);
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  releaseFirstValidation();
+
+  const reports = await reportsPromise;
+  assert.equal(reports[0].importId, reports[1].importId);
+  assert.equal(client.businessImports, 1);
+  assert.equal(client.completedRuns, 1);
+  assert.equal(client.importLockRequests, 2);
+});
+
+test('locked import decision rechecks the source manifest before writing business rows', async (t) => {
+  const sourcePath = createFixture(t);
+  const client = new ConcurrentImportClient({
+    rootBarrierSize: 1,
+    onFirstImportLock: () => {
+      const database = new DatabaseSync(sourcePath);
+      database.exec('CREATE TABLE unexpected_data (id INTEGER PRIMARY KEY); INSERT INTO unexpected_data VALUES (1)');
+      database.close();
+    },
+  });
+
+  await assert.rejects(
+    () => migrateWithTestDependencies(client, sourcePath, path.join(temporaryDirectory(t), 'backups')),
+    /manual mapping|not in the migration manifest/i,
+  );
+  assert.equal(client.importLockRequests, 1);
+  assert.equal(client.insertedBusinessRows, 0);
+  assert.equal(client.completedRuns, 0);
+});
+
 const integrationOptions = process.env.TEST_DATABASE_URL
   ? {}
   : { skip: POSTGRES_TEST_SKIP_REASON };
+
+test('PostgreSQL: concurrent different-source imports serialize and only one writes', integrationOptions, async (t) => {
+  const harness = await createPostgresTestHarness(t);
+  const secondClient = harness.createAdditionalClient();
+  const firstSource = createFixture(t);
+  const secondSource = createDisjointFixture(t);
+  const directory = temporaryDirectory(t);
+
+  const results = await Promise.allSettled([
+    migrateSqliteDatabase({
+      sourcePath: firstSource,
+      client: harness.client,
+      backupDirectory: path.join(directory, 'first-backups'),
+    }),
+    migrateSqliteDatabase({
+      sourcePath: secondSource,
+      client: secondClient,
+      backupDirectory: path.join(directory, 'second-backups'),
+    }),
+  ]);
+
+  assert.equal(results.filter(({ status }) => status === 'fulfilled').length, 1);
+  const rejected = results.find((result): result is PromiseRejectedResult => result.status === 'rejected');
+  assert.match(String(rejected?.reason), /business rows/i);
+  const counts = await harness.client.query<{ users: string; runs: string }>(`
+    SELECT
+      (SELECT count(*)::text FROM users) AS users,
+      (SELECT count(*)::text FROM sqlite_import_runs) AS runs
+  `);
+  assert.deepEqual(counts.rows[0], { users: '2', runs: '1' });
+  const maximum = await harness.client.query<{ id: string }>('SELECT max(id)::text AS id FROM users');
+  const generated = await harness.client.query<{ id: string }>(
+    "INSERT INTO users (username, password_hash) VALUES ('concurrent-next', 'safe-hash') RETURNING id::text",
+  );
+  assert.equal(Number(generated.rows[0].id), Number(maximum.rows[0].id) + 1);
+});
+
+test('PostgreSQL: concurrent same-source imports return the completed ledger without duplicates', integrationOptions, async (t) => {
+  const harness = await createPostgresTestHarness(t);
+  const secondClient = harness.createAdditionalClient();
+  const sourcePath = createFixture(t);
+  const directory = temporaryDirectory(t);
+
+  const reports = await Promise.all([
+    migrateSqliteDatabase({
+      sourcePath,
+      client: harness.client,
+      backupDirectory: path.join(directory, 'first-backups'),
+    }),
+    migrateSqliteDatabase({
+      sourcePath,
+      client: secondClient,
+      backupDirectory: path.join(directory, 'second-backups'),
+    }),
+  ]);
+
+  assert.equal(reports[0].importId, reports[1].importId);
+  const counts = await harness.client.query<{ users: string; runs: string }>(`
+    SELECT
+      (SELECT count(*)::text FROM users) AS users,
+      (SELECT count(*)::text FROM sqlite_import_runs) AS runs
+  `);
+  assert.deepEqual(counts.rows[0], { users: '2', runs: '1' });
+  const maximum = await harness.client.query<{ id: string }>('SELECT max(id)::text AS id FROM users');
+  const generated = await harness.client.query<{ id: string }>(
+    "INSERT INTO users (username, password_hash) VALUES ('same-source-next', 'safe-hash') RETURNING id::text",
+  );
+  assert.equal(Number(generated.rows[0].id), Number(maximum.rows[0].id) + 1);
+});
 
 test('PostgreSQL: imports exact fixture values and resets generated IDs', integrationOptions, async (t) => {
   const harness = await createPostgresTestHarness(t);

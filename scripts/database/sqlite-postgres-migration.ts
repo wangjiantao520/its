@@ -100,6 +100,9 @@ export const MIGRATION_GROUPS = [
   ['agent_logs'],
 ] as const satisfies readonly (readonly MigrationTableName[])[];
 
+// Reserved for SQLite import serialization; distinct from migration lock 49375483.
+export const SQLITE_IMPORT_ADVISORY_LOCK_ID = 49375484;
+
 const BOOLEAN_COLUMNS = new Set([
   'users.is_active', 'device_quotas.is_active', 'quote_shares.is_active',
   'labor_price_config.is_active', 'maintenance_device_quotas.is_active',
@@ -898,85 +901,90 @@ export async function migrateSqliteDatabase(
   const sourceSnapshot = readSqliteSnapshot(options.sourcePath);
   const sourceFingerprint = fingerprintSnapshot(sourceSnapshot);
   const importId = `sqlite-${sourceFingerprint.slice(0, 32)}`;
-  const hadMigrationMetadata = await targetHasMigrationMetadata(options.client);
-  await (options.runMigrations ?? runPostgresMigrations)(options.client);
-  await (options.validateTargetSchema ?? assertTargetSchema)(options.client);
   const verifyMigration = options.verifyMigration ?? verifyDatabaseMigration;
-  const completed = await completedImportReport(options.client, sourceFingerprint);
-  if (completed) {
-    const verification = await verifyMigration({
-      sourcePath: options.sourcePath,
-      client: options.client,
-    });
-    if (!verification.success) throw new MigrationVerificationError(verification);
-    return completed;
-  }
-  await assertTargetReadyForImport(options.client, {
-    allowNonemptyTarget: options.allowNonemptyTarget ?? false,
-    hadMigrationMetadata,
-  });
-  const prepared = prepareSqliteSource(options.sourcePath, {
-    backupDirectory: options.backupDirectory,
-    now: options.now,
-  });
-  const snapshot = readSqliteSnapshot(prepared.backupPath);
-  if (fingerprintSnapshot(snapshot) !== sourceFingerprint) {
-    throw new Error('SQLite backup fingerprint does not match the checked source.');
-  }
-  const migrationVersions = await targetMigrationVersions(options.client);
-  let completedReport: DatabaseImportReport | undefined;
-  await importSqliteSnapshot(options.client, snapshot, {
-    finalize: async (transactionClient, imported) => {
+  return options.client.transaction(async (transactionClient) => {
+    await transactionClient.query(
+      `SELECT pg_advisory_xact_lock(${SQLITE_IMPORT_ADVISORY_LOCK_ID})`,
+    );
+    const lockedSourceSnapshot = readSqliteSnapshot(options.sourcePath);
+    if (fingerprintSnapshot(lockedSourceSnapshot) !== sourceFingerprint) {
+      throw new Error('SQLite source changed while waiting for the import lock.');
+    }
+    const hadMigrationMetadata = await targetHasMigrationMetadata(transactionClient);
+    await (options.runMigrations ?? runPostgresMigrations)(transactionClient);
+    await (options.validateTargetSchema ?? assertTargetSchema)(transactionClient);
+
+    const completed = await completedImportReport(transactionClient, sourceFingerprint);
+    if (completed) {
       const verification = await verifyMigration({
         sourcePath: options.sourcePath,
         client: transactionClient,
       });
       if (!verification.success) throw new MigrationVerificationError(verification);
-      const endTime = new Date().toISOString();
-      const report: DatabaseImportReport = {
-        success: true,
-        importId,
-        sourceFingerprint,
-        backupPath: prepared.backupPath,
-        sourceIntegrity: prepared.sourceIntegrity,
-        backupIntegrity: prepared.backupIntegrity,
-        targetMigrationVersions: migrationVersions,
-        baseline: {
-          tables: prepared.baseline.tables,
-          aggregates: prepared.baseline.aggregates,
-          normalizations: prepared.baseline.normalizations,
-          ignoredSourceTables: prepared.baseline.ignoredSourceTables,
-        },
-        importedCounts: imported.importedCounts,
-        verification,
-        startTime,
-        endTime,
-      };
-      const serializedReport = serializeSafeReport(report);
-      await transactionClient.query(`
-        INSERT INTO sqlite_import_runs
-          (import_id, source_fingerprint, status, source_integrity, backup_integrity,
-           backup_path, target_migration_versions, imported_counts, report_json,
-           started_at, completed_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-      `, [
-        importId,
-        sourceFingerprint,
-        'complete',
-        prepared.sourceIntegrity,
-        prepared.backupIntegrity,
-        prepared.backupPath,
-        JSON.stringify(migrationVersions),
-        JSON.stringify(imported.importedCounts),
-        serializedReport,
-        startTime,
-        endTime,
-      ]);
-      completedReport = report;
-    },
+      return completed;
+    }
+
+    await assertTargetReadyForImport(transactionClient, {
+      allowNonemptyTarget: options.allowNonemptyTarget ?? false,
+      hadMigrationMetadata,
+    });
+    const prepared = prepareSqliteSource(options.sourcePath, {
+      backupDirectory: options.backupDirectory,
+      now: options.now,
+    });
+    const snapshot = readSqliteSnapshot(prepared.backupPath);
+    if (fingerprintSnapshot(snapshot) !== sourceFingerprint) {
+      throw new Error('SQLite backup fingerprint does not match the checked source.');
+    }
+    const migrationVersions = await targetMigrationVersions(transactionClient);
+    const imported = await importSqliteSnapshot(transactionClient, snapshot);
+    const verification = await verifyMigration({
+      sourcePath: options.sourcePath,
+      client: transactionClient,
+    });
+    if (!verification.success) throw new MigrationVerificationError(verification);
+    const endTime = new Date().toISOString();
+    const report: DatabaseImportReport = {
+      success: true,
+      importId,
+      sourceFingerprint,
+      backupPath: prepared.backupPath,
+      sourceIntegrity: prepared.sourceIntegrity,
+      backupIntegrity: prepared.backupIntegrity,
+      targetMigrationVersions: migrationVersions,
+      baseline: {
+        tables: prepared.baseline.tables,
+        aggregates: prepared.baseline.aggregates,
+        normalizations: prepared.baseline.normalizations,
+        ignoredSourceTables: prepared.baseline.ignoredSourceTables,
+      },
+      importedCounts: imported.importedCounts,
+      verification,
+      startTime,
+      endTime,
+    };
+    const serializedReport = serializeSafeReport(report);
+    await transactionClient.query(`
+      INSERT INTO sqlite_import_runs
+        (import_id, source_fingerprint, status, source_integrity, backup_integrity,
+         backup_path, target_migration_versions, imported_counts, report_json,
+         started_at, completed_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+    `, [
+      importId,
+      sourceFingerprint,
+      'complete',
+      prepared.sourceIntegrity,
+      prepared.backupIntegrity,
+      prepared.backupPath,
+      JSON.stringify(migrationVersions),
+      JSON.stringify(imported.importedCounts),
+      serializedReport,
+      startTime,
+      endTime,
+    ]);
+    return report;
   });
-  if (!completedReport) throw new Error('SQLite import did not produce a completed ledger report.');
-  return completedReport;
 }
 
 function rangesEqual(left: PrimaryKeyRange | null, right: PrimaryKeyRange | null): boolean {

@@ -18,7 +18,10 @@ function toQueryResult<Row extends Record<string, unknown>>(
   };
 }
 
-function createClient(sql: postgres.Sql): DatabaseClient {
+function createClient(
+  sql: postgres.Sql | postgres.TransactionSql,
+  transactionScoped = false,
+): DatabaseClient {
   return {
     query: async <Row extends Record<string, unknown>>(
       text: string,
@@ -28,16 +31,20 @@ function createClient(sql: postgres.Sql): DatabaseClient {
       return toQueryResult(rows);
     },
     transaction: async <T>(work: (client: DatabaseClient) => Promise<T>): Promise<T> => {
-      const result = await sql.begin(async (transactionSql) => ({
-        value: await work(createClient(transactionSql as unknown as postgres.Sql)),
-      }));
+      const result = transactionScoped
+        ? await (sql as postgres.TransactionSql).savepoint(async (savepointSql) => ({
+          value: await work(createClient(savepointSql, true)),
+        }))
+        : await (sql as postgres.Sql).begin(async (transactionSql) => ({
+          value: await work(createClient(transactionSql, true)),
+        }));
       return result.value;
     },
     healthCheck: async (): Promise<void> => {
       await sql`SELECT 1`;
     },
     close: async (): Promise<void> => {
-      await sql.end();
+      if (!transactionScoped) await (sql as postgres.Sql).end();
     },
   };
 }
