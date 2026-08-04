@@ -1,18 +1,18 @@
 import 'dotenv/config';
 
-import { createDatabaseClient } from '../src/lib/database/client';
+import { createDatabaseClient, type DatabaseClient } from '../src/lib/database/client';
+import { DatabaseUnavailableError } from '../src/lib/database/errors';
 import { runPostgresMigrations } from '../src/lib/database/postgres-migrations';
 
 async function main(): Promise<void> {
-  const url = (process.env.DATABASE_MIGRATION_URL || process.env.DATABASE_URL || '').trim();
-  if (!url) {
-    console.error('Database migration failed: DATABASE_MIGRATION_URL or DATABASE_URL is required.');
-    process.exitCode = 1;
-    return;
-  }
-
-  const client = createDatabaseClient({ url, max: 1, prepare: false });
+  let client: DatabaseClient | undefined;
   try {
+    const url = (process.env.DATABASE_MIGRATION_URL || process.env.DATABASE_URL || '').trim();
+    if (!url) {
+      throw new Error('Database URL is not configured.');
+    }
+
+    client = createDatabaseClient({ url, max: 1, prepare: false });
     const result = await runPostgresMigrations(client);
     await client.healthCheck();
     const status = result.appliedVersions.length > 0
@@ -20,12 +20,17 @@ async function main(): Promise<void> {
       : 'Database schema is already current.';
     console.log(status);
     console.log('Database health check passed.');
-  } catch {
-    console.error('Database migration failed.');
-    process.exitCode = 1;
   } finally {
-    await client.close().catch(() => undefined);
+    if (client) await client.close().catch(() => undefined);
   }
 }
 
-await main();
+try {
+  await main();
+} catch (error) {
+  const message = error instanceof DatabaseUnavailableError
+    ? error.message
+    : 'Database migration failed.';
+  console.error(message);
+  process.exitCode = 1;
+}

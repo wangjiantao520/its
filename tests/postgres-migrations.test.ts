@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -17,17 +18,71 @@ import {
 
 type Row = Record<string, unknown>;
 
+const ADVISORY_LOCK_QUERY = 'SELECT pg_advisory_xact_lock(49375483)';
+
+interface RecordingMigrationClientOptions {
+  transactionBarrierSize?: number;
+  queryFailure?: (text: string) => unknown | undefined;
+}
+
+interface RecordingTransaction {
+  id: number;
+  stagedVersions: Map<number, string>;
+  holdsAdvisoryLock: boolean;
+}
+
 class RecordingMigrationClient implements DatabaseClient {
-  readonly queries: Array<{ text: string; params: readonly unknown[] }> = [];
+  readonly queries: Array<{ text: string; params: readonly unknown[]; transactionId?: number }> = [];
   readonly versions = new Map<number, string>();
+  readonly transactionStartOrder: number[] = [];
+  readonly lockRequestOrder: number[] = [];
+  readonly lockAcquisitionOrder: number[] = [];
+  readonly activeTransactionsAtLockRequest: number[] = [];
+  readonly migrationExecutionCounts = new Map<string, number>();
   transactionCount = 0;
-  private transactionQueue: Promise<void> = Promise.resolve();
+  maxConcurrentTransactions = 0;
+  maxConcurrentLockHolders = 0;
+  private activeTransactions = 0;
+  private concurrentLockHolders = 0;
+  private lockOwner: number | undefined;
+  private readonly lockWaiters: Array<{ transactionId: number; resolve: () => void }> = [];
+  private readonly transactionBarrierSize: number;
+  private readonly transactionBarrier: Promise<void> | undefined;
+  private releaseTransactionBarrier: (() => void) | undefined;
+  private transactionBarrierArrivals = 0;
+  private readonly queryFailure: ((text: string) => unknown | undefined) | undefined;
+
+  constructor(options: RecordingMigrationClientOptions = {}) {
+    this.transactionBarrierSize = options.transactionBarrierSize ?? 1;
+    this.queryFailure = options.queryFailure;
+    if (this.transactionBarrierSize > 1) {
+      this.transactionBarrier = new Promise<void>((resolve) => {
+        this.releaseTransactionBarrier = resolve;
+      });
+    }
+  }
 
   async query<ResultRow extends Row>(
     text: string,
     params: readonly unknown[] = [],
   ): Promise<QueryResult<ResultRow>> {
-    this.queries.push({ text, params });
+    return this.executeQuery<ResultRow>(undefined, text, params);
+  }
+
+  private async executeQuery<ResultRow extends Row>(
+    transaction: RecordingTransaction | undefined,
+    text: string,
+    params: readonly unknown[],
+  ): Promise<QueryResult<ResultRow>> {
+    this.queries.push({ text, params, transactionId: transaction?.id });
+    if (text.trim() === ADVISORY_LOCK_QUERY && transaction) {
+      await this.acquireAdvisoryLock(transaction);
+      return { rows: [], rowCount: 1 };
+    }
+
+    const failure = this.queryFailure?.(text);
+    if (failure !== undefined) throw failure;
+
     if (/SELECT\s+version\s+FROM\s+schema_migrations/i.test(text)) {
       return {
         rows: [...this.versions.keys()].sort((a, b) => a - b).map((version) => ({ version })) as unknown as ResultRow[],
@@ -39,32 +94,100 @@ class RecordingMigrationClient implements DatabaseClient {
       if (typeof version !== 'number' || typeof name !== 'string') {
         throw new Error('invalid migration record parameters');
       }
-      if (this.versions.has(version)) {
+      if (this.versions.has(version) || transaction?.stagedVersions.has(version)) {
         throw Object.assign(new Error('duplicate migration version'), { code: '23505' });
       }
-      this.versions.set(version, name);
+      if (transaction) transaction.stagedVersions.set(version, name);
+      else this.versions.set(version, name);
       return { rows: [], rowCount: 1 };
+    }
+
+    if (!/CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+schema_migrations/i.test(text)) {
+      this.migrationExecutionCounts.set(
+        text,
+        (this.migrationExecutionCounts.get(text) ?? 0) + 1,
+      );
     }
     return { rows: [], rowCount: 0 };
   }
 
   async transaction<T>(work: (client: DatabaseClient) => Promise<T>): Promise<T> {
-    let release: (() => void) | undefined;
-    const previous = this.transactionQueue;
-    this.transactionQueue = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    await previous;
-    this.transactionCount += 1;
-    const versionsBefore = new Map(this.versions);
+    const transaction: RecordingTransaction = {
+      id: ++this.transactionCount,
+      stagedVersions: new Map(),
+      holdsAdvisoryLock: false,
+    };
+    this.transactionStartOrder.push(transaction.id);
+    this.activeTransactions += 1;
+    this.maxConcurrentTransactions = Math.max(
+      this.maxConcurrentTransactions,
+      this.activeTransactions,
+    );
+
+    await this.waitForTransactionBarrier();
+    const transactionClient: DatabaseClient = {
+      query: <ResultRow extends Row>(text: string, params: readonly unknown[] = []) =>
+        this.executeQuery<ResultRow>(transaction, text, params),
+      transaction: async () => {
+        throw new Error('nested transactions are not supported by this recording client');
+      },
+      healthCheck: async (): Promise<void> => {},
+      close: async (): Promise<void> => {},
+    };
+
     try {
-      return await work(this);
-    } catch (error) {
-      this.versions.clear();
-      for (const [version, name] of versionsBefore) this.versions.set(version, name);
-      throw error;
+      const result = await work(transactionClient);
+      for (const [version, name] of transaction.stagedVersions) {
+        if (this.versions.has(version)) {
+          throw Object.assign(new Error('duplicate migration version'), { code: '23505' });
+        }
+        this.versions.set(version, name);
+      }
+      return result;
     } finally {
-      release?.();
+      if (transaction.holdsAdvisoryLock) this.releaseAdvisoryLock(transaction.id);
+      this.activeTransactions -= 1;
+    }
+  }
+
+  private async waitForTransactionBarrier(): Promise<void> {
+    if (!this.transactionBarrier) return;
+    this.transactionBarrierArrivals += 1;
+    if (this.transactionBarrierArrivals === this.transactionBarrierSize) {
+      this.releaseTransactionBarrier?.();
+    }
+    await this.transactionBarrier;
+  }
+
+  private async acquireAdvisoryLock(transaction: RecordingTransaction): Promise<void> {
+    this.lockRequestOrder.push(transaction.id);
+    this.activeTransactionsAtLockRequest.push(this.activeTransactions);
+    if (this.lockOwner === undefined) {
+      this.lockOwner = transaction.id;
+    } else {
+      await new Promise<void>((resolve) => {
+        this.lockWaiters.push({ transactionId: transaction.id, resolve });
+      });
+    }
+
+    transaction.holdsAdvisoryLock = true;
+    this.concurrentLockHolders += 1;
+    this.maxConcurrentLockHolders = Math.max(
+      this.maxConcurrentLockHolders,
+      this.concurrentLockHolders,
+    );
+    this.lockAcquisitionOrder.push(transaction.id);
+  }
+
+  private releaseAdvisoryLock(transactionId: number): void {
+    assert.equal(this.lockOwner, transactionId);
+    this.concurrentLockHolders -= 1;
+    const next = this.lockWaiters.shift();
+    if (next) {
+      this.lockOwner = next.transactionId;
+      next.resolve();
+    } else {
+      this.lockOwner = undefined;
     }
   }
 
@@ -132,6 +255,33 @@ test('production build copies PostgreSQL migration assets beside the server bund
   );
 });
 
+test('migration CLI never prints credentials from a malformed database URL', () => {
+  const username = 'leak_probe_user_7f1b';
+  const password = 'leak_probe_password_93ac';
+  const malformedUrl = `postgres://${username}:${password}@[invalid-host`;
+  const result = spawnSync(
+    process.execPath,
+    ['--import', 'tsx', 'scripts/migrate-db.mts'],
+    {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        DATABASE_MIGRATION_URL: malformedUrl,
+        DATABASE_URL: '',
+      },
+    },
+  );
+  const output = `${result.stdout}${result.stderr}`;
+
+  assert.notEqual(result.status, 0);
+  assert.match(output, /Database migration failed\./);
+  for (const sensitiveValue of [malformedUrl, username, password]) {
+    assert.equal(output.includes(sensitiveValue), false, `leaked ${sensitiveValue}`);
+  }
+  assert.doesNotMatch(output, /ERR_INVALID_URL|\binput\b/i);
+});
+
 test('applies each migration exactly once and acquires the required transaction lock', async () => {
   const client = new RecordingMigrationClient();
 
@@ -146,30 +296,41 @@ test('applies each migration exactly once and acquires the required transaction 
 });
 
 test('concurrent migration calls serialize safely', async () => {
-  const client = new RecordingMigrationClient();
+  const client = new RecordingMigrationClient({ transactionBarrierSize: 2 });
+  const migrations = loadPostgresMigrations();
 
   const results = await Promise.all([
     runPostgresMigrations(client),
     runPostgresMigrations(client),
   ]);
 
-  assert.deepEqual(results.flatMap(({ appliedVersions }) => appliedVersions), [1, 2]);
+  assert.deepEqual(results, [
+    { appliedVersions: [1, 2] },
+    { appliedVersions: [] },
+  ]);
+  assert.deepEqual(client.transactionStartOrder, [1, 2]);
+  assert.equal(client.maxConcurrentTransactions, 2);
+  assert.deepEqual(client.lockRequestOrder, [1, 2]);
+  assert.deepEqual(client.lockAcquisitionOrder, [1, 2]);
+  assert.deepEqual(client.activeTransactionsAtLockRequest, [2, 2]);
+  assert.equal(client.maxConcurrentLockHolders, 1);
+  for (const migration of migrations) {
+    assert.equal(client.migrationExecutionCounts.get(migration.sql), 1);
+  }
   assert.deepEqual([...client.versions.keys()], [1, 2]);
 });
 
 test('a failed migration rolls back its version record and does not continue', async () => {
-  const client = new RecordingMigrationClient();
+  const client = new RecordingMigrationClient({
+    queryFailure: (text) => text === 'FAIL THIS MIGRATION'
+      ? new Error('synthetic migration failure')
+      : undefined,
+  });
   const migrations: PostgresMigration[] = [
     { version: 9, name: 'works', sql: 'CREATE TABLE works (id bigint)' },
     { version: 10, name: 'fails', sql: 'FAIL THIS MIGRATION' },
     { version: 11, name: 'must-not-run', sql: 'CREATE TABLE must_not_run (id bigint)' },
   ];
-  const originalQuery = client.query.bind(client);
-  client.query = async <ResultRow extends Row>(text: string, params: readonly unknown[] = []) => {
-    if (text === 'FAIL THIS MIGRATION') throw new Error('synthetic migration failure');
-    return originalQuery<ResultRow>(text, params);
-  };
-
   await assert.rejects(
     () => runPostgresMigrations(client, { migrations }),
     /PostgreSQL migration failed/,
@@ -180,10 +341,11 @@ test('a failed migration rolls back its version record and does not continue', a
 
 test('migration status errors never expose connection credentials', async () => {
   const secret = 'postgres://its_admin:top-secret@db.example.test:5432/its';
-  const client = new RecordingMigrationClient();
-  client.query = async () => {
-    throw new Error(`could not connect to ${secret}`);
-  };
+  const client = new RecordingMigrationClient({
+    queryFailure: (text) => /SELECT\s+version\s+FROM\s+schema_migrations/i.test(text)
+      ? new Error(`could not connect to ${secret}`)
+      : undefined,
+  });
 
   await assert.rejects(
     () => runPostgresMigrations(client),
