@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { readFileSync, rmSync } from 'node:fs';
+import { readFileSync, rmSync, existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -54,9 +54,34 @@ export function installCompatiblePrebuild() {
   const packageJsonPath = projectRequire.resolve('better-sqlite3/package.json');
   const packageRoot = dirname(packageJsonPath);
   const packageRequire = createRequire(packageJsonPath);
-  const installerPath = packageRequire.resolve('prebuild-install/bin.js');
   const bindingPath = join(packageRoot, 'build', 'Release', 'better_sqlite3.node');
   const maximumGlibc = process.env.BETTER_SQLITE3_MAX_GLIBC || '2.29';
+
+  // If pnpm install already produced a working native binding, reuse it
+  // instead of downloading from GitHub (which may be unreachable).
+  try {
+    if (!existsSync(bindingPath)) {
+      throw new Error('No existing binding found');
+    }
+    const requiredGlibc = assertCompatibleGlibc(
+      readFileSync(bindingPath),
+      maximumGlibc,
+    );
+    const Database = projectRequire('better-sqlite3');
+    const database = new Database(':memory:');
+    const result = database.prepare('SELECT 1 AS ok').get();
+    database.close();
+    if (result?.ok === 1) {
+      console.log(
+        `[native-sqlite] Existing binding works (GLIBC ${requiredGlibc}); skipping download`,
+      );
+      return;
+    }
+  } catch {
+    // No usable binding found — fall through to prebuild download
+  }
+
+  const installerPath = packageRequire.resolve('prebuild-install/bin.js');
 
   console.log(
     `[native-sqlite] Installing official prebuild for Node ${process.versions.node} ` +
