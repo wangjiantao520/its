@@ -88,7 +88,8 @@ async function startServer(): Promise<void> {
     } catch (error) {
       console.error('HTTP request handling failed.', error);
       res.statusCode = 500;
-      res.end('Internal server error');
+      res.setHeader('content-type', 'application/json; charset=utf-8');
+      res.end(JSON.stringify({ success: false, error: '服务器暂时不可用' }));
     }
   });
 

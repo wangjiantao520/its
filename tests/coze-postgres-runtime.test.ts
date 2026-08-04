@@ -93,6 +93,9 @@ test('server exposes health only after PostgreSQL startup and never logs databas
   assert.match(server, /await preparePostgresStartup/);
   assert.match(server, /pathname === ['"]\/healthz['"]/);
   assert.match(server, /statusCode = databaseReady \? 200 : 503/);
+  assert.match(server, /application\/json; charset=utf-8/);
+  assert.match(server, /JSON\.stringify\(\{ success: false, error:/);
+  assert.doesNotMatch(server, /res\.end\(['"]Internal server error['"]\)/);
   assert.doesNotMatch(server, /console\.(?:log|error)\([^\n]*(?:DATABASE_URL|databaseUrl)/);
 });
 
