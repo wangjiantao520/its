@@ -10,7 +10,7 @@ preview_enable = "enabled"
 
 [dev]
 build = ["bash", "./scripts/build.sh"]
-run = ["bash", "./scripts/dev.sh"]
+run = ["bash", "./scripts/start.sh"]
 
 [deploy]
 build = ["bash", "./scripts/build.sh"]
