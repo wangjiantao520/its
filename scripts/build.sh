@@ -17,4 +17,9 @@ pnpm next build
 echo "Bundling server with tsup..."
 pnpm tsup src/server.ts --format cjs --platform node --target node20 --outDir dist --no-splitting --no-minify
 
+echo "Copying PostgreSQL migration assets..."
+rm -rf dist/database/sql
+mkdir -p dist/database
+cp -R src/lib/database/sql dist/database/sql
+
 echo "Build completed successfully!"
