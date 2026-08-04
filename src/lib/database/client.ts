@@ -33,7 +33,7 @@ export interface DatabaseClientDependencies {
 }
 
 type PostgresQueryResult<Row extends Record<string, unknown>> = Row[] & {
-  count: number;
+  count: number | null;
 };
 
 type PostgresParameter = postgres.ParameterOrJSON<never>;
@@ -50,14 +50,15 @@ async function runQuery<Row extends Record<string, unknown>>(
   sql: postgres.ISql,
   text: string,
   params: readonly unknown[],
+  prepare: boolean,
 ): Promise<QueryResult<Row>> {
   try {
     const result = await sql.unsafe<PostgresQueryResult<Row>>(text, bindParameters(params), {
-      prepare: false,
+      prepare,
     });
     return {
       rows: Array.from(result),
-      rowCount: result.count,
+      rowCount: result.count ?? 0,
     };
   } catch (error) {
     if (isDatabaseUnavailableError(error)) {
@@ -67,14 +68,14 @@ async function runQuery<Row extends Record<string, unknown>>(
   }
 }
 
-function createTransactionClient(sql: postgres.TransactionSql): DatabaseClient {
+function createTransactionClient(sql: postgres.TransactionSql, prepare: boolean): DatabaseClient {
   return {
     query: <Row extends Record<string, unknown>>(text: string, params: readonly unknown[] = []) =>
-      runQuery<Row>(sql, text, params),
+      runQuery<Row>(sql, text, params, prepare),
     transaction: async <T>(work: (client: DatabaseClient) => Promise<T>): Promise<T> => {
       try {
         const result = await sql.savepoint(async (savepointSql) => ({
-          value: await work(createTransactionClient(savepointSql)),
+          value: await work(createTransactionClient(savepointSql, prepare)),
         }));
         return result.value;
       } catch (error) {
@@ -85,20 +86,20 @@ function createTransactionClient(sql: postgres.TransactionSql): DatabaseClient {
       }
     },
     healthCheck: async (): Promise<void> => {
-      await runQuery<Record<string, unknown>>(sql, 'SELECT 1', []);
+      await runQuery<Record<string, unknown>>(sql, 'SELECT 1', [], prepare);
     },
     close: async (): Promise<void> => {},
   };
 }
 
-function createRootClient(sql: postgres.Sql): DatabaseClient {
+function createRootClient(sql: postgres.Sql, prepare: boolean): DatabaseClient {
   return {
     query: <Row extends Record<string, unknown>>(text: string, params: readonly unknown[] = []) =>
-      runQuery<Row>(sql, text, params),
+      runQuery<Row>(sql, text, params, prepare),
     transaction: async <T>(work: (client: DatabaseClient) => Promise<T>): Promise<T> => {
       try {
         const result = await sql.begin(async (transactionSql) => ({
-          value: await work(createTransactionClient(transactionSql)),
+          value: await work(createTransactionClient(transactionSql, prepare)),
         }));
         return result.value;
       } catch (error) {
@@ -109,7 +110,7 @@ function createRootClient(sql: postgres.Sql): DatabaseClient {
       }
     },
     healthCheck: async (): Promise<void> => {
-      await runQuery<Record<string, unknown>>(sql, 'SELECT 1', []);
+      await runQuery<Record<string, unknown>>(sql, 'SELECT 1', [], prepare);
     },
     close: async (): Promise<void> => {
       await sql.end();
@@ -118,16 +119,37 @@ function createRootClient(sql: postgres.Sql): DatabaseClient {
 }
 
 export function redactDatabaseUrl(value: string): string {
-  return value.replace(
-    /^([a-z][a-z\d+.-]*:\/\/)([^@]*)@/i,
-    (match, protocol: string, credentials: string) => {
-      const separatorIndex = credentials.indexOf(':');
-      if (separatorIndex === -1) {
-        return match;
-      }
-      return `${protocol}${credentials.slice(0, separatorIndex)}:***@`;
-    },
-  );
+  try {
+    const parsed = new URL(value);
+    if (!parsed.username && !parsed.password) {
+      return value;
+    }
+  } catch {
+    // The fallback below must still remove a malformed connection string's password.
+  }
+
+  const authorityMatch = /^([a-z][a-z\d+.-]*:\/\/)([^/?#]*)([\s\S]*)$/i.exec(value);
+  if (!authorityMatch) {
+    return '<redacted database URL>';
+  }
+
+  const [, protocol, authority, suffix] = authorityMatch;
+  const atIndex = authority.lastIndexOf('@');
+  if (atIndex !== -1) {
+    const credentials = authority.slice(0, atIndex);
+    const passwordIndex = credentials.indexOf(':');
+    if (passwordIndex === -1) {
+      return `${protocol}${credentials}@${authority.slice(atIndex + 1)}${suffix}`;
+    }
+    return `${protocol}${credentials.slice(0, passwordIndex)}:***@${authority.slice(atIndex + 1)}${suffix}`;
+  }
+
+  const passwordIndex = authority.indexOf(':');
+  if (passwordIndex !== -1) {
+    return `${protocol}${authority.slice(0, passwordIndex)}:***${suffix}`;
+  }
+
+  return '<redacted database URL>';
 }
 
 export function createDatabaseClient(
@@ -139,15 +161,16 @@ export function createDatabaseClient(
     throw new Error('DATABASE_URL must be configured before using PostgreSQL.');
   }
 
+  const prepare = options.prepare ?? false;
   const sql = (dependencies.createSql ?? postgres)(url, {
     ssl: 'require',
-    prepare: options.prepare ?? false,
+    prepare,
     max: options.max ?? 10,
     connect_timeout: 10,
     idle_timeout: 20,
   });
 
-  return createRootClient(sql);
+  return createRootClient(sql, prepare);
 }
 
 export function getDatabase(): DatabaseClient {

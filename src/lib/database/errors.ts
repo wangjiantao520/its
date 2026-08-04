@@ -10,7 +10,10 @@ const UNAVAILABLE_DATABASE_ERROR_CODES = new Set([
   'ENETUNREACH',
   'ENOTFOUND',
   'ETIMEDOUT',
+  '57P01',
+  '57P02',
   '57P03',
+  '53300',
 ]);
 
 type ErrorWithCode = {
