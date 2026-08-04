@@ -1,16 +1,24 @@
 [project]
-requires = [ "nodejs-24" ]
-template = "nextjs"
-version = "0.0.24"
-appliedPatches = [ ]
+sub_id = "0c00cd3f"
+name = "engineering-quotation-system"
+requires = ["nodejs-24"]
+project_type = "web"
+version = "0.0.32"
+
+[preview]
+preview_enable = "enabled"
 
 [dev]
-build = [ "bash", "./scripts/build.sh" ]
-run = [ "bash", "./scripts/start.sh" ]
-validate = [ "bash", "./scripts/validate.sh" ]
-deps = [ "git" ]
+build = ["bash", "./scripts/build.sh"]
+run = ["bash", "./scripts/dev.sh"]
 
 [deploy]
-build = [ "bash", "./scripts/build.sh" ]
-run = [ "bash", "./scripts/start.sh" ]
-deps = [ "git" ]
+build = ["bash", "./scripts/build.sh"]
+run = ["bash", "./scripts/start.sh"]
+
+[deploy.profile]
+kind = "service"
+flavor = "web"
+
+[subprojects]
+path = ["."]

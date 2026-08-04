@@ -1,12 +1,19 @@
 # 项目上下文
 
-### 版本技术栈
+## 项目概述
+
+宁德移动 ICT 项目工程报价及维保业务管理系统。提供工程勘察报价、设备台账、维保报价、AI 智能助手、报价分享等功能。面向工程报价人员的专业 Web 工具。
+
+## 版本技术栈
 
 - **Framework**: Next.js 16 (App Router)
 - **Core**: React 19
 - **Language**: TypeScript 5
 - **UI 组件**: shadcn/ui (基于 Radix UI)
 - **Styling**: Tailwind CSS 4
+- **数据库**: SQLite (better-sqlite3)
+- **运行时入口**: `src/server.ts`（自定义 HTTP server 包装 Next.js）
+- **包管理器**: pnpm
 
 ## 目录结构
 
@@ -63,3 +70,65 @@
 
 - 模板默认预装核心组件库 `shadcn/ui`，位于`src/components/ui/`目录下
 - Next.js 项目**必须默认**采用 shadcn/ui 组件、风格和规范，**除非用户指定用其他的组件和规范。**
+
+## 关键入口 / 核心模块
+
+### 页面路由
+- `/` — 首页（登录入口）
+- `/login` — 登录页
+- `/dashboard` — 仪表盘
+- `/engineering` — 工程勘察管理
+- `/quotes` — 报价管理列表
+- `/quotes/[id]` — 报价详情/编辑
+- `/maintenance` — 维保报价
+- `/device-import` — 设备导入
+- `/survey-upload` — 勘察上传
+- `/database` — 数据库管理
+- `/assistant` — AI 智能助手
+- `/history` — 历史记录
+- `/reports` — 报告
+- `/share/[token]` — 报价分享页
+- `/admin/*` — 管理后台（dashboard、users、members、ai-config、agents）
+- `/settings/*` — 系统设置
+
+### API 路由（55 个）
+- `/api/auth/*` — 认证
+- `/api/quotations/*` — 报价 CRUD
+- `/api/engineering-quotes/*` — 工程报价
+- `/api/maintenance-quotes` — 维保报价
+- `/api/ai-parse-engineering` — AI 解析工程
+- `/api/ai-match-devices` — AI 匹配设备
+- `/api/agent-sessions/*` — AI Agent 会话
+- `/api/dashboard/*` — 仪表盘数据
+- `/api/device-params/*` — 设备参数
+- `/api/audit-logs` — 审计日志
+
+### 核心业务逻辑
+- `src/lib/db.ts` — 数据库连接
+- `src/lib/database/` — Schema 与迁移
+- `src/lib/auth.ts` / `api-auth*.ts` — 认证与鉴权
+- `src/lib/ai-*.ts` — AI 能力集成
+- `src/lib/quote-*.ts` — 报价计算逻辑
+- `src/lib/maintenance-*.ts` — 维保计算
+
+## 运行与预览
+
+- **预览脚本**：`scripts/dev.sh`（从 `.preview` 读端口，绑定 `0.0.0.0`，tsx watch 热更新）
+- **构建脚本**：`scripts/build.sh`（pnpm install → next build → tsup 打包 server.ts）
+- **生产启动**：`scripts/start.sh`（node dist/server.js，端口 5000）
+- **`.preview`**：`expose_port = 5000`，已加入 `.gitignore`
+- **`.coze`**：`project_type = "web"`，`preview_enable = "enabled"`
+
+## 用户偏好与长期约束
+
+- 包管理器仅允许 pnpm
+- 代码使用 TypeScript strict 模式
+- UI 使用 shadcn/ui 组件库
+- 设计稿参见 `DESIGN.md`（深蓝主色 #1e40af，专业商务风格）
+
+## 常见问题和预防
+
+- Next.js 启动时可能出现 `url.parse()` 弃用警告（来自 server.ts），不影响功能
+- 多 lockfile 警告（pnpm-workspace.yaml）：项目使用 workspace 模式，可忽略
+- better-sqlite3 需要原生二进制，构建时通过 `scripts/ensure-better-sqlite3-prebuild.mjs` 处理
+- 环境变量通过 `.env` 文件管理（DB 配置、认证密码等），参见 `.env.example`
