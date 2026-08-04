@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -12,9 +13,12 @@ import {
   MIGRATION_GROUPS,
   MIGRATION_TABLES,
   assertSafeSourceTables,
+  assertTargetSchemaContract,
   assertTargetReadyForImport,
+  buildMigrationRowVerification,
   buildMigrationVerification,
   importSqliteSnapshot,
+  loadCanonicalTargetSchemaContract,
   migrateSqliteDatabase,
   preflightJsonReport,
   prepareSqliteSource,
@@ -23,9 +27,13 @@ import {
   verifyDatabaseMigration,
   writeJsonReportAtomic,
   type DatabaseImportReport,
+  type CanonicalRow,
   type MigrationSnapshot,
+  type TargetColumnMetadata,
+  type TargetConstraintMetadata,
 } from '../scripts/database/sqlite-postgres-migration';
 import { runImportCli } from '../scripts/migrate-sqlite-to-postgres.mts';
+import { runVerifyCli } from '../scripts/verify-database-migration.mts';
 import {
   createPostgresTestHarness,
   POSTGRES_TEST_SKIP_REASON,
@@ -36,6 +44,21 @@ import {
 } from './helpers/postgres-schema';
 
 type Row = Record<string, unknown>;
+
+interface PreservedFileState {
+  digest: string;
+  size: number;
+  mtimeMs: number;
+}
+
+function preservedFileState(filePath: string): PreservedFileState {
+  const stat = fs.statSync(filePath);
+  return {
+    digest: createHash('sha256').update(fs.readFileSync(filePath)).digest('hex'),
+    size: stat.size,
+    mtimeMs: stat.mtimeMs,
+  };
+}
 
 interface SqliteStatement {
   run(...params: unknown[]): unknown;
@@ -249,6 +272,19 @@ function createFixture(t: test.TestContext, options: { populatedObsolete?: boole
   return databasePath;
 }
 
+function targetRowsFromSnapshot(snapshot: MigrationSnapshot): Record<string, CanonicalRow[]> {
+  return Object.fromEntries(MIGRATION_TABLES.map(({ name }) => [name,
+    (snapshot.rows[name] ?? []).map((sourceRow) => Object.fromEntries(
+      (snapshot.sourceColumns[name] ?? []).map((column) => [
+        column,
+        sourceRow[column] === null
+          ? null
+          : transformSqliteValue(name, column, sourceRow[column]),
+      ]),
+    ) as CanonicalRow),
+  ]));
+}
+
 function createDisjointFixture(t: test.TestContext): string {
   const databasePath = createFixture(t);
   const database = new DatabaseSync(databasePath);
@@ -381,6 +417,58 @@ test('obsolete ai_models is ignored only when empty and unknown populated tables
   database.exec('CREATE TABLE future_business (id INTEGER PRIMARY KEY); INSERT INTO future_business VALUES (1)');
   database.close();
   assert.throws(() => assertSafeSourceTables(unknown), /future_business.*not in the migration manifest/i);
+});
+
+test('recognized SQLite tables reject unexpected columns regardless of row count', (t) => {
+  const populated = createFixture(t);
+  const populatedDatabase = new DatabaseSync(populated);
+  populatedDatabase.exec('ALTER TABLE users ADD COLUMN unreviewed_payload TEXT');
+  populatedDatabase.close();
+  assert.throws(() => readSqliteSnapshot(populated), /unexpected source column.*users.*unreviewed_payload/i);
+
+  const empty = createFixture(t);
+  const emptyDatabase = new DatabaseSync(empty);
+  emptyDatabase.exec('CREATE TABLE device_quotas (id INTEGER PRIMARY KEY, unreviewed_payload TEXT)');
+  emptyDatabase.close();
+  assert.throws(() => readSqliteSnapshot(empty), /unexpected source column.*device_quotas.*unreviewed_payload/i);
+});
+
+test('bigint primary-key ranges and import parameters stay exact across MAX_SAFE_INTEGER', async (t) => {
+  const sourcePath = createFixture(t);
+  const database = new DatabaseSync(sourcePath);
+  database.exec(`
+    UPDATE users SET id = 9007199254740991 WHERE id = 7;
+    UPDATE users SET id = 10000000000000000 WHERE id = 11;
+    INSERT INTO users VALUES
+      (9007199254740992, 'unsafe-middle', 'safe-hash', '中间', 'its_member', 1,
+       '2026-08-01T09:10:11.123Z', '2026-08-01T09:10:11.123Z', NULL);
+    UPDATE auth_sessions SET user_id = 9007199254740991;
+    UPDATE agent_configs SET created_by = 9007199254740991;
+    UPDATE agent_sessions SET user_id = 10000000000000000;
+    UPDATE agent_logs SET user_id = 10000000000000000;
+  `);
+  database.close();
+
+  const snapshot = readSqliteSnapshot(sourcePath);
+  assert.deepEqual(snapshot.summary.tables.users.primaryKey, {
+    min: '9007199254740991',
+    max: '10000000000000000',
+  });
+  const client = new RecordingClient();
+  await importSqliteSnapshot(client, snapshot);
+  const userIds = client.committed
+    .filter(({ text }) => text.startsWith('INSERT INTO "users"'))
+    .map(({ params }) => String(params[0]));
+  assert.deepEqual(userIds, [
+    '9007199254740991',
+    '9007199254740992',
+    '10000000000000000',
+  ]);
+  assert.equal(
+    client.queries.some(({ text, params }) => /setval\(pg_get_serial_sequence/i.test(text)
+      && params[0] === 'users'),
+    true,
+  );
 });
 
 test('maps legacy null text primary keys to their unique preserved business item IDs', (t) => {
@@ -534,11 +622,11 @@ test('migration verification succeeds exactly and reports mismatches without exp
   assert.equal(success.success, true);
   assert.equal(success.tables.users.sourceCount, 2);
   assert.equal(success.tables.users.targetCount, 2);
-  assert.deepEqual(
-    success.aggregates.engineering_quotes.source,
-    source.aggregates.engineering_quotes,
+  assert.equal(
+    success.aggregates.engineering_quotes.sourceCount,
+    source.aggregates.engineering_quotes.count,
   );
-  assert.deepEqual(success.identities.users, { sequenceValue: '11', maxId: '11', safe: true });
+  assert.deepEqual(success.identities.users, { safe: true });
 
   matching.tables.users.count = 1;
   matching.users[0].username = 'changed-admin';
@@ -549,6 +637,178 @@ test('migration verification succeeds exactly and reports mismatches without exp
   const serialized = JSON.stringify(mismatch);
   assert.equal(serialized.includes('$2b$admin-hash'), false);
   assert.equal(serialized.includes('sha256:token-hash'), false);
+  assert.equal(serialized.includes('changed-admin'), false);
+  assert.equal(serialized.includes('"sequenceValue"'), false);
+  assert.equal(serialized.includes('"sourcePrimaryKey"'), false);
+});
+
+test('row verification rejects swapped row content despite equal counts and primary-key ranges', (t) => {
+  const snapshot = readSqliteSnapshot(createFixture(t));
+  const targetRows = targetRowsFromSnapshot(snapshot);
+  const firstUsername = targetRows.users[0].username;
+  targetRows.users[0].username = targetRows.users[1].username;
+  targetRows.users[1].username = firstUsername;
+
+  const report = buildMigrationRowVerification(snapshot, targetRows);
+  assert.equal(report.success, false);
+  assert.equal(report.tables.users.sourceCount, report.tables.users.targetCount);
+  assert.equal(report.tables.users.mismatchedCount, 2);
+  assert.equal(report.tables.users.missingCount, 0);
+  assert.equal(report.tables.users.unexpectedCount, 0);
+  assert.ok(report.tables.users.mismatchIdentifiers.every((identifier) => /^[a-f0-9]{24}$/.test(identifier)));
+});
+
+test('row verification rejects offsetting per-row money corruption and verifies each money column', (t) => {
+  const snapshot = readSqliteSnapshot(createFixture(t));
+  const original = snapshot.rows.engineering_quotes[0];
+  snapshot.rows.engineering_quotes.push({ ...original, id: BigInt(44), quote_number: 'EQ-44' });
+  const targetRows = targetRowsFromSnapshot(snapshot);
+  targetRows.engineering_quotes[0].total = '112.11';
+  targetRows.engineering_quotes[1].total = '114.11';
+
+  const report = buildMigrationRowVerification(snapshot, targetRows);
+  assert.equal(report.success, false);
+  assert.equal(report.tables.engineering_quotes.mismatchedCount, 2);
+  assert.equal(report.tables.engineering_quotes.moneyColumns.total.valuesMatch, false);
+  assert.equal(report.tables.engineering_quotes.moneyColumns.total.matches, true);
+  assert.equal(report.tables.engineering_quotes.moneyColumns.subtotal.valuesMatch, true);
+});
+
+test('row verification covers config, quota, labor, and device tables', (t) => {
+  const base = readSqliteSnapshot(createFixture(t));
+  const cases = [
+    ['ai_model_configs', 'api_endpoint', 'https://wrong.invalid'],
+    ['labor_price_config', 'unit_price', '999.99'],
+    ['device_quotas', 'inspection_labor_fee', '888.88'],
+    ['maintenance_device_quotas', 'annual_fee', '777.77'],
+  ] as const;
+
+  for (const [table, column, corruptValue] of cases) {
+    const snapshot = structuredClone(base);
+    if (snapshot.rows[table].length === 0) {
+      snapshot.sourceColumns[table] = [...(MIGRATION_TABLES.find(({ name }) => name === table)?.columns ?? [])];
+      snapshot.rows[table].push(Object.fromEntries(
+        snapshot.sourceColumns[table].map((name) => [name, name === 'id' ? BigInt(9100) : null]),
+      ));
+    }
+    const targetRows = targetRowsFromSnapshot(snapshot);
+    targetRows[table][0][column] = corruptValue;
+    const report = buildMigrationRowVerification(snapshot, targetRows);
+    assert.equal(report.success, false, table);
+    assert.equal(report.tables[table].mismatchedCount, 1, table);
+  }
+});
+
+test('row verification covers ownership, status, and secret fields without reporting values', (t) => {
+  const snapshot = readSqliteSnapshot(createFixture(t));
+  const targetRows = targetRowsFromSnapshot(snapshot);
+  targetRows.engineering_quotes[0].created_by = '11';
+  targetRows.engineering_quotes[0].status = 'approved';
+  targetRows.users[0].password_hash = '$2b$corrupted-secret';
+
+  const report = buildMigrationRowVerification(snapshot, targetRows);
+  assert.equal(report.success, false);
+  assert.equal(report.tables.engineering_quotes.mismatchedCount, 1);
+  assert.equal(report.tables.users.mismatchedCount, 1);
+  const serialized = JSON.stringify(report);
+  assert.equal(serialized.includes('$2b$admin-hash'), false);
+  assert.equal(serialized.includes('$2b$corrupted-secret'), false);
+  assert.equal(serialized.includes('approved'), false);
+});
+
+test('verification detects polymorphic quote orphans across versions, shares, audits, and history', (t) => {
+  const sourcePath = createFixture(t);
+  const database = new DatabaseSync(sourcePath);
+  database.exec(`
+    UPDATE quote_versions SET quote_id = 999999;
+    UPDATE quote_shares SET quote_type = 'unknown';
+    UPDATE quote_audit_logs SET quote_id = 999999;
+    CREATE TABLE quote_device_history (
+      id INTEGER PRIMARY KEY,
+      client_id INTEGER,
+      client_name TEXT,
+      device_signature TEXT,
+      device_data TEXT,
+      quote_total REAL,
+      quote_id INTEGER,
+      quote_type TEXT,
+      created_at TEXT
+    );
+    INSERT INTO quote_device_history
+      (id, client_id, client_name, device_signature, device_data, quote_total, quote_id, quote_type, created_at)
+    VALUES
+      (8101, 3, 'Client A', 'sig', '{}', 1.00, 999999, 'maintenance', '2026-08-01 09:10:11');
+  `);
+  database.close();
+
+  const summary = readSqliteSnapshot(sourcePath).summary;
+  assert.equal(summary.orphans['quote_versions.quote_id+quote_type->engineering_quotes|maintenance_quotes'], 1);
+  assert.equal(summary.orphans['quote_shares.quote_id+quote_type->engineering_quotes|maintenance_quotes'], 1);
+  assert.equal(summary.orphans['quote_audit_logs.quote_id+quote_type->engineering_quotes|maintenance_quotes'], 1);
+  assert.equal(summary.orphans['quote_device_history.quote_id+quote_type->engineering_quotes|maintenance_quotes'], 1);
+
+  const target = structuredClone(summary);
+  target.orphans['quote_versions.quote_id+quote_type->engineering_quotes|maintenance_quotes'] = 0;
+  const report = buildMigrationVerification(summary, target, {});
+  assert.equal(report.success, false);
+  assert.equal(
+    report.orphans['quote_versions.quote_id+quote_type->engineering_quotes|maintenance_quotes'].matches,
+    false,
+  );
+});
+
+test('target schema contract rejects type, numeric scale, nullability, identity, and constraint drift', () => {
+  const expected = loadCanonicalTargetSchemaContract();
+  const includedTables = new Set(MIGRATION_TABLES.map(({ name }) => name));
+  const columns: TargetColumnMetadata[] = expected.columns
+    .filter(({ tableName }) => includedTables.has(tableName))
+    .map((column) => ({
+      table_name: column.tableName,
+      column_name: column.columnName,
+      udt_name: column.udtName,
+      is_nullable: column.nullable ? 'YES' : 'NO',
+      is_identity: column.identity ? 'YES' : 'NO',
+      identity_generation: column.identityGeneration,
+      column_default: column.defaultExpression,
+      numeric_precision: column.numericPrecision,
+      numeric_scale: column.numericScale,
+    }));
+  const constraints: TargetConstraintMetadata[] = expected.constraints
+    .filter(({ tableName }) => includedTables.has(tableName))
+    .map((constraint) => ({
+      table_name: constraint.tableName,
+      constraint_type: constraint.constraintType,
+      column_name: constraint.columnName,
+      foreign_table_name: constraint.foreignTableName,
+      foreign_column_name: constraint.foreignColumnName,
+      delete_rule: constraint.deleteRule,
+    }));
+
+  assert.doesNotThrow(() => assertTargetSchemaContract(expected, columns, constraints, includedTables));
+
+  const corruptions: Array<(values: TargetColumnMetadata[]) => void> = [
+    (values) => { values.find(({ table_name, column_name }) => table_name === 'users' && column_name === 'id')!.udt_name = 'int4'; },
+    (values) => { values.find(({ table_name, column_name }) => table_name === 'engineering_quotes' && column_name === 'total')!.numeric_scale = 3; },
+    (values) => { values.find(({ table_name, column_name }) => table_name === 'users' && column_name === 'username')!.is_nullable = 'YES'; },
+    (values) => { values.find(({ table_name, column_name }) => table_name === 'users' && column_name === 'id')!.is_identity = 'NO'; },
+  ];
+  for (const corrupt of corruptions) {
+    const changed = structuredClone(columns);
+    corrupt(changed);
+    assert.throws(
+      () => assertTargetSchemaContract(expected, changed, constraints, includedTables),
+      /canonical manifest/i,
+    );
+  }
+
+  const missingForeignKey = constraints.filter((constraint) => !(
+    constraint.table_name === 'quotation_devices'
+    && constraint.constraint_type === 'FOREIGN KEY'
+  ));
+  assert.throws(
+    () => assertTargetSchemaContract(expected, columns, missingForeignKey, includedTables),
+    /constraints.*canonical manifest/i,
+  );
 });
 
 test('atomic report contains no URLs, password hashes, or token hashes', (t) => {
@@ -568,6 +828,104 @@ test('atomic report contains no URLs, password hashes, or token hashes', (t) => 
     fs.readdirSync(directory).sort(),
     ['report.json'],
   );
+});
+
+async function assertCliRejectsSourceReportAlias(
+  t: test.TestContext,
+  cli: 'import' | 'verify',
+  aliasKind: 'same' | 'relative' | 'symlink' | 'hardlink',
+): Promise<void> {
+  const sourcePath = createFixture(t);
+  const before = preservedFileState(sourcePath);
+  let reportPath: string;
+  if (aliasKind === 'same') {
+    reportPath = sourcePath;
+  } else if (aliasKind === 'relative') {
+    reportPath = path.relative(process.cwd(), sourcePath);
+  } else {
+    reportPath = path.join(path.dirname(sourcePath), `${aliasKind}-report.json`);
+    if (aliasKind === 'symlink') fs.symlinkSync(sourcePath, reportPath);
+    else fs.linkSync(sourcePath, reportPath);
+  }
+  let clientCreated = false;
+  const dependencies = {
+    argv: [
+      '--source', sourcePath,
+      '--target', 'postgres://redacted.invalid/db',
+      '--report', reportPath,
+      ...(cli === 'import' ? ['--maintenance-mode-confirmed'] : []),
+    ],
+    env: {},
+    createClient: (): DatabaseClient => {
+      clientCreated = true;
+      throw new Error('client must not be created for an unsafe report path');
+    },
+    writeStdout: () => {},
+    writeStderr: () => {},
+  };
+  const exitCode = cli === 'import'
+    ? await runImportCli(dependencies)
+    : await runVerifyCli(dependencies);
+  assert.equal(exitCode, 1);
+  assert.equal(clientCreated, false);
+  assert.deepEqual(preservedFileState(sourcePath), before);
+}
+
+test('import CLI rejects same, relative, symlink, and hardlink source/report aliases before DB work', async (t) => {
+  for (const aliasKind of ['same', 'relative', 'symlink', 'hardlink'] as const) {
+    await t.test(aliasKind, async (subtest) => {
+      await assertCliRejectsSourceReportAlias(subtest, 'import', aliasKind);
+    });
+  }
+});
+
+test('verification CLI rejects same, relative, symlink, and hardlink source/report aliases before DB work', async (t) => {
+  for (const aliasKind of ['same', 'relative', 'symlink', 'hardlink'] as const) {
+    await t.test(aliasKind, async (subtest) => {
+      await assertCliRejectsSourceReportAlias(subtest, 'verify', aliasKind);
+    });
+  }
+});
+
+test('atomic report writer refuses protected path and inode aliases without replacing data', (t) => {
+  for (const aliasKind of ['same', 'relative', 'symlink', 'hardlink'] as const) {
+    const sourcePath = createFixture(t);
+    const before = preservedFileState(sourcePath);
+    let reportPath: string;
+    if (aliasKind === 'same') reportPath = sourcePath;
+    else if (aliasKind === 'relative') reportPath = path.relative(process.cwd(), sourcePath);
+    else {
+      reportPath = path.join(path.dirname(sourcePath), `${aliasKind}-writer.json`);
+      if (aliasKind === 'symlink') fs.symlinkSync(sourcePath, reportPath);
+      else fs.linkSync(sourcePath, reportPath);
+    }
+    assert.throws(
+      () => writeJsonReportAtomic(reportPath, { success: true }, { protectedPaths: [sourcePath] }),
+      /protected|overlap|same file/i,
+    );
+    assert.deepEqual(preservedFileState(sourcePath), before);
+  }
+});
+
+test('backup creation refuses a generated path reserved for the report', (t) => {
+  const sourcePath = createFixture(t);
+  const before = preservedFileState(sourcePath);
+  const backupDirectory = temporaryDirectory(t);
+  const now = new Date('2026-08-04T00:00:00.000Z');
+  const generatedBackupPath = path.join(
+    backupDirectory,
+    'quotation.migration-2026-08-04T00-00-00-000Z.db',
+  );
+  assert.throws(
+    () => prepareSqliteSource(sourcePath, {
+      backupDirectory,
+      now,
+      protectedPaths: [generatedBackupPath],
+    }),
+    /protected|overlap|same file/i,
+  );
+  assert.equal(fs.existsSync(generatedBackupPath), false);
+  assert.deepEqual(preservedFileState(sourcePath), before);
 });
 
 class NonemptyTargetClient extends RecordingClient {
@@ -644,6 +1002,7 @@ test('migration CLIs provide help and redact malformed target credentials', () =
   assert.equal(importHelp.status, 0, importHelp.stderr);
   assert.match(importHelp.stdout, /--source[\s\S]*--target[\s\S]*--report/);
   assert.match(importHelp.stdout, /--allow-nonempty-target/);
+  assert.match(importHelp.stdout, /--maintenance-mode-confirmed/);
 
   const verifyHelp = spawnSync('pnpm', ['db:verify-migration', '--help'], {
     cwd: process.cwd(),
@@ -657,12 +1016,55 @@ test('migration CLIs provide help and redact malformed target credentials', () =
   const target = `postgres://${username}:${password}@[invalid-host`;
   const failed = spawnSync(
     'pnpm',
-    ['db:import-sqlite', '--source', '/missing/source.db', '--target', target, '--report', '/tmp/unused-report.json'],
-    { cwd: process.cwd(), encoding: 'utf8' },
+    [
+      'db:import-sqlite', '--source', '/missing/source.db',
+      '--report', '/tmp/unused-report.json', '--maintenance-mode-confirmed',
+    ],
+    {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      env: { ...process.env, DATABASE_MIGRATION_URL: target },
+    },
   );
   const output = `${failed.stdout}${failed.stderr}`;
   assert.notEqual(failed.status, 0);
   for (const secret of [target, username, password]) assert.equal(output.includes(secret), false);
+});
+
+test('import CLI requires explicit maintenance-mode confirmation before DB work', async (t) => {
+  const sourcePath = createFixture(t);
+  const reportPath = path.join(temporaryDirectory(t), 'report.json');
+  let clientCreatedWithoutConfirmation = false;
+  const withoutConfirmation = await runImportCli({
+    argv: ['--source', sourcePath, '--target', 'postgres://redacted.invalid/db', '--report', reportPath],
+    env: {},
+    createClient: () => {
+      clientCreatedWithoutConfirmation = true;
+      throw new Error('must not create client');
+    },
+    writeStdout: () => {},
+    writeStderr: () => {},
+  });
+  assert.equal(withoutConfirmation, 1);
+  assert.equal(clientCreatedWithoutConfirmation, false);
+
+  let clientCreatedWithConfirmation = false;
+  await runImportCli({
+    argv: [
+      '--source', sourcePath,
+      '--target', 'postgres://redacted.invalid/db',
+      '--report', reportPath,
+      '--maintenance-mode-confirmed',
+    ],
+    env: {},
+    createClient: () => {
+      clientCreatedWithConfirmation = true;
+      throw new Error('confirmation accepted');
+    },
+    writeStdout: () => {},
+    writeStderr: () => {},
+  });
+  assert.equal(clientCreatedWithConfirmation, true);
 });
 
 interface LedgerClientState {
@@ -797,7 +1199,12 @@ test('completed ledger recovers a failed report write without duplicate imports'
 
   const first = await runImportCli({
     ...common,
-    argv: ['--source', sourcePath, '--target', 'postgres://redacted.invalid/db', '--report', reportPath],
+    argv: [
+      '--source', sourcePath,
+      '--target', 'postgres://redacted.invalid/db',
+      '--report', reportPath,
+      '--maintenance-mode-confirmed',
+    ],
     writeReport: () => {
       throw new Error('injected report rename failure');
     },
@@ -811,7 +1218,12 @@ test('completed ledger recovers a failed report write without duplicate imports'
   const insertedAfterFirstRun = client.insertedBusinessRows;
   const second = await runImportCli({
     ...common,
-    argv: ['--source', sourcePath, '--target', 'postgres://redacted.invalid/db', '--report', reportPath],
+    argv: [
+      '--source', sourcePath,
+      '--target', 'postgres://redacted.invalid/db',
+      '--report', reportPath,
+      '--maintenance-mode-confirmed',
+    ],
     writeReport: writeJsonReportAtomic,
   });
   assert.equal(second, 0);
@@ -833,6 +1245,7 @@ test('completed ledger recovers a failed report write without duplicate imports'
       '--source', differentSource,
       '--target', 'postgres://redacted.invalid/db',
       '--report', path.join(directory, 'different-report.json'),
+      '--maintenance-mode-confirmed',
     ],
     writeReport: writeJsonReportAtomic,
   });
@@ -870,20 +1283,32 @@ class ConcurrentImportClient implements DatabaseClient {
   };
   private readonly rootBarrierSize: number;
   private readonly onFirstImportLock?: () => void;
+  private readonly onBusinessTablesLocked?: () => void;
   private rootBarrierArrivals = 0;
   private releaseRootBarrier: (() => void) | undefined;
   private readonly rootBarrier: Promise<void>;
   private lockTail = Promise.resolve();
   private importLockHolders = 0;
+  private businessTablesLocked = false;
+  private readonly ordinaryWriterWaiters: Array<() => void> = [];
   importLockRequests = 0;
+  businessTableLockRequests = 0;
+  targetCountCheckedBeforeBusinessLock = false;
+  ordinaryWriterWaited = false;
+  ordinaryWriterCompletedDuringImport = false;
   maxImportLockHolders = 0;
   activeRootTransactions = 0;
   maxActiveRootTransactions = 0;
   duplicateIdAttempts = 0;
 
-  constructor(options: { rootBarrierSize?: number; onFirstImportLock?: () => void } = {}) {
+  constructor(options: {
+    rootBarrierSize?: number;
+    onFirstImportLock?: () => void;
+    onBusinessTablesLocked?: () => void;
+  } = {}) {
     this.rootBarrierSize = options.rootBarrierSize ?? 2;
     this.onFirstImportLock = options.onFirstImportLock;
+    this.onBusinessTablesLocked = options.onBusinessTablesLocked;
     this.rootBarrier = this.rootBarrierSize <= 1
       ? Promise.resolve()
       : new Promise<void>((resolve) => {
@@ -912,6 +1337,14 @@ class ConcurrentImportClient implements DatabaseClient {
       .filter((value) => /^\d+$/.test(value))
       .map(Number);
     return ids.length === 0 ? undefined : Math.max(...ids);
+  }
+
+  async simulateOrdinaryWriter(): Promise<void> {
+    if (this.businessTablesLocked) {
+      this.ordinaryWriterWaited = true;
+      await new Promise<void>((resolve) => this.ordinaryWriterWaiters.push(resolve));
+    }
+    this.ordinaryWriterCompletedDuringImport = this.activeRootTransactions > 0;
   }
 
   private cloneState(source: ConcurrentImportState): ConcurrentImportState {
@@ -1010,6 +1443,23 @@ class ConcurrentImportClient implements DatabaseClient {
       return { rows: [], rowCount: 1 };
     }
 
+    if (/^\s*SET\s+LOCAL\s+lock_timeout/i.test(text)) {
+      if (!context?.lockHeld) throw new Error('lock_timeout must be set inside the import transaction.');
+      return { rows: [], rowCount: 0 };
+    }
+    if (/^\s*LOCK\s+TABLE/i.test(text)) {
+      if (!context?.lockHeld || !/ACCESS\s+EXCLUSIVE\s+MODE/i.test(text)) {
+        throw new Error('Business tables require an in-transaction ACCESS EXCLUSIVE lock.');
+      }
+      const actualTables = [...text.matchAll(/"([a-z_]+)"/g)].map((match) => match[1]);
+      const expectedTables = MIGRATION_TABLES.map(({ name }) => name).sort();
+      assert.deepEqual(actualTables, expectedTables);
+      this.businessTableLockRequests += 1;
+      this.businessTablesLocked = true;
+      this.onBusinessTablesLocked?.();
+      return { rows: [], rowCount: 0 };
+    }
+
     const state = context?.state ?? this.state;
     if (/to_regclass\('schema_migrations'\)/i.test(text)) {
       return {
@@ -1043,6 +1493,7 @@ class ConcurrentImportClient implements DatabaseClient {
     }
     const countTable = /SELECT count\(\*\)::text AS count FROM "([a-z_]+)"/i.exec(text)?.[1];
     if (countTable) {
+      if (!this.businessTablesLocked) this.targetCountCheckedBeforeBusinessLock = true;
       const count = state.rows[countTable]?.size ?? 0;
       return { rows: [{ count: String(count) }] as unknown as ResultRow[], rowCount: 1 };
     }
@@ -1097,6 +1548,10 @@ class ConcurrentImportClient implements DatabaseClient {
         context.releaseLock?.();
       }
       this.activeRootTransactions -= 1;
+      if (this.businessTablesLocked) {
+        this.businessTablesLocked = false;
+        for (const release of this.ordinaryWriterWaiters.splice(0)) release();
+      }
     }
   }
 
@@ -1236,9 +1691,94 @@ test('locked import decision rechecks the source manifest before writing busines
   assert.equal(client.completedRuns, 0);
 });
 
+test('import fails with retry guidance when the source changes during backup creation', async (t) => {
+  const sourcePath = createFixture(t);
+  const client = new ConcurrentImportClient({ rootBarrierSize: 1 });
+  const backupDirectory = path.join(temporaryDirectory(t), 'backups');
+
+  await assert.rejects(
+    () => migrateSqliteDatabase({
+      sourcePath,
+      client,
+      backupDirectory,
+      runMigrations: async () => ({ appliedVersions: [1, 2, 3] }),
+      validateTargetSchema: async () => {},
+      prepareSource: (pathToSource, options) => {
+        const prepared = prepareSqliteSource(pathToSource, options);
+        const database = new DatabaseSync(pathToSource);
+        database.exec("UPDATE users SET name = '备份期间变更' WHERE id = 7");
+        database.close();
+        return prepared;
+      },
+      verifyMigration: async ({ sourcePath: verificationSource }) => {
+        const summary = readSqliteSnapshot(verificationSource).summary;
+        return buildMigrationVerification(summary, structuredClone(summary), {});
+      },
+    }),
+    /source changed.*retry/i,
+  );
+  assert.equal(client.insertedBusinessRows, 0);
+  assert.equal(client.completedRuns, 0);
+});
+
+test('business table locks block an ordinary writer until the import transaction commits', async (t) => {
+  const sourcePath = createFixture(t);
+  let writer: Promise<void> | undefined;
+  const client = new ConcurrentImportClient({
+    rootBarrierSize: 1,
+    onBusinessTablesLocked: () => {
+      writer = client.simulateOrdinaryWriter();
+    },
+  });
+
+  await migrateWithTestDependencies(client, sourcePath, path.join(temporaryDirectory(t), 'backups'));
+  await writer;
+  assert.equal(client.businessTableLockRequests, 1);
+  assert.equal(client.targetCountCheckedBeforeBusinessLock, false);
+  assert.equal(client.ordinaryWriterWaited, true);
+  assert.equal(client.ordinaryWriterCompletedDuringImport, false);
+});
+
 const integrationOptions = process.env.TEST_DATABASE_URL
   ? {}
   : { skip: POSTGRES_TEST_SKIP_REASON };
+
+test('PostgreSQL: business table locks block an ordinary writer during cutover', integrationOptions, async (t) => {
+  const harness = await createPostgresTestHarness(t);
+  const writerClient = harness.createAdditionalClient();
+  const sourcePath = createFixture(t);
+  const backupDirectory = path.join(temporaryDirectory(t), 'backups');
+  let signalLocked: (() => void) | undefined;
+  const locked = new Promise<void>((resolve) => { signalLocked = resolve; });
+  let releaseLocks: (() => void) | undefined;
+  const release = new Promise<void>((resolve) => { releaseLocks = resolve; });
+
+  const migration = migrateSqliteDatabase({
+    sourcePath,
+    client: harness.client,
+    backupDirectory,
+    afterBusinessTablesLocked: async () => {
+      signalLocked?.();
+      await release;
+    },
+  });
+  await locked;
+  try {
+    await assert.rejects(
+      () => writerClient.transaction(async (client) => {
+        await client.query("SET LOCAL lock_timeout = '100ms'");
+        await client.query(
+          "INSERT INTO users (username, password_hash) VALUES ('blocked-writer', 'safe-hash')",
+        );
+      }),
+      /lock timeout|canceling statement/i,
+    );
+  } finally {
+    releaseLocks?.();
+  }
+  const report = await migration;
+  assert.equal(report.success, true);
+});
 
 test('PostgreSQL: concurrent different-source imports serialize and only one writes', integrationOptions, async (t) => {
   const harness = await createPostgresTestHarness(t);

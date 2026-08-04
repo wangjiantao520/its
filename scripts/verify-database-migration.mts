@@ -7,17 +7,20 @@ import {
 } from '../src/lib/database/client';
 import {
   assertTargetSchema,
+  discoverProtectedDataPaths,
   MigrationVerificationError,
+  preflightJsonReport,
   verifyDatabaseMigration,
   writeJsonReportAtomic,
+  type ProtectedPathOptions,
 } from './database/sqlite-postgres-migration';
 
 const HELP = `Usage:
-  pnpm db:verify-migration --source <sqlite.db> --target <postgres-url> --report <report.json>
+  DATABASE_MIGRATION_URL=<postgres-url> pnpm db:verify-migration --source <sqlite.db> --report <report.json>
 
 Options:
   --source <path>   Source SQLite database (opened read-only)
-  --target <url>    Target PostgreSQL URL; defaults only to DATABASE_MIGRATION_URL
+  --target <url>    Optional override; DATABASE_MIGRATION_URL is recommended
   --report <path>   Atomic JSON verification report output
   --help            Show this help
 `;
@@ -33,6 +36,9 @@ export interface VerifyCliDependencies {
   argv?: readonly string[];
   env?: Readonly<Record<string, string | undefined>>;
   createClient?: (options: DatabaseClientOptions) => DatabaseClient;
+  preflightReport?: (reportPath: string, options?: ProtectedPathOptions) => void;
+  writeReport?: (reportPath: string, report: unknown, options?: ProtectedPathOptions) => void;
+  protectedPaths?: readonly string[];
   writeStdout?: (message: string) => void;
   writeStderr?: (message: string) => void;
 }
@@ -71,6 +77,7 @@ export async function runVerifyCli(dependencies: VerifyCliDependencies = {}): Pr
   const writeStderr = dependencies.writeStderr ?? console.error;
   let client: DatabaseClient | undefined;
   let reportPath = '';
+  let protectedPaths: readonly string[] = [];
   try {
     const parsed = parseArguments(
       dependencies.argv ?? process.argv.slice(2),
@@ -81,6 +88,11 @@ export async function runVerifyCli(dependencies: VerifyCliDependencies = {}): Pr
       return 0;
     }
     reportPath = parsed.report;
+    protectedPaths = [
+      ...discoverProtectedDataPaths(parsed.source),
+      ...(dependencies.protectedPaths ?? []),
+    ];
+    (dependencies.preflightReport ?? preflightJsonReport)(reportPath, { protectedPaths });
     client = (dependencies.createClient ?? createDatabaseClient)({
       url: parsed.target,
       max: 1,
@@ -88,12 +100,12 @@ export async function runVerifyCli(dependencies: VerifyCliDependencies = {}): Pr
     });
     await assertTargetSchema(client);
     const report = await verifyDatabaseMigration({ sourcePath: parsed.source, client });
-    writeJsonReportAtomic(reportPath, report);
+    (dependencies.writeReport ?? writeJsonReportAtomic)(reportPath, report, { protectedPaths });
     writeStdout('Database migration verification completed.');
     return 0;
   } catch (error) {
     if (reportPath && error instanceof MigrationVerificationError) {
-      writeJsonReportAtomic(reportPath, error.report);
+      (dependencies.writeReport ?? writeJsonReportAtomic)(reportPath, error.report, { protectedPaths });
     }
     writeStderr('Database migration verification failed. No credentials or row data were logged.');
     return 1;

@@ -6,20 +6,23 @@ import {
   type DatabaseClientOptions,
 } from '../src/lib/database/client';
 import {
+  discoverProtectedDataPaths,
   migrateSqliteDatabase,
   preflightJsonReport,
   writeJsonReportAtomic,
   type MigrateSqliteDatabaseOptions,
+  type ProtectedPathOptions,
 } from './database/sqlite-postgres-migration';
 
 const HELP = `Usage:
-  pnpm db:import-sqlite --source <sqlite.db> --target <postgres-url> --report <report.json>
+  DATABASE_MIGRATION_URL=<postgres-url> pnpm db:import-sqlite --source <sqlite.db> --report <report.json> --maintenance-mode-confirmed
 
 Options:
   --source <path>              Source SQLite database (opened read-only)
-  --target <url>               Target PostgreSQL URL; defaults only to DATABASE_MIGRATION_URL
+  --target <url>               Optional override; DATABASE_MIGRATION_URL is recommended
   --report <path>              Atomic JSON report output
   --allow-nonempty-target      Allow existing schema metadata only; business rows still refuse
+  --maintenance-mode-confirmed Confirm application writers are stopped for cutover
   --help                       Show this help
 `;
 
@@ -28,6 +31,7 @@ interface ImportCliArguments {
   target: string;
   report: string;
   allowNonemptyTarget: boolean;
+  maintenanceModeConfirmed: boolean;
   help: boolean;
 }
 
@@ -36,8 +40,9 @@ export interface ImportCliDependencies {
   env?: Readonly<Record<string, string | undefined>>;
   createClient?: (options: DatabaseClientOptions) => DatabaseClient;
   migrateDatabase?: (options: MigrateSqliteDatabaseOptions) => ReturnType<typeof migrateSqliteDatabase>;
-  preflightReport?: (reportPath: string) => void;
-  writeReport?: (reportPath: string, report: unknown) => void;
+  preflightReport?: (reportPath: string, options?: ProtectedPathOptions) => void;
+  writeReport?: (reportPath: string, report: unknown, options?: ProtectedPathOptions) => void;
+  protectedPaths?: readonly string[];
   writeStdout?: (message: string) => void;
   writeStderr?: (message: string) => void;
 }
@@ -50,6 +55,7 @@ function parseArguments(
   let target = '';
   let report = '';
   let allowNonemptyTarget = false;
+  let maintenanceModeConfirmed = false;
   let help = false;
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
@@ -57,6 +63,8 @@ function parseArguments(
       help = true;
     } else if (argument === '--allow-nonempty-target') {
       allowNonemptyTarget = true;
+    } else if (argument === '--maintenance-mode-confirmed') {
+      maintenanceModeConfirmed = true;
     } else if (argument === '--source' || argument === '--target' || argument === '--report') {
       const value = argv[index + 1];
       if (!value || value.startsWith('--')) throw new Error(`Missing value for ${argument}.`);
@@ -68,10 +76,15 @@ function parseArguments(
       throw new Error('Unknown migration option.');
     }
   }
-  if (help) return { source, target, report, allowNonemptyTarget, help };
+  if (help) return {
+    source, target, report, allowNonemptyTarget, maintenanceModeConfirmed, help,
+  };
   target = target.trim() || (env.DATABASE_MIGRATION_URL ?? '').trim();
   if (!source || !target || !report) throw new Error('Required migration options are missing.');
-  return { source, target, report, allowNonemptyTarget, help };
+  if (!maintenanceModeConfirmed) {
+    throw new Error('Import requires --maintenance-mode-confirmed after stopping application writers.');
+  }
+  return { source, target, report, allowNonemptyTarget, maintenanceModeConfirmed, help };
 }
 
 export async function runImportCli(dependencies: ImportCliDependencies = {}): Promise<number> {
@@ -87,7 +100,11 @@ export async function runImportCli(dependencies: ImportCliDependencies = {}): Pr
       writeStdout(HELP);
       return 0;
     }
-    (dependencies.preflightReport ?? preflightJsonReport)(parsed.report);
+    const protectedPaths = [
+      ...discoverProtectedDataPaths(parsed.source),
+      ...(dependencies.protectedPaths ?? []),
+    ];
+    (dependencies.preflightReport ?? preflightJsonReport)(parsed.report, { protectedPaths });
     client = (dependencies.createClient ?? createDatabaseClient)({
       url: parsed.target,
       max: 1,
@@ -97,9 +114,12 @@ export async function runImportCli(dependencies: ImportCliDependencies = {}): Pr
       sourcePath: parsed.source,
       client,
       allowNonemptyTarget: parsed.allowNonemptyTarget,
+      protectedPaths: [parsed.report, ...protectedPaths],
     });
     try {
-      (dependencies.writeReport ?? writeJsonReportAtomic)(parsed.report, report);
+      (dependencies.writeReport ?? writeJsonReportAtomic)(parsed.report, report, {
+        protectedPaths: [parsed.source, report.backupPath, ...protectedPaths],
+      });
     } catch {
       writeStderr(
         'Database migration completed, but report materialization failed. Rerun the same command to recover the report without reinserting rows.',
