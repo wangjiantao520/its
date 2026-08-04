@@ -3,6 +3,10 @@
  * (item as any).field 模式用于访问联合类型中的可选字段
  * 完整重构已列入 P2 重构计划
  */
+/* eslint-disable react-hooks/purity --
+ * Date.now() / new Date() 均在事件处理函数（onClick 回调）中调用，
+ * 不会在渲染期执行，属于 purity 规则的误报
+ */
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
