@@ -22,7 +22,7 @@ export async function POST(
   try {
     const selected = await getDatabase().transaction(async (database) => {
       await database.query(
-        "SELECT pg_advisory_xact_lock(hashtext('ai_model_configs:default'))",
+        "SELECT pg_advisory_xact_lock(hashtext('ai_model_configs:state'))",
       );
       const existing = await database.query<IdRow>(
         'SELECT id FROM ai_model_configs WHERE id = $1 FOR UPDATE',

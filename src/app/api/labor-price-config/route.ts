@@ -48,9 +48,8 @@ const updateSchema = z.object({
 });
 const deleteSchema = z.object({ id: decimalId });
 
-function serializeId(value: string | number | bigint): string | number {
-  const parsed = typeof value === 'bigint' ? value : BigInt(value);
-  return parsed <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(parsed) : parsed.toString();
+function serializeId(value: string | number | bigint): string {
+  return String(value);
 }
 
 function serializeDate(value: Date | string): string {

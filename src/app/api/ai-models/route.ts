@@ -41,6 +41,7 @@ const aiModelSchema = z.object({
   max_tokens: z.coerce.number().int().positive().max(128000).optional().default(3000),
   system_prompt: z.string().optional().nullable(),
   description: z.string().optional().nullable(),
+  is_active: booleanValue.optional().default(true),
   is_default: booleanValue.optional().default(false),
   sort_order: z.coerce.number().int().nonnegative().optional().default(0),
   created_by: z.string().optional().default('system'),
@@ -55,6 +56,7 @@ const aiModelUpdateSchema = z.object({
   max_tokens: z.coerce.number().int().positive().max(128000).optional(),
   system_prompt: z.string().nullable().optional(),
   description: z.string().nullable().optional(),
+  is_active: booleanValue.optional(),
   is_default: booleanValue.optional(),
   sort_order: z.coerce.number().int().nonnegative().optional(),
 });
@@ -64,9 +66,8 @@ function parseId(request: NextRequest): string | null {
   return id && /^\d+$/.test(id) && BigInt(id) > BigInt(0) ? id : null;
 }
 
-function serializeId(value: string | number | bigint): string | number {
-  const parsed = typeof value === 'bigint' ? value : BigInt(value);
-  return parsed <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(parsed) : parsed.toString();
+function serializeId(value: string | number | bigint): string {
+  return String(value);
 }
 
 function serializeModel(row: AIModelRow): Record<string, unknown> {
@@ -80,14 +81,14 @@ function serializeModel(row: AIModelRow): Record<string, unknown> {
   };
 }
 
-async function lockDefaultSelection(database: DatabaseClient): Promise<void> {
+async function lockModelState(database: DatabaseClient): Promise<void> {
   await database.query(
-    "SELECT pg_advisory_xact_lock(hashtext('ai_model_configs:default'))",
+    "SELECT pg_advisory_xact_lock(hashtext('ai_model_configs:state'))",
   );
 }
 
 export async function GET(request: NextRequest) {
-  const auth = await requireApiAuth(request);
+  const auth = await requireApiAuth(request, ['admin']);
   if (!auth.ok) return auth.response;
 
   try {
@@ -115,20 +116,25 @@ export async function POST(request: NextRequest) {
   try {
     const inserted = await getDatabase().transaction(async (database) => {
       const data = parsed.data;
+      if (data.is_default || data.is_active) {
+        await lockModelState(database);
+      }
       if (data.is_default) {
-        await lockDefaultSelection(database);
         await database.query('UPDATE ai_model_configs SET is_default = false WHERE is_default = true');
+      }
+      if (data.is_active) {
+        await database.query('UPDATE ai_model_configs SET is_active = false WHERE is_active = true');
       }
       return database.query<IdRow>(
         `INSERT INTO ai_model_configs
            (name, provider, model_name, api_endpoint, api_key, temperature, max_tokens,
-            system_prompt, description, is_default, sort_order, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            system_prompt, description, is_default, is_active, sort_order, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
          RETURNING id`,
         [
           data.name, data.provider, data.model_name, data.api_endpoint, data.api_key,
           data.temperature, data.max_tokens, data.system_prompt || null, data.description || null,
-          data.is_default, data.sort_order, data.created_by || 'system',
+          data.is_default, data.is_active, data.sort_order, data.created_by || 'system',
         ],
       );
     });
@@ -170,15 +176,24 @@ export async function PUT(request: NextRequest) {
 
   try {
     const updated = await getDatabase().transaction(async (database) => {
-      if (parsed.data.is_default === true) {
-        await lockDefaultSelection(database);
+      const changesState = parsed.data.is_default !== undefined || parsed.data.is_active !== undefined;
+      if (changesState) {
+        await lockModelState(database);
         const existing = await database.query<IdRow>(
           'SELECT id FROM ai_model_configs WHERE id = $1 FOR UPDATE',
           [id],
         );
         if (!existing.rows[0]) return { rows: [], rowCount: 0 };
+      }
+      if (parsed.data.is_default === true) {
         await database.query(
           'UPDATE ai_model_configs SET is_default = false WHERE is_default = true AND id <> $1',
+          [id],
+        );
+      }
+      if (parsed.data.is_active === true) {
+        await database.query(
+          'UPDATE ai_model_configs SET is_active = false WHERE is_active = true AND id <> $1',
           [id],
         );
       }
@@ -210,33 +225,38 @@ export async function DELETE(request: NextRequest) {
   }
 
   try {
-    const database = getDatabase();
-    const state = await database.query<ModelStateRow>(
-      'SELECT is_active, is_default FROM ai_model_configs WHERE id = $1',
-      [id],
-    );
-    const config = state.rows[0];
-    if (!config) {
+    const deleted = await getDatabase().transaction(async (database) => {
+      await lockModelState(database);
+      const state = await database.query<ModelStateRow>(
+        'SELECT is_active, is_default FROM ai_model_configs WHERE id = $1 FOR UPDATE',
+        [id],
+      );
+      const config = state.rows[0];
+      if (!config) return { outcome: 'missing' } as const;
+      if (config.is_active) return { outcome: 'active' } as const;
+      if (config.is_default) return { outcome: 'default' } as const;
+      const result = await database.query<IdRow>(
+        'DELETE FROM ai_model_configs WHERE id = $1 RETURNING id',
+        [id],
+      );
+      return result.rows[0]
+        ? { outcome: 'deleted' } as const
+        : { outcome: 'missing' } as const;
+    });
+    if (deleted.outcome === 'missing') {
       return NextResponse.json({ success: false, error: '配置不存在' }, { status: 404 });
     }
-    if (config.is_active) {
+    if (deleted.outcome === 'active') {
       return NextResponse.json(
         { success: false, error: '不能删除当前激活的配置，请先切换其他配置' },
         { status: 400 },
       );
     }
-    if (config.is_default) {
+    if (deleted.outcome === 'default') {
       return NextResponse.json(
         { success: false, error: '不能删除默认配置，请先取消默认设置' },
         { status: 400 },
       );
-    }
-    const deleted = await database.query<IdRow>(
-      'DELETE FROM ai_model_configs WHERE id = $1 RETURNING id',
-      [id],
-    );
-    if (!deleted.rows[0]) {
-      return NextResponse.json({ success: false, error: '配置不存在' }, { status: 404 });
     }
     return NextResponse.json({ success: true, data: { message: '配置已删除' } });
   } catch (error) {

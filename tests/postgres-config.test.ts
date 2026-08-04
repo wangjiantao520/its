@@ -34,7 +34,7 @@ const scopedFiles = [
 ] as const;
 
 const expectedAdminChecks = new Map<string, number>([
-  ['src/app/api/ai-models/route.ts', 3],
+  ['src/app/api/ai-models/route.ts', 4],
   ['src/app/api/ai-models/active/route.ts', 1],
   ['src/app/api/ai-models/list-models/route.ts', 1],
   ['src/app/api/ai-models/test/route.ts', 1],
@@ -214,11 +214,20 @@ test('configuration reads require a session while every mutation requires an adm
     (await routes.self.GET(apiRequest('/api/self-construction-quotas', 'GET', undefined, false))).status,
     401,
   );
+
+  installDatabase(new FakeConfigDatabase('its_member'));
+  assert.equal((await routes.aiModels.GET(apiRequest('/api/ai-models', 'GET'))).status, 403);
+
+  installDatabase(new FakeConfigDatabase('admin', (text) => {
+    if (text.includes('SELECT * FROM ai_model_configs')) return result();
+    throw new Error(`Unexpected SQL: ${text}`);
+  }));
+  assert.equal((await routes.aiModels.GET(apiRequest('/api/ai-models', 'GET'))).status, 200);
 });
 
 test('AI model routes preserve masking, safe bigint IDs, validation, atomic defaults, and not-found behavior', async () => {
   const { aiModels, aiActive, aiDefault } = await loadRoutes();
-  const listedDatabase = new FakeConfigDatabase('its_member', (text) => {
+  const listedDatabase = new FakeConfigDatabase('admin', (text) => {
     if (text.includes('SELECT * FROM ai_model_configs')) {
       return result([{
         id: '9007199254740993', name: '主模型', provider: 'deepseek', model_name: 'deepseek-chat',
@@ -251,8 +260,10 @@ test('AI model routes preserve masking, safe bigint IDs, validation, atomic defa
   const createdDatabase = new FakeConfigDatabase('admin', (text, params) => {
     if (text.includes('pg_advisory_xact_lock')) return result([{ locked: null }]);
     if (text.startsWith('UPDATE ai_model_configs SET is_default = false')) return result([], 1);
+    if (text.startsWith('UPDATE ai_model_configs SET is_active = false')) return result([], 1);
     if (text.startsWith('INSERT INTO ai_model_configs')) {
       assert.equal(params[9], true);
+      assert.equal(params[10], true);
       return result([{ id: '9007199254740993' }], 1);
     }
     throw new Error(`Unexpected SQL: ${text}`);
@@ -261,7 +272,7 @@ test('AI model routes preserve masking, safe bigint IDs, validation, atomic defa
   const created = await aiModels.POST(apiRequest('/api/ai-models', 'POST', {
     name: '新模型', provider: 'deepseek', model_name: 'deepseek-chat',
     api_endpoint: 'https://api.deepseek.com/v1/chat/completions', api_key: 'secret-value',
-    is_default: true,
+    is_default: true, is_active: '1',
   }));
   assert.equal(created.status, 200);
   assert.equal(((await json(created)).data as Row).id, '9007199254740993');
@@ -328,9 +339,10 @@ test('AI model routes preserve masking, safe bigint IDs, validation, atomic defa
   installDatabase(activeDatabase);
   const activated = await aiActive.POST(apiRequest('/api/ai-models/active?id=8', 'POST'));
   assert.equal(activated.status, 200);
-  assert.equal(((await json(activated)).data as Row).activeId, 8);
+  assert.equal(((await json(activated)).data as Row).activeId, '8');
 
   const missingDeleteDatabase = new FakeConfigDatabase('admin', (text) => {
+    if (text.includes('pg_advisory_xact_lock')) return result([{ locked: null }]);
     if (text.includes('SELECT is_active, is_default')) return result();
     throw new Error(`Unexpected SQL: ${text}`);
   });
@@ -338,6 +350,7 @@ test('AI model routes preserve masking, safe bigint IDs, validation, atomic defa
   assert.equal((await aiModels.DELETE(apiRequest('/api/ai-models?id=404', 'DELETE'))).status, 404);
 
   const deleteDatabase = new FakeConfigDatabase('admin', (text) => {
+    if (text.includes('pg_advisory_xact_lock')) return result([{ locked: null }]);
     if (text.includes('SELECT is_active, is_default')) {
       return result([{ is_active: false, is_default: false }]);
     }
@@ -346,6 +359,93 @@ test('AI model routes preserve masking, safe bigint IDs, validation, atomic defa
   });
   installDatabase(deleteDatabase);
   assert.equal((await aiModels.DELETE(apiRequest('/api/ai-models?id=9', 'DELETE'))).status, 200);
+  assert.equal(deleteDatabase.transactionCount, 1);
+  const deleteStatements = deleteDatabase.queries.map(({ text }) => text);
+  assert.ok(deleteStatements.findIndex((text) => text.includes('pg_advisory_xact_lock'))
+    < deleteStatements.findIndex((text) => text.includes('SELECT is_active, is_default')));
+  assert.match(
+    deleteStatements.find((text) => text.includes('SELECT is_active, is_default')) ?? '',
+    /FOR UPDATE/,
+  );
+
+  const activeDeleteDatabase = new FakeConfigDatabase('admin', (text) => {
+    if (text.includes('pg_advisory_xact_lock')) return result([{ locked: null }]);
+    if (text.includes('SELECT is_active, is_default')) {
+      return result([{ is_active: true, is_default: false }]);
+    }
+    throw new Error(`Active model delete unexpectedly continued: ${text}`);
+  });
+  installDatabase(activeDeleteDatabase);
+  assert.equal((await aiModels.DELETE(apiRequest('/api/ai-models?id=9', 'DELETE'))).status, 400);
+  assert.equal(activeDeleteDatabase.transactionCount, 1);
+  assert.equal(
+    activeDeleteDatabase.queries.some(({ text }) => text.startsWith('DELETE FROM ai_model_configs')),
+    false,
+  );
+});
+
+test('AI model state mutations share one lock and create/update persist active state', async () => {
+  const { aiModels, aiActive, aiDefault } = await loadRoutes();
+  const advisoryStatements = new Set<string>();
+  const rememberLock = (text: string): QueryResult<Row> | null => {
+    if (!text.includes('pg_advisory_xact_lock')) return null;
+    advisoryStatements.add(text);
+    return result([{ locked: null }]);
+  };
+
+  const createDatabase = new FakeConfigDatabase('admin', (text, params) => {
+    const locked = rememberLock(text);
+    if (locked) return locked;
+    if (text.startsWith('UPDATE ai_model_configs SET is_active = false')) return result([], 1);
+    if (text.startsWith('INSERT INTO ai_model_configs')) {
+      assert.match(text, /is_active/);
+      assert.equal(params[10], true);
+      return result([{ id: '10' }], 1);
+    }
+    throw new Error(`Unexpected SQL: ${text}`);
+  });
+  installDatabase(createDatabase);
+  const create = await aiModels.POST(apiRequest('/api/ai-models', 'POST', {
+    name: '激活模型', provider: 'deepseek', model_name: 'deepseek-chat',
+    api_endpoint: 'https://api.deepseek.com/v1/chat/completions', api_key: 'secret',
+    is_active: 1,
+  }));
+  assert.equal(create.status, 200);
+  assert.equal(((await json(create)).data as Row).id, '10');
+
+  const disableDatabase = new FakeConfigDatabase('admin', (text, params) => {
+    const locked = rememberLock(text);
+    if (locked) return locked;
+    if (text.includes('SELECT id FROM ai_model_configs')) return result([{ id: '10' }]);
+    if (text.startsWith('UPDATE ai_model_configs')) {
+      assert.match(text, /is_active = \$1/);
+      assert.equal(params[0], false);
+      return result([{ id: '10' }], 1);
+    }
+    throw new Error(`Unexpected SQL: ${text}`);
+  });
+  installDatabase(disableDatabase);
+  assert.equal((await aiModels.PUT(
+    apiRequest('/api/ai-models?id=10', 'PUT', { is_active: '0' }),
+  )).status, 200);
+
+  const endpointDatabase = new FakeConfigDatabase('admin', (text) => {
+    const locked = rememberLock(text);
+    if (locked) return locked;
+    if (text.includes('SELECT id FROM ai_model_configs')) return result([{ id: '10' }]);
+    if (text.startsWith('UPDATE ai_model_configs SET is_active = false')) return result([], 1);
+    if (text.includes('SET is_active = true')) return result([{ id: '10' }], 1);
+    if (text.startsWith('UPDATE ai_model_configs SET is_default = false')) return result([], 1);
+    if (text.startsWith('UPDATE ai_model_configs SET is_default = true')) return result([{ id: '10' }], 1);
+    throw new Error(`Unexpected SQL: ${text}`);
+  });
+  installDatabase(endpointDatabase);
+  assert.equal((await aiActive.POST(apiRequest('/api/ai-models/active?id=10', 'POST'))).status, 200);
+  assert.equal((await aiDefault.POST(
+    apiRequest('/api/ai-models/10/default', 'POST'),
+    { params: Promise.resolve({ id: '10' }) },
+  )).status, 200);
+  assert.equal(advisoryStatements.size, 1);
 });
 
 test('self-construction quota routes list, create, update, delete, validate, and report duplicates', async () => {
@@ -362,7 +462,9 @@ test('self-construction quota routes list, create, update, delete, validate, and
   const listed = await self.GET(apiRequest('/api/self-construction-quotas?keyword=敷设&page=1&limit=20', 'GET'));
   const listedPayload = await json(listed);
   assert.equal(((listedPayload.pagination as Row).total), 1);
-  assert.equal(((listedPayload.data as Row[])[0].price), '12.50');
+  assert.equal(((listedPayload.data as Row[])[0].price), 12.5);
+  assert.equal(typeof ((listedPayload.data as Row[])[0].price), 'number');
+  assert.equal(typeof ((listedPayload.data as Row[])[0].quantity), 'number');
   assert.ok(listDatabase.queries.every(({ text }) => !text.includes('?')));
 
   installDatabase(new FakeConfigDatabase());
@@ -418,7 +520,11 @@ test('intelligent-project quota routes preserve pagination and CRUD/not-found co
     throw new Error(`Unexpected SQL: ${text}`);
   });
   installDatabase(database);
-  assert.equal((await intelligent.GET(apiRequest('/api/intelligent-project-quotas', 'GET'))).status, 200);
+  const listResponse = await intelligent.GET(apiRequest('/api/intelligent-project-quotas', 'GET'));
+  assert.equal(listResponse.status, 200);
+  const listed = ((await json(listResponse)).data as Row[])[0];
+  assert.equal(listed.price, 100);
+  assert.equal(typeof listed.price, 'number');
   const body = {
     id: 'IP-2', serialNumber: 2, category: '网络', name: '交换机', brandModel: '',
     description: '', deductibleTaxRate: 0, unit: '台', price: 100, remark: '', sortOrder: 0,
@@ -501,6 +607,8 @@ test('device parameter aggregate route uses PostgreSQL for list/create/update/de
     apiRequest('/api/device-params?type=self_construction_quotas', 'GET'),
   ));
   assert.equal((textIdList.data as Row[])[0].id, '0001');
+  assert.equal((textIdList.data as Row[])[0].price, 1);
+  assert.equal(typeof (textIdList.data as Row[])[0].price, 'number');
 
   const database = new FakeConfigDatabase('admin', (text, params) => {
     if (text.includes('SELECT * FROM labor_price_config')) {
@@ -516,6 +624,9 @@ test('device parameter aggregate route uses PostgreSQL for list/create/update/de
   });
   installDatabase(database);
   const listed = await json(await deviceParams.GET(apiRequest('/api/device-params?type=labor_price_config', 'GET')));
+  assert.equal((listed.data as Row[])[0].id, '1');
+  assert.equal((listed.data as Row[])[0].unit_price, 600);
+  assert.equal(typeof (listed.data as Row[])[0].unit_price, 'number');
   assert.equal((listed.data as Row[])[0].is_active, 1);
   const data = { level: '高级', unit_price: 900, unit: '人天', description: '', sort_order: 0, is_active: 1 };
   assert.equal((await deviceParams.POST(apiRequest('/api/device-params', 'POST', { type: 'labor_price_config', data }))).status, 200);
@@ -532,11 +643,54 @@ test('device parameter aggregate route uses PostgreSQL for list/create/update/de
   assert.equal(missing.status, 404);
 });
 
+test('device parameter updates are partial, nullable, allowlisted, and reject empty patches', async () => {
+  const { deviceParamById } = await loadRoutes();
+  const laborDatabase = new FakeConfigDatabase('admin', (text, params) => {
+    if (text.startsWith('UPDATE labor_price_config')) {
+      assert.match(text, /unit_price = \$1/);
+      assert.doesNotMatch(text, /level =/);
+      assert.deepEqual(params, [901, '2']);
+      return result([{ id: '2' }], 1);
+    }
+    throw new Error(`Unexpected SQL: ${text}`);
+  });
+  installDatabase(laborDatabase);
+  const partial = await deviceParamById.PUT(apiRequest('/api/device-params/2', 'PUT', {
+    type: 'labor_price_config', id: '2', data: { unit_price: 901 },
+  }));
+  assert.equal(partial.status, 200);
+
+  const nullableDatabase = new FakeConfigDatabase('admin', (text, params) => {
+    if (text.startsWith('UPDATE self_construction_quotas')) {
+      assert.match(text, /remark = \$1/);
+      assert.doesNotMatch(text, /category =/);
+      assert.deepEqual(params, [null, 'SC-N']);
+      return result([{ id: 'SC-N' }], 1);
+    }
+    throw new Error(`Unexpected SQL: ${text}`);
+  });
+  installDatabase(nullableDatabase);
+  const nullable = await deviceParamById.PUT(apiRequest('/api/device-params/SC-N', 'PUT', {
+    type: 'self_construction_quotas', id: 'SC-N', data: { remark: null },
+  }));
+  assert.equal(nullable.status, 200);
+
+  const emptyDatabase = new FakeConfigDatabase('admin', (text) => {
+    throw new Error(`Empty patch unexpectedly queried data table: ${text}`);
+  });
+  installDatabase(emptyDatabase);
+  const empty = await deviceParamById.PUT(apiRequest('/api/device-params/2', 'PUT', {
+    type: 'labor_price_config', id: '2', data: {},
+  }));
+  assert.equal(empty.status, 400);
+  assert.equal((await json(empty)).message, '没有要更新的字段');
+});
+
 test('live PostgreSQL configuration CRUD', {
   skip: process.env.TEST_DATABASE_URL ? false : POSTGRES_TEST_SKIP_REASON,
 }, async (t) => {
   await assertScopedFilesUsePostgres();
-  const { self } = await loadRoutes();
+  const { self, aiModels, deviceParams } = await loadRoutes();
   const harness = await createPostgresTestHarness(t);
   await runPostgresMigrations(harness.client);
   installDatabase(harness.client);
@@ -552,7 +706,48 @@ test('live PostgreSQL configuration CRUD', {
   }));
   assert.equal(create.status, 200);
   const list = await self.GET(new NextRequest('http://localhost/api/self-construction-quotas', { headers }));
-  assert.equal(((await json(list)).data as Row[]).some(({ id }) => id === 'LIVE-SC-1'), true);
+  const liveSelf = ((await json(list)).data as Row[]).find(({ id }) => id === 'LIVE-SC-1');
+  assert.ok(liveSelf);
+  assert.equal(typeof liveSelf.price, 'number');
+  const aggregateList = await deviceParams.GET(new NextRequest(
+    'http://localhost/api/device-params?type=self_construction_quotas',
+    { headers },
+  ));
+  const aggregateSelf = ((await json(aggregateList)).data as Row[]).find(({ id }) => id === 'LIVE-SC-1');
+  assert.ok(aggregateSelf);
+  assert.equal(typeof aggregateSelf.price, 'number');
+
+  const aiBody = (name: string) => ({
+    name, provider: 'deepseek', model_name: 'deepseek-chat',
+    api_endpoint: 'https://api.deepseek.com/v1/chat/completions', api_key: 'secret',
+    is_active: true,
+  });
+  const firstAI = await aiModels.POST(new NextRequest('http://localhost/api/ai-models', {
+    method: 'POST', headers: { ...headers, 'content-type': 'application/json' },
+    body: JSON.stringify(aiBody('LIVE-AI-1')),
+  }));
+  assert.equal(firstAI.status, 200);
+  const secondAI = await aiModels.POST(new NextRequest('http://localhost/api/ai-models', {
+    method: 'POST', headers: { ...headers, 'content-type': 'application/json' },
+    body: JSON.stringify(aiBody('LIVE-AI-2')),
+  }));
+  assert.equal(secondAI.status, 200);
+  const secondAIId = ((await json(secondAI)).data as Row).id;
+  assert.equal(typeof secondAIId, 'string');
+  const activeCount = await harness.client.query<{ count: string }>(
+    'SELECT COUNT(*)::text AS count FROM ai_model_configs WHERE is_active = true',
+  );
+  assert.equal(activeCount.rows[0]?.count, '1');
+  assert.equal((await aiModels.DELETE(new NextRequest(`http://localhost/api/ai-models?id=${secondAIId}`, {
+    method: 'DELETE', headers,
+  }))).status, 400);
+  assert.equal((await aiModels.PUT(new NextRequest(`http://localhost/api/ai-models?id=${secondAIId}`, {
+    method: 'PUT', headers: { ...headers, 'content-type': 'application/json' },
+    body: JSON.stringify({ is_active: false }),
+  }))).status, 200);
+  assert.equal((await aiModels.DELETE(new NextRequest(`http://localhost/api/ai-models?id=${secondAIId}`, {
+    method: 'DELETE', headers,
+  }))).status, 200);
   const remove = await self.DELETE(new NextRequest('http://localhost/api/self-construction-quotas', {
     method: 'DELETE', headers: { ...headers, 'content-type': 'application/json' },
     body: JSON.stringify({ id: 'LIVE-SC-1' }),

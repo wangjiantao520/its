@@ -28,9 +28,7 @@ function normalizeType(value: string | null): DeviceParamType | null {
 
 function serializeId(value: unknown): unknown {
   if (typeof value !== 'bigint' && typeof value !== 'number' && typeof value !== 'string') return value;
-  if (typeof value === 'string' && !/^\d+$/.test(value)) return value;
-  const parsed = typeof value === 'bigint' ? value : BigInt(value);
-  return parsed <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(parsed) : parsed.toString();
+  return String(value);
 }
 
 const numericIdTypes = new Set<DeviceParamType>([
@@ -40,6 +38,35 @@ const numericIdTypes = new Set<DeviceParamType>([
   'sla_config',
 ]);
 
+const numericFields: Record<DeviceParamType, ReadonlySet<string>> = {
+  device_quotas: new Set([
+    'annual_fault_count', 'annual_failure_count', 'year_fault_rate',
+    'a_gear_fault_count', 'b_gear_fault_count', 'c_gear_fault_count',
+    'd_gear_fault_count', 'e_gear_fault_count', 'fault_processing_days',
+    'inspection_days', 'on_site_count', 'inspection_labor_fee',
+    'inspection_person_count', 'inspection_duration', 'inspection_times_per_year',
+    'visit_service_fee', 'visit_person_count', 'visit_duration', 'visit_frequency',
+    'traffic_fee', 'single_trip_duration', 'connection_duration',
+    'on_site_connection_labor_fee', 'in_warranty_factor', 'base_fault_count',
+    'depreciation_factor', 'fault_service_count', 'fault_handler_count',
+    'fault_handling_duration', 'fault_handling_fee', 'fault_handling_labor_fee',
+    'fault_handling_material_fee', 'tool_amortization', 'consumable_fee',
+    'spare_part_reserve', 'spare_part_fee', 'city_price',
+    'fault_handling_fee_total', 'sort_order', 'year1_total_price',
+    'year2_total_price', 'year3_total_price', 'urban_price', 'town_price', 'rural_price',
+  ]),
+  self_construction_quotas: new Set(['quantity', 'price', 'sort_order']),
+  intelligent_project_quotas: new Set([
+    'serial_number', 'deductible_tax_rate', 'price', 'sort_order',
+  ]),
+  labor_price_config: new Set(['unit_price', 'sort_order']),
+  maintenance_device_quotas: new Set([
+    'quantity', 'original_price', 'maintenance_rate', 'annual_fee', 'sort_order',
+  ]),
+  maintenance_rate_config: new Set(['rate', 'maintenance_rate', 'sort_order']),
+  sla_config: new Set(['penalty_rate', 'sort_order']),
+};
+
 function serializeRows(
   rows: Record<string, unknown>[],
   type: DeviceParamType,
@@ -48,6 +75,7 @@ function serializeRows(
     Object.entries(row).map(([key, value]) => {
       if (key === 'id' && numericIdTypes.has(type)) return [key, serializeId(value)];
       if (typeof value === 'boolean') return [key, value ? 1 : 0];
+      if (numericFields[type].has(key) && value !== null) return [key, Number(value)];
       return [key, value];
     }),
   ));

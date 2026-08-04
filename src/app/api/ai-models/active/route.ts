@@ -20,9 +20,8 @@ function parseId(request: NextRequest): string | null {
   return id && /^\d+$/.test(id) && BigInt(id) > BigInt(0) ? id : null;
 }
 
-function serializeId(value: string | number | bigint): string | number {
-  const parsed = typeof value === 'bigint' ? value : BigInt(value);
-  return parsed <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(parsed) : parsed.toString();
+function serializeId(value: string | number | bigint): string {
+  return String(value);
 }
 
 export async function POST(request: NextRequest) {
@@ -36,7 +35,7 @@ export async function POST(request: NextRequest) {
   try {
     const activated = await getDatabase().transaction(async (database) => {
       await database.query(
-        "SELECT pg_advisory_xact_lock(hashtext('ai_model_configs:active'))",
+        "SELECT pg_advisory_xact_lock(hashtext('ai_model_configs:state'))",
       );
       const existing = await database.query<IdRow>(
         'SELECT id FROM ai_model_configs WHERE id = $1 FOR UPDATE',

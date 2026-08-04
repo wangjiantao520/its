@@ -41,6 +41,16 @@ function isUniqueViolation(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === '23505';
 }
 
+function serializeQuota(row: Record<string, unknown>): Record<string, unknown> {
+  return {
+    ...row,
+    serial_number: row.serial_number == null ? row.serial_number : Number(row.serial_number),
+    deductible_tax_rate: row.deductible_tax_rate == null ? row.deductible_tax_rate : Number(row.deductible_tax_rate),
+    price: row.price == null ? row.price : Number(row.price),
+    sort_order: row.sort_order == null ? row.sort_order : Number(row.sort_order),
+  };
+}
+
 export async function GET(request: NextRequest) {
   const auth = await requireApiAuth(request);
   if (!auth.ok) return auth.response;
@@ -85,7 +95,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      data: rows.rows,
+      data: rows.rows.map(serializeQuota),
       pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
     });
   } catch (error) {

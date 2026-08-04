@@ -38,6 +38,15 @@ function isUniqueViolation(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === '23505';
 }
 
+function serializeQuota(row: Record<string, unknown>): Record<string, unknown> {
+  return {
+    ...row,
+    quantity: row.quantity == null ? row.quantity : Number(row.quantity),
+    price: row.price == null ? row.price : Number(row.price),
+    sort_order: row.sort_order == null ? row.sort_order : Number(row.sort_order),
+  };
+}
+
 // GET /api/self-construction-quotas - 获取自施工定额列表
 export async function GET(request: NextRequest) {
   const auth = await requireApiAuth(request);
@@ -79,7 +88,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      data: rows.rows,
+      data: rows.rows.map(serializeQuota),
       pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
     });
   } catch (error) {

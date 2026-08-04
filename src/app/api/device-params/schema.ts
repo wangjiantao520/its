@@ -8,6 +8,14 @@ const booleanValue = z.preprocess((value) => {
   if (value === 0 || value === '0') return false;
   return value;
 }, z.boolean());
+const recordId = z.union([
+  z.number().int().positive().safe(),
+  z.string().trim().min(1),
+]);
+const optionalRequiredString = z.string().trim().min(1).optional();
+const optionalNullableString = z.string().nullable().optional();
+const optionalNullableNumber = finiteNonNegative.nullable().optional();
+const optionalNullableInteger = z.coerce.number().int().nonnegative().nullable().optional();
 
 export const deviceParamsSchema = z.discriminatedUnion('type', [
   z.object({
@@ -81,6 +89,87 @@ export const deviceParamsSchema = z.discriminatedUnion('type', [
       sla_level: z.string().trim().min(1), response_time: optionalNonNegative,
       resolution_time: optionalNonNegative, penalty_rate: optionalNonNegative,
       description: optionalString,
+    }),
+  }),
+]);
+
+export const deviceParamsUpdateSchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('device_quotas'), id: recordId,
+    data: z.object({
+      category: optionalRequiredString, name: optionalRequiredString,
+      brand: optionalNullableString, model: optionalNullableString,
+      specification: optionalNullableString, maintenance_tier: optionalNullableString,
+      annual_fault_count: optionalNullableNumber, a_gear_fault_count: optionalNullableNumber,
+      b_gear_fault_count: optionalNullableNumber, c_gear_fault_count: optionalNullableNumber,
+      d_gear_fault_count: optionalNullableNumber, e_gear_fault_count: optionalNullableNumber,
+      fault_processing_days: optionalNullableNumber, inspection_days: optionalNullableNumber,
+      on_site_count: optionalNullableInteger, inspection_labor_fee: optionalNullableNumber,
+      visit_service_fee: optionalNullableNumber, traffic_fee: optionalNullableNumber,
+      fault_handling_fee: optionalNullableNumber, tool_amortization: optionalNullableNumber,
+      consumable_fee: optionalNullableNumber, spare_part_reserve: optionalNullableNumber,
+      spare_part_fee: optionalNullableNumber,
+    }),
+  }),
+  z.object({
+    type: z.literal('self_construction_quotas'), id: recordId,
+    data: z.object({
+      id: z.string().optional(), category: optionalRequiredString, name: optionalRequiredString,
+      unit: optionalRequiredString, quantity: optionalNullableNumber,
+      price: finiteNonNegative.optional(), remark: optionalNullableString,
+      sort_order: optionalNullableInteger,
+    }),
+  }),
+  z.object({
+    type: z.literal('intelligent_project_quotas'), id: recordId,
+    data: z.object({
+      id: z.string().optional(), serial_number: optionalNullableInteger,
+      category: optionalRequiredString, name: optionalRequiredString,
+      brand_model: optionalNullableString, description: optionalNullableString,
+      deductible_tax_rate: optionalNullableNumber, unit: optionalRequiredString,
+      price: finiteNonNegative.optional(), remark: optionalNullableString,
+      sort_order: optionalNullableInteger,
+    }),
+  }),
+  z.object({
+    type: z.literal('labor_price_config'), id: recordId,
+    data: z.object({
+      level: optionalRequiredString, unit_price: finiteNonNegative.optional(),
+      unit: optionalNullableString, description: optionalNullableString,
+      sort_order: optionalNullableInteger, is_active: booleanValue.optional(),
+    }),
+  }),
+  z.object({
+    type: z.literal('maintenance_device_quotas'), id: recordId,
+    data: z.object({
+      id: z.string().optional(), name: optionalRequiredString,
+      brand: optionalNullableString, model: optionalNullableString,
+      specification: optionalNullableString, category: optionalRequiredString,
+      unit: optionalNullableString, quantity: optionalNullableNumber,
+      original_price: optionalNullableNumber, maintenance_rate: optionalNullableNumber,
+      annual_fee: optionalNullableNumber, network_type: optionalNullableString,
+      remark: optionalNullableString, sort_order: optionalNullableInteger,
+      is_active: booleanValue.optional(),
+    }),
+  }),
+  z.object({
+    type: z.literal('maintenance_rate_config'), id: recordId,
+    data: z.object({
+      device_type: optionalRequiredString, rate: optionalNullableNumber,
+      maintenance_rate: optionalNullableNumber, description: optionalNullableString,
+      sort_order: optionalNullableInteger, is_active: booleanValue.optional(),
+    }),
+  }),
+  z.object({
+    type: z.literal('sla_config'), id: recordId,
+    data: z.object({
+      level_name: optionalNullableString, sla_level: optionalNullableString,
+      inspection_frequency: optionalNullableString,
+      response_time: z.union([z.string(), finiteNonNegative]).nullable().optional(),
+      resolution_time: z.union([z.string(), finiteNonNegative]).nullable().optional(),
+      fix_time: optionalNullableString, on_site_time: optionalNullableString,
+      penalty_rate: optionalNullableNumber, description: optionalNullableString,
+      sort_order: optionalNullableInteger, is_active: booleanValue.optional(),
     }),
   }),
 ]);
