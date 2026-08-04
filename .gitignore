@@ -123,6 +123,7 @@ data/*.db-shm
 data/*.migrate.lock
 data/quotations.db
 data/backups/
+data/migration-*.json
 # Diagnostic reports
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 # Cache
