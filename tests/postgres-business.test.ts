@@ -1,0 +1,256 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import test from 'node:test';
+import { NextRequest } from 'next/server';
+
+import type { DatabaseClient, QueryResult } from '../src/lib/database/client';
+import { hashAuthToken } from '../src/lib/auth-session-store';
+import { canAccessQuote } from '../src/lib/quote-access';
+import { consumeQuoteShare } from '../src/lib/quote-share';
+import { getQuoteSummaries, updateQuoteDetails, updateQuoteStatus } from '../src/lib/quote-summary';
+import { runPostgresMigrations } from '../src/lib/database/postgres-migrations';
+import * as engineeringRoutes from '../src/app/api/engineering-quotes/route';
+import * as engineeringDetailRoutes from '../src/app/api/engineering-quotes/[id]/route';
+import * as maintenanceRoutes from '../src/app/api/maintenance-quotes/route';
+import * as statusRoutes from '../src/app/api/quotes/[id]/status/route';
+import * as shareRoutes from '../src/app/api/quotes/share/route';
+import * as publicShareRoutes from '../src/app/api/share/[token]/route';
+import * as dashboardRoutes from '../src/app/api/dashboard/stats/route';
+import { createPostgresTestHarness, POSTGRES_TEST_SKIP_REASON } from './helpers/postgres';
+
+class OwnershipDatabase implements DatabaseClient {
+  constructor(private readonly rows: Array<Record<string, unknown>>) {}
+
+  async query<Row extends Record<string, unknown>>(
+    text: string,
+    params: readonly unknown[] = [],
+  ): Promise<QueryResult<Row>> {
+    if (!text.includes('UNION ALL')) throw new Error(`Unexpected SQL: ${text}`);
+    const owner = params.find((value) => value === '11' || value === '22');
+    const rows = owner ? this.rows.filter((row) => row.created_by === owner) : this.rows;
+    return { rows: rows as Row[], rowCount: rows.length };
+  }
+
+  async transaction<T>(work: (client: DatabaseClient) => Promise<T>): Promise<T> {
+    return await work(this);
+  }
+
+  async healthCheck(): Promise<void> {}
+  async close(): Promise<void> {}
+}
+
+const businessRows = [
+  {
+    source: 'engineering', id: '101', quote_number: 'ENG-20260804-001', project_name: '成员甲工程',
+    client_name: '客户甲', total: '100.10', status: 'draft', created_by: '11', created_by_name: '成员甲',
+    created_at: '2026-08-04T01:00:00.000Z', updated_at: '2026-08-04T01:00:00.000Z',
+  },
+  {
+    source: 'maintenance', id: '202', quote_number: 'MAINT-20260804-001', project_name: '成员乙维保',
+    client_name: '客户乙', total: '200.20', status: 'submitted', created_by: '22', created_by_name: '成员乙',
+    created_at: '2026-08-04T02:00:00.000Z', updated_at: '2026-08-04T02:00:00.000Z',
+  },
+];
+
+test('one admin and two members receive ownership-filtered quote lists and access decisions', async () => {
+  const database = new OwnershipDatabase(businessRows);
+  const memberA = { role: 'its_member', userId: 11, name: '成员甲' };
+  const memberB = { role: 'its_member', userId: 22, name: '成员乙' };
+  const admin = { role: 'admin', name: '管理员' };
+
+  assert.deepEqual((await getQuoteSummaries(database, { createdBy: '11' })).map((quote) => quote.identity), ['engineering:101']);
+  assert.deepEqual((await getQuoteSummaries(database, { createdBy: '22' })).map((quote) => quote.identity), ['maintenance:202']);
+  assert.deepEqual((await getQuoteSummaries(database)).map((quote) => quote.identity), ['maintenance:202', 'engineering:101']);
+  assert.equal(await canAccessQuote(database, memberA, 'engineering', 101), true);
+  assert.equal(await canAccessQuote(database, memberA, 'maintenance', 202), false);
+  assert.equal(await canAccessQuote(database, memberB, 'engineering', 101), false);
+  assert.equal(await canAccessQuote(database, admin, 'maintenance', 202), true);
+});
+
+interface StoredQuote extends Record<string, unknown> {
+  id: number; quote_number: string; project_name: string; client_name: string | null;
+  total: string; status: string; created_by: string; created_by_name: string;
+  created_at: string; updated_at: string;
+}
+
+class RouteDatabase implements DatabaseClient {
+  readonly engineering: StoredQuote[] = [];
+  readonly maintenance: StoredQuote[] = [];
+  readonly audits: Array<Record<string, unknown>> = [];
+  readonly shares: Array<Record<string, unknown>> = [];
+  transactionCount = 0;
+
+  private readonly sessions = new Map([
+    [hashAuthToken('admin-token'), { role: 'admin', user_id: null, username: null, name: '管理员', expires_at: Date.now() + 60_000 }],
+    [hashAuthToken('member-a-token'), { role: 'its_member', user_id: 11, username: 'member-a', name: '成员甲', expires_at: Date.now() + 60_000 }],
+    [hashAuthToken('member-b-token'), { role: 'its_member', user_id: 22, username: 'member-b', name: '成员乙', expires_at: Date.now() + 60_000 }],
+  ]);
+
+  private summaryRows(): Array<Record<string, unknown>> {
+    return [
+      ...this.engineering.map((row) => ({ source: 'engineering', ...row })),
+      ...this.maintenance.map((row) => ({ source: 'maintenance', ...row })),
+    ];
+  }
+
+  async query<Row extends Record<string, unknown>>(text: string, params: readonly unknown[] = []): Promise<QueryResult<Row>> {
+    const sql = text.replace(/\s+/g, ' ').trim();
+    const rows = (values: Array<Record<string, unknown>>, count = values.length) => ({ rows: values as Row[], rowCount: count });
+    if (sql.startsWith('DELETE FROM auth_sessions WHERE expires_at')) return rows([]);
+    if (sql.startsWith('SELECT role, user_id, username, name, expires_at FROM auth_sessions')) {
+      const session = this.sessions.get(String(params[0])); return rows(session ? [session] : []);
+    }
+    if (sql.startsWith('UPDATE auth_sessions SET last_seen_at')) return rows([], 1);
+    if (sql.startsWith('SELECT is_active FROM users')) return rows([{ is_active: true }]);
+    if (sql.includes('INSERT INTO engineering_quotes')) {
+      const id = this.engineering.length + 101;
+      this.engineering.push({ id, quote_number: String(params[0]), project_name: String(params[1]), client_name: params[2] === null ? null : String(params[2]), total: Number(params[15] ?? 0).toFixed(2), status: 'draft', created_by: String(params[17]), created_by_name: String(params[18]), created_at: '2026-08-04T01:00:00.000Z', updated_at: '2026-08-04T01:00:00.000Z', items: [] });
+      return rows([{ id: String(id) }]);
+    }
+    if (sql.includes('INSERT INTO maintenance_quotes')) {
+      const id = this.maintenance.length + 201;
+      this.maintenance.push({ id, quote_number: String(params[0]), project_name: String(params[1]), client_name: params[2] === null ? null : String(params[2]), total: Number(params[18] ?? 0).toFixed(2), status: 'draft', created_by: String(params[20]), created_by_name: String(params[21]), created_at: '2026-08-04T02:00:00.000Z', updated_at: '2026-08-04T02:00:00.000Z', devices: [] });
+      return rows([{ id: String(id) }]);
+    }
+    if (sql.startsWith('SELECT COUNT(*)::text AS total FROM engineering_quotes')) {
+      const owner = sql.includes('created_by') ? String(params.at(-1)) : null;
+      return rows([{ total: String(this.engineering.filter((row) => !owner || row.created_by === owner).length) }]);
+    }
+    if (sql.startsWith('SELECT COUNT(*)::text AS total FROM maintenance_quotes')) {
+      const owner = sql.includes('created_by') ? String(params.at(-1)) : null;
+      return rows([{ total: String(this.maintenance.filter((row) => !owner || row.created_by === owner).length) }]);
+    }
+    if (sql.startsWith('SELECT * FROM engineering_quotes')) {
+      const id = sql.includes('WHERE id = $1') ? Number(params[0]) : null;
+      const owner = sql.includes('created_by =') ? String(params[id ? 1 : 0]) : null;
+      return rows(this.engineering.filter((row) => (!id || row.id === id) && (!owner || row.created_by === owner)));
+    }
+    if (sql.startsWith('SELECT * FROM maintenance_quotes')) {
+      const owner = sql.includes('created_by =') ? String(params[0]) : null;
+      return rows(this.maintenance.filter((row) => !owner || row.created_by === owner));
+    }
+    if (sql.startsWith('SELECT created_by FROM engineering_quotes')) {
+      const quote = this.engineering.find((row) => row.id === Number(params[0]));
+      return rows(quote ? [{ created_by: quote.created_by }] : []);
+    }
+    if (sql.includes('UNION ALL')) {
+      const source = params[0] === null ? null : String(params[0]); const owner = params[1] === null ? null : String(params[1]);
+      return rows(this.summaryRows().filter((row) => (!source || row.source === source) && (!owner || row.created_by === owner)));
+    }
+    if (sql.startsWith('UPDATE engineering_quotes SET status')) {
+      const quote = this.engineering.find((row) => row.id === Number(params[1]));
+      if (!quote) return rows([]); quote.status = String(params[0]); quote.updated_at = '2026-08-04T03:00:00.000Z'; return rows([{ id: String(quote.id) }]);
+    }
+    if (sql.includes('INSERT INTO quote_audit_logs')) {
+      const id = this.audits.length + 1; this.audits.push({ id, quote_id: params[0], quote_type: params[1], action: params[2], from_status: params[3], to_status: params[4], operator: params[6] }); return rows([{ id: String(id) }]);
+    }
+    if (sql.includes('INSERT INTO quote_shares')) {
+      const id = this.shares.length + 1; const share = { id: String(id), token: params[0], quote_id: params[1], quote_type: params[2], expires_at: '2026-08-11T00:00:00.000Z', max_views: params[4], view_count: 0, is_active: true }; this.shares.push(share); return rows([share]);
+    }
+    if (sql.includes('FROM quote_shares') && sql.includes('FOR UPDATE')) {
+      const share = this.shares.find((item) => item.token === params[0]); return rows(share ? [share] : []);
+    }
+    if (sql.startsWith('UPDATE quote_shares SET view_count')) {
+      const share = this.shares.find((item) => item.id === String(params[0]));
+      if (!share) return rows([]); share.view_count = Number(share.view_count) + 1; return rows([{ view_count: share.view_count }]);
+    }
+    throw new Error(`Unexpected SQL: ${sql}`);
+  }
+
+  async transaction<T>(work: (client: DatabaseClient) => Promise<T>): Promise<T> { this.transactionCount += 1; return await work(this); }
+  async healthCheck(): Promise<void> {}
+  async close(): Promise<void> {}
+}
+
+function request(pathname: string, token?: string, method = 'GET', body?: unknown): NextRequest {
+  return new NextRequest(`http://localhost${pathname}`, { method, headers: token ? { authorization: `Bearer ${token}`, 'content-type': 'application/json' } : undefined, body: body === undefined ? undefined : JSON.stringify(body) });
+}
+async function payload(response: Response): Promise<Record<string, unknown>> { return await response.json() as Record<string, unknown>; }
+
+test('route business flow distinguishes auth, validation, ownership, admin, audit, share, and dashboard behavior', async () => {
+  const database = new RouteDatabase();
+  const globalDatabase = globalThis as typeof globalThis & { __itsPostgresDatabaseClient__?: DatabaseClient };
+  globalDatabase.__itsPostgresDatabaseClient__ = database;
+  try {
+    assert.equal((await engineeringRoutes.GET(request('/api/engineering-quotes'))).status, 401);
+    assert.equal((await engineeringRoutes.POST(request('/api/engineering-quotes', 'member-a-token', 'POST', { projectName: '' }))).status, 400);
+    const engineeringCreated = await engineeringRoutes.POST(request('/api/engineering-quotes', 'member-a-token', 'POST', { quoteNumber: 'ENG-20260804-001', projectName: '成员甲工程', clientName: '客户甲', total: 100.1, items: [] }));
+    const maintenanceCreated = await maintenanceRoutes.POST(request('/api/maintenance-quotes', 'member-b-token', 'POST', { quoteNumber: 'MAINT-20260804-001', projectName: '成员乙维保', clientName: '客户乙', total: 200.2, devices: [] }));
+    assert.equal(engineeringCreated.status, 200); assert.equal(maintenanceCreated.status, 200);
+
+    const memberAList = await payload(await engineeringRoutes.GET(request('/api/engineering-quotes', 'member-a-token')));
+    const memberBList = await payload(await engineeringRoutes.GET(request('/api/engineering-quotes', 'member-b-token')));
+    assert.equal((memberAList.data as unknown[]).length, 1); assert.equal((memberBList.data as unknown[]).length, 0);
+    assert.equal((await engineeringDetailRoutes.GET(request('/api/engineering-quotes/101', 'member-b-token'), { params: Promise.resolve({ id: '101' }) })).status, 404);
+    assert.equal((await engineeringDetailRoutes.GET(request('/api/engineering-quotes/101', 'admin-token'), { params: Promise.resolve({ id: '101' }) })).status, 200);
+    assert.equal((await engineeringRoutes.PUT(request('/api/engineering-quotes', 'member-b-token', 'PUT', { id: 101, quoteNumber: 'ENG-20260804-001', projectName: '越权修改' }))).status, 403);
+
+    const transitioned = await statusRoutes.PUT(request('/api/quotes/engineering%3A101/status', 'member-a-token', 'PUT', { action: 'submit_review', comment: '请审核' }), { params: Promise.resolve({ id: 'engineering:101' }) });
+    assert.equal(transitioned.status, 200); assert.equal(database.audits.length, 1); assert.equal(database.engineering[0]?.status, 'pending_review'); assert.ok(database.transactionCount >= 1);
+    assert.equal((await statusRoutes.PUT(request('/api/quotes/engineering%3A101/status', 'member-b-token', 'PUT', { action: 'approve' }), { params: Promise.resolve({ id: 'engineering:101' }) })).status, 404);
+
+    const shareResponse = await shareRoutes.POST(request('/api/quotes/share', 'member-a-token', 'POST', { quoteId: 'engineering:101', expiryDays: 7, maxViews: 2 }));
+    const sharePayload = await payload(shareResponse); const shareData = sharePayload.data as Record<string, unknown>;
+    assert.match(String(shareData.shareUrl), /^\/share\/[a-f0-9]{32}$/);
+    const token = String(shareData.token);
+    const publicResponse = await publicShareRoutes.GET(request(`/api/share/${token}`), { params: Promise.resolve({ token }) });
+    assert.equal(publicResponse.status, 200);
+
+    const dashboard = await payload(await dashboardRoutes.GET(request('/api/dashboard/stats', 'member-a-token')));
+    assert.equal((dashboard.data as { overview: { totalCount: number; totalAmount: number } }).overview.totalCount, 1);
+    assert.equal((dashboard.data as { overview: { totalCount: number; totalAmount: number } }).overview.totalAmount, 100.1);
+  } finally {
+    delete globalDatabase.__itsPostgresDatabaseClient__;
+  }
+});
+
+const scopedFiles = [
+  'src/lib/quote-access.ts', 'src/lib/quote-share.ts', 'src/lib/quote-summary.ts',
+  ...[
+    'engineering-quotes/route.ts', 'engineering-quotes/[id]/route.ts',
+    'engineering-quotes/stats/route.ts', 'engineering-quotes/batch-export/route.ts',
+    'maintenance-quotes/route.ts', 'quotations/route.ts', 'quotations/[id]/route.ts',
+    'quotes/route.ts', 'quotes/[id]/route.ts', 'quotes/[id]/status/route.ts',
+    'quotes/[id]/audit-log/route.ts', 'quotes/compare/route.ts', 'quotes/share/route.ts',
+    'quotes/versions/route.ts', 'quotes/versions/[id]/route.ts', 'share/[token]/route.ts',
+    'audit-logs/route.ts', 'dashboard/stats/route.ts',
+  ].map((file) => `src/app/api/${file}`),
+];
+
+test('all scoped quote workflow files use async PostgreSQL and no SQLite/MySQL APIs', () => {
+  const root = path.resolve(import.meta.dirname, '..');
+  for (const file of scopedFiles) {
+    const source = readFileSync(path.join(root, file), 'utf8');
+    assert.doesNotMatch(source, /@\/lib\/db|better-sqlite3|\bdb\.(prepare|exec)\b/, file);
+    assert.doesNotMatch(source, /(?:=|\(|,)\s*\?(?:\s|,|\))/, `${file} contains a positional ? placeholder`);
+    assert.match(source, /DatabaseClient|getDatabase|quote-summary|quote-access|quote-share/, `${file} has no PostgreSQL boundary`);
+  }
+});
+
+test('live PostgreSQL quote business flow', {
+  skip: process.env.TEST_DATABASE_URL ? false : POSTGRES_TEST_SKIP_REASON,
+}, async (t) => {
+  const harness = await createPostgresTestHarness(t);
+  await runPostgresMigrations(harness.client);
+  const engineering = await harness.client.query<{ id: string } & Record<string, unknown>>(`
+    INSERT INTO engineering_quotes (quote_number, project_name, client_name, total, created_by, created_by_name)
+    VALUES ($1,$2,$3,$4,$5,$6) RETURNING id::text AS id
+  `, ['ENG-LIVE-001', '集成工程', '客户甲', '100.10', '11', '成员甲']);
+  const maintenance = await harness.client.query<{ id: string } & Record<string, unknown>>(`
+    INSERT INTO maintenance_quotes (quote_number, project_name, client_name, total, created_by, created_by_name)
+    VALUES ($1,$2,$3,$4,$5,$6) RETURNING id::text AS id
+  `, ['MAINT-LIVE-001', '集成维保', '客户乙', '200.20', '22', '成员乙']);
+  const engineeringId = Number(engineering.rows[0]?.id); const maintenanceId = Number(maintenance.rows[0]?.id);
+  assert.deepEqual((await getQuoteSummaries(harness.client, { createdBy: '11' })).map((quote) => quote.identity), [`engineering:${engineeringId}`]);
+  assert.equal(await canAccessQuote(harness.client, { role: 'its_member', userId: 11 }, 'maintenance', maintenanceId), false);
+  assert.equal(await updateQuoteDetails(harness.client, `engineering:${engineeringId}`, { projectName: '集成工程更新', clientName: '客户甲', total: 125.25 }), true);
+  assert.equal(await updateQuoteStatus(harness.client, `engineering:${engineeringId}`, 'approved'), true);
+  const token = 'abcdef0123456789abcdef0123456789';
+  await harness.client.query(`
+    INSERT INTO quote_shares (token, quote_id, quote_type, expires_at, max_views)
+    VALUES ($1,$2,'engineering',CURRENT_TIMESTAMP + INTERVAL '1 day',1)
+  `, [token, engineeringId]);
+  assert.equal((await consumeQuoteShare(harness.client, token)).ok, true);
+  assert.deepEqual(await consumeQuoteShare(harness.client, token), { ok: false, reason: 'view_limit' });
+});

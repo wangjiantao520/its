@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireApiAuth } from '@/lib/api-auth-server';
-import { db } from '@/lib/db';
+import { getDatabase } from '@/lib/database/client';
 import { getQuoteSummaries, type QuoteSource } from '@/lib/quote-summary';
 
 const SOURCES = new Set<QuoteSource>(['engineering', 'maintenance', 'quotation']);
@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
       Math.max(1, Number.parseInt(searchParams.get('page_size') || '20', 10) || 20),
     );
 
-    const summaries = getQuoteSummaries(db, { source, createdBy })
+    const summaries = (await getQuoteSummaries(getDatabase(), { source, createdBy }))
       .filter((quote) => !status || quote.status === status)
       .filter((quote) => {
         if (!keyword) return true;

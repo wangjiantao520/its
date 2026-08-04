@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type { DatabaseClient } from './database/client';
 
 export type QuoteSource = 'engineering' | 'maintenance' | 'quotation';
 
@@ -22,6 +22,72 @@ export interface QuoteSummaryFilter {
   createdBy?: string;
 }
 
+interface QuoteSummaryRow extends Record<string, unknown> {
+  source: string;
+  id: string | number | bigint;
+  quote_number: string | null;
+  project_name: string | null;
+  client_name: string | null;
+  total: string | number | null;
+  status: string | null;
+  created_by: string | null;
+  created_by_name: string | null;
+  created_at: Date | string | null;
+  updated_at: Date | string | null;
+}
+
+interface IdRow extends Record<string, unknown> {
+  id: string | number | bigint;
+}
+
+const SOURCE_TABLES: Record<QuoteSource, 'engineering_quotes' | 'maintenance_quotes' | 'quotation_records'> = {
+  engineering: 'engineering_quotes',
+  maintenance: 'maintenance_quotes',
+  quotation: 'quotation_records',
+};
+
+function toSafeId(value: string | number | bigint): number {
+  const parsed = typeof value === 'bigint' ? value : BigInt(value);
+  if (parsed <= BigInt(0) || parsed > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new RangeError('Quote ID exceeds JavaScript safe integer range.');
+  }
+  return Number(parsed);
+}
+
+function toIsoString(value: Date | string | null): string {
+  if (value === null) return '';
+  if (value instanceof Date) return value.toISOString();
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toISOString();
+}
+
+export function quoteAmountToNumber(value: string | number | null): number {
+  const text = value === null ? '0' : String(value).trim();
+  const match = /^(\d+)(?:\.(\d{1,2}))?$/.exec(text);
+  if (!match) throw new RangeError('PostgreSQL returned an invalid quote amount.');
+  const cents = BigInt(match[1]) * BigInt(100) + BigInt((match[2] ?? '').padEnd(2, '0') || '0');
+  if (cents > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new RangeError('Quote amount exceeds frontend safe numeric range.');
+  }
+  return Number(cents) / 100;
+}
+
+export function quoteAmountToCents(value: string | number | null): bigint {
+  const normalized = quoteAmountToNumber(value);
+  return BigInt(normalized.toFixed(2).replace('.', ''));
+}
+
+export function quoteCentsToNumber(value: bigint): number {
+  if (value > BigInt(Number.MAX_SAFE_INTEGER) || value < BigInt(Number.MIN_SAFE_INTEGER)) {
+    throw new RangeError('Quote aggregate exceeds frontend safe numeric range.');
+  }
+  return Number(value) / 100;
+}
+
+export function sumQuoteTotals(quotes: readonly Pick<QuoteSummary, 'total'>[]): number {
+  return quoteCentsToNumber(quotes.reduce((sum, quote) => sum + quoteAmountToCents(quote.total), BigInt(0)));
+}
+
 export function parseQuoteIdentity(value: string): { source: QuoteSource; id: number } | null {
   let decoded: string;
   try {
@@ -32,175 +98,116 @@ export function parseQuoteIdentity(value: string): { source: QuoteSource; id: nu
   const match = /^(engineering|maintenance|quotation):(\d+)$/.exec(decoded);
   if (!match) return null;
   const id = Number(match[2]);
-  if (!Number.isInteger(id) || id <= 0) return null;
+  if (!Number.isSafeInteger(id) || id <= 0) return null;
   return { source: match[1] as QuoteSource, id };
 }
 
-function tableForSource(source: QuoteSource): string {
-  if (source === 'engineering') return 'engineering_quotes';
-  if (source === 'maintenance') return 'maintenance_quotes';
-  return 'quotation_records';
-}
-
-export function updateQuoteStatus(
-  database: Database.Database,
+export async function updateQuoteStatus(
+  database: DatabaseClient,
   identity: string,
   status: string,
-): boolean {
+): Promise<boolean> {
   const parsed = parseQuoteIdentity(identity);
   if (!parsed) return false;
-  const result = database
-    .prepare(`UPDATE ${tableForSource(parsed.source)} SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
-    .run(status, parsed.id);
-  return result.changes > 0;
+  const result = await database.query<IdRow>(
+    `UPDATE ${SOURCE_TABLES[parsed.source]}
+     SET status = $1, updated_at = CURRENT_TIMESTAMP
+     WHERE id = $2 RETURNING id`,
+    [status, parsed.id],
+  );
+  return result.rows.length > 0;
 }
 
-export function deleteQuoteByIdentity(
-  database: Database.Database,
+export async function deleteQuoteByIdentity(
+  database: DatabaseClient,
   identity: string,
-): boolean {
+): Promise<boolean> {
   const parsed = parseQuoteIdentity(identity);
   if (!parsed) return false;
-  const result = database
-    .prepare(`DELETE FROM ${tableForSource(parsed.source)} WHERE id = ?`)
-    .run(parsed.id);
-  return result.changes > 0;
+  const result = await database.query<IdRow>(
+    `DELETE FROM ${SOURCE_TABLES[parsed.source]} WHERE id = $1 RETURNING id`,
+    [parsed.id],
+  );
+  return result.rows.length > 0;
 }
 
-export function updateQuoteDetails(
-  database: Database.Database,
+export async function updateQuoteDetails(
+  database: DatabaseClient,
   identity: string,
   details: { projectName: string; clientName: string; total: number },
-): boolean {
+): Promise<boolean> {
   const parsed = parseQuoteIdentity(identity);
   if (!parsed) return false;
   const amountColumn = parsed.source === 'quotation' ? 'total_amount' : 'total';
-  const result = database.prepare(`
-    UPDATE ${tableForSource(parsed.source)}
-    SET project_name = ?, client_name = ?, ${amountColumn} = ?, updated_at = CURRENT_TIMESTAMP
-    WHERE id = ?
-  `).run(details.projectName, details.clientName, details.total, parsed.id);
-  return result.changes > 0;
-}
-
-interface BusinessQuoteRow {
-  id: number;
-  quote_number: string | null;
-  project_name: string | null;
-  client_name: string | null;
-  total: number | null;
-  status: string | null;
-  created_by: string | null;
-  created_by_name: string | null;
-  created_at: string | null;
-  updated_at: string | null;
-}
-
-interface QuotationRow {
-  id: number;
-  user_id: number;
-  client_name: string | null;
-  project_name: string | null;
-  quote_type: string | null;
-  total_amount: number | null;
-  quote_data: string | null;
-  status: string | null;
-  created_at: string | null;
-  updated_at: string | null;
-}
-
-function tableExists(database: Database.Database, name: string): boolean {
-  return Boolean(
-    database.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name),
+  const result = await database.query<IdRow>(
+    `UPDATE ${SOURCE_TABLES[parsed.source]}
+     SET project_name = $1, client_name = $2, ${amountColumn} = $3, updated_at = CURRENT_TIMESTAMP
+     WHERE id = $4 RETURNING id`,
+    [details.projectName, details.clientName, details.total.toFixed(2), parsed.id],
   );
+  return result.rows.length > 0;
 }
 
-function businessQuotes(
-  database: Database.Database,
-  table: 'engineering_quotes' | 'maintenance_quotes',
-  source: 'engineering' | 'maintenance',
-): QuoteSummary[] {
-  if (!tableExists(database, table)) return [];
-  const rows = database.prepare(`
-    SELECT id, quote_number, project_name, client_name, total, status,
-           created_by, created_by_name, created_at, updated_at
-    FROM ${table}
-  `).all() as BusinessQuoteRow[];
-
-  return rows.map((row) => ({
-    identity: `${source}:${row.id}`,
-    source,
-    id: row.id,
-    quoteNumber: row.quote_number || `${source === 'engineering' ? 'ENG' : 'MAINT'}-${row.id}`,
-    projectName: row.project_name || '未命名项目',
-    clientName: row.client_name || '未填写客户',
-    total: Number(row.total) || 0,
-    status: row.status || 'draft',
-    createdBy: row.created_by || '',
-    createdByName: row.created_by_name || row.created_by || '',
-    createdAt: row.created_at || '',
-    updatedAt: row.updated_at || row.created_at || '',
-  }));
-}
-
-function linkedSource(value: string | null): { source: string; id: number } | null {
-  if (!value) return null;
-  try {
-    const parsed = JSON.parse(value) as Record<string, unknown>;
-    const source = parsed.source_type;
-    const id = Number(parsed.source_id);
-    return typeof source === 'string' && Number.isInteger(id) ? { source, id } : null;
-  } catch {
-    return null;
-  }
-}
-
-export function getQuoteSummaries(
-  database: Database.Database,
+export async function getQuoteSummaries(
+  database: DatabaseClient,
   filter: QuoteSummaryFilter = {},
-): QuoteSummary[] {
-  const primary = [
-    ...businessQuotes(database, 'engineering_quotes', 'engineering'),
-    ...businessQuotes(database, 'maintenance_quotes', 'maintenance'),
-  ];
-  const primaryIds = new Set(primary.map((quote) => quote.identity));
-  const quotations: QuoteSummary[] = [];
+): Promise<QuoteSummary[]> {
+  const result = await database.query<QuoteSummaryRow>(`
+    SELECT source, id, quote_number, project_name, client_name, total, status,
+           created_by, created_by_name, created_at, updated_at
+    FROM (
+      SELECT 'engineering'::text AS source, id, quote_number, project_name, client_name,
+             total::text AS total, status, COALESCE(created_by, '') AS created_by,
+             COALESCE(created_by_name, created_by, '') AS created_by_name, created_at, updated_at
+      FROM engineering_quotes
+      UNION ALL
+      SELECT 'maintenance'::text AS source, id, quote_number, project_name, client_name,
+             total::text AS total, status, COALESCE(created_by, '') AS created_by,
+             COALESCE(created_by_name, created_by, '') AS created_by_name, created_at, updated_at
+      FROM maintenance_quotes
+      UNION ALL
+      SELECT 'quotation'::text AS source, quotation.id,
+             'QUOTE-' || quotation.id::text AS quote_number, quotation.project_name,
+             quotation.client_name, quotation.total_amount::text AS total, quotation.status,
+             quotation.user_id::text AS created_by,
+             COALESCE(owner.name, owner.username, quotation.user_id::text) AS created_by_name,
+             quotation.created_at, quotation.updated_at
+      FROM quotation_records quotation
+      LEFT JOIN users owner ON owner.id = quotation.user_id
+      WHERE NOT COALESCE(
+        (
+          (quotation.quote_data->>'source_type' = 'engineering' AND EXISTS (
+            SELECT 1 FROM engineering_quotes linked WHERE linked.id::text = quotation.quote_data->>'source_id'
+          ))
+          OR
+          (quotation.quote_data->>'source_type' = 'maintenance' AND EXISTS (
+            SELECT 1 FROM maintenance_quotes linked WHERE linked.id::text = quotation.quote_data->>'source_id'
+          ))
+        ),
+        false
+      )
+    ) AS quote_summaries
+    WHERE ($1::text IS NULL OR source = $1)
+      AND ($2::text IS NULL OR created_by = $2)
+    ORDER BY updated_at DESC NULLS LAST, id DESC
+  `, [filter.source ?? null, filter.createdBy ?? null]);
 
-  if (tableExists(database, 'quotation_records')) {
-    const rows = database.prepare(`
-      SELECT id, user_id, client_name, project_name, quote_type, total_amount,
-             quote_data, status, created_at, updated_at
-      FROM quotation_records
-    `).all() as QuotationRow[];
-
-    for (const row of rows) {
-      const linked = linkedSource(row.quote_data);
-      if (
-        linked &&
-        (linked.source === 'engineering' || linked.source === 'maintenance') &&
-        primaryIds.has(`${linked.source}:${linked.id}` as QuoteSummary['identity'])
-      ) {
-        continue;
-      }
-      quotations.push({
-        identity: `quotation:${row.id}`,
-        source: 'quotation',
-        id: row.id,
-        quoteNumber: `QUOTE-${row.id}`,
-        projectName: row.project_name || '未命名项目',
-        clientName: row.client_name || '未填写客户',
-        total: Number(row.total_amount) || 0,
-        status: row.status || 'draft',
-        createdBy: String(row.user_id),
-        createdByName: String(row.user_id),
-        createdAt: row.created_at || '',
-        updatedAt: row.updated_at || row.created_at || '',
-      });
-    }
-  }
-
-  return [...primary, ...quotations]
-    .filter((quote) => !filter.source || quote.source === filter.source)
-    .filter((quote) => !filter.createdBy || quote.createdBy === filter.createdBy)
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || b.id - a.id);
+  return result.rows.map((row) => {
+    const source = row.source as QuoteSource;
+    const id = toSafeId(row.id);
+    return {
+      identity: `${source}:${id}` as QuoteSummary['identity'],
+      source,
+      id,
+      quoteNumber: row.quote_number || `${source === 'engineering' ? 'ENG' : source === 'maintenance' ? 'MAINT' : 'QUOTE'}-${id}`,
+      projectName: row.project_name || '未命名项目',
+      clientName: row.client_name || '未填写客户',
+      total: quoteAmountToNumber(row.total),
+      status: row.status || 'draft',
+      createdBy: row.created_by || '',
+      createdByName: row.created_by_name || row.created_by || '',
+      createdAt: toIsoString(row.created_at),
+      updatedAt: toIsoString(row.updated_at ?? row.created_at),
+    };
+  }).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || b.id - a.id);
 }

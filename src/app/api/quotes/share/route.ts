@@ -1,66 +1,35 @@
 import crypto from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { requireApiAuth } from '@/lib/api-auth-server';
-import { db } from '@/lib/db';
+import { getDatabase } from '@/lib/database/client';
 import { getQuoteSummaries, parseQuoteIdentity } from '@/lib/quote-summary';
 
-interface ShareRow {
-  id: number;
-  token: string;
-  quote_id: number;
-  quote_type: string;
-  expires_at: string | null;
-  view_count: number;
-  is_active: number;
-  created_at: string;
-}
+interface IdRow extends Record<string, unknown> { id: string | number | bigint }
+interface ShareRow extends Record<string, unknown> { id: string | number | bigint; token: string; quote_id: string | number | bigint; quote_type: string; expires_at: Date | string | null; view_count: number; is_active: boolean; created_at: Date | string }
+function objectBody(value: unknown): Record<string, unknown> { return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
 
 export async function POST(request: NextRequest) {
   const auth = await requireApiAuth(request);
   if (!auth.ok) return auth.response;
-
   try {
-    const body = (await request.json()) as {
-      quoteId?: string;
-      expiryDays?: number;
-      expiresInDays?: number;
-      maxViews?: number;
-    };
-    const parsed = body.quoteId ? parseQuoteIdentity(body.quoteId) : null;
-    if (!parsed) {
-      return NextResponse.json({ success: false, error: '无效的报价标识' }, { status: 400 });
-    }
-
+    const body = objectBody(await request.json());
+    const parsed = typeof body.quoteId === 'string' ? parseQuoteIdentity(body.quoteId) : null;
+    if (!parsed) return NextResponse.json({ success: false, error: '无效的报价标识' }, { status: 400 });
+    const database = getDatabase();
     const createdBy = auth.session.role === 'admin' ? undefined : String(auth.session.userId ?? -1);
-    const quote = getQuoteSummaries(db, { source: parsed.source, createdBy })
-      .find((item) => item.id === parsed.id);
-    if (!quote) {
-      return NextResponse.json({ success: false, error: '报价不存在或无权访问' }, { status: 404 });
-    }
-
-    const days = Math.min(365, Math.max(1, Number(body.expiryDays ?? body.expiresInDays) || 30));
+    const quote = (await getQuoteSummaries(database, { source: parsed.source, createdBy })).find((item) => item.id === parsed.id);
+    if (!quote) return NextResponse.json({ success: false, error: '报价不存在或无权访问' }, { status: 404 });
+    const daysInput = Number(body.expiryDays ?? body.expiresInDays ?? 30);
+    if (!Number.isInteger(daysInput) || daysInput < 1 || daysInput > 365) return NextResponse.json({ success: false, error: '有效期必须为1到365天' }, { status: 400 });
     const maxViews = body.maxViews === undefined ? 0 : Number(body.maxViews);
-    if (!Number.isInteger(maxViews) || maxViews < 0 || maxViews > 1_000_000) {
-      return NextResponse.json({ success: false, error: '访问次数上限必须是有效的非负整数' }, { status: 400 });
-    }
-    const expiresAt = new Date(Date.now() + days * 86_400_000);
+    if (!Number.isInteger(maxViews) || maxViews < 0 || maxViews > 1_000_000) return NextResponse.json({ success: false, error: '访问次数上限必须是有效的非负整数' }, { status: 400 });
     const token = crypto.randomBytes(16).toString('hex');
-    const result = db.prepare(`
+    const inserted = await database.query<IdRow>(`
       INSERT INTO quote_shares (token, quote_id, quote_type, expires_at, max_views)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(token, parsed.id, parsed.source, expiresAt.toISOString(), maxViews);
-
-    return NextResponse.json({
-      success: true,
-      data: {
-        id: Number(result.lastInsertRowid),
-        token,
-        quoteId: quote.identity,
-        quoteType: parsed.source,
-        expiresAt: expiresAt.toISOString(),
-        shareUrl: `/share/${token}`,
-      },
-    });
+      VALUES ($1,$2,$3,CURRENT_TIMESTAMP + ($4 * INTERVAL '1 day'),$5) RETURNING id, expires_at
+    `, [token, parsed.id, parsed.source, daysInput, maxViews]);
+    const expiresAt = new Date(Date.now() + daysInput * 86_400_000).toISOString();
+    return NextResponse.json({ success: true, data: { id: String(inserted.rows[0]?.id), token, quoteId: quote.identity, quoteType: parsed.source, expiresAt, shareUrl: `/share/${token}` } });
   } catch (error) {
     console.error('创建分享链接失败:', error);
     return NextResponse.json({ success: false, error: '创建分享链接失败' }, { status: 500 });
@@ -70,32 +39,25 @@ export async function POST(request: NextRequest) {
 export async function GET(request: NextRequest) {
   const auth = await requireApiAuth(request);
   if (!auth.ok) return auth.response;
-
-  const searchParams = new URL(request.url).searchParams;
-  const page = Math.max(1, Number.parseInt(searchParams.get('page') || '1', 10) || 1);
-  const limit = Math.min(100, Math.max(1, Number.parseInt(searchParams.get('limit') || '20', 10) || 20));
-  const allRows = db.prepare(`
-    SELECT id, token, quote_id, quote_type, expires_at, view_count, is_active, created_at
-    FROM quote_shares
-    ORDER BY created_at DESC
-  `).all() as ShareRow[];
-  const allowedIdentities: Set<string> | null = auth.session.role === 'admin'
-    ? null
-    : new Set(getQuoteSummaries(db, { createdBy: String(auth.session.userId ?? -1) }).map((quote) => quote.identity));
-  const visibleRows = allowedIdentities
-    ? allRows.filter((row) => allowedIdentities.has(`${row.quote_type}:${row.quote_id}`))
-    : allRows;
-  const total = visibleRows.length;
-  const rows = visibleRows.slice((page - 1) * limit, page * limit);
-
-  return NextResponse.json({
-    success: true,
-    data: rows.map((row) => ({
-      ...row,
-      quoteIdentity: `${row.quote_type}:${row.quote_id}`,
-      shareUrl: `/share/${row.token}`,
-      isExpired: Boolean(row.expires_at && new Date(row.expires_at).getTime() <= Date.now()),
-    })),
-    pagination: { page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) },
-  });
+  try {
+    const page = Math.max(1, Number.parseInt(request.nextUrl.searchParams.get('page') || '1', 10) || 1);
+    const limit = Math.min(100, Math.max(1, Number.parseInt(request.nextUrl.searchParams.get('limit') || '20', 10) || 20));
+    const owner = auth.session.role === 'admin' ? null : String(auth.session.userId ?? -1);
+    const database = getDatabase();
+    const rows = await database.query<ShareRow>(`
+      SELECT share.id, share.token, share.quote_id, share.quote_type, share.expires_at,
+             share.view_count, share.is_active, share.created_at
+      FROM quote_shares share
+      WHERE $1::text IS NULL OR
+        (share.quote_type='engineering' AND EXISTS (SELECT 1 FROM engineering_quotes quote WHERE quote.id=share.quote_id AND quote.created_by=$1)) OR
+        (share.quote_type='maintenance' AND EXISTS (SELECT 1 FROM maintenance_quotes quote WHERE quote.id=share.quote_id AND quote.created_by=$1)) OR
+        (share.quote_type='quotation' AND EXISTS (SELECT 1 FROM quotation_records quote WHERE quote.id=share.quote_id AND quote.user_id::text=$1))
+      ORDER BY share.created_at DESC LIMIT $2 OFFSET $3
+    `, [owner, limit, (page - 1) * limit]);
+    const data = rows.rows.map((row) => ({ ...row, id: String(row.id), quoteIdentity: `${row.quote_type}:${row.quote_id}`, shareUrl: `/share/${row.token}`, isExpired: Boolean(row.expires_at && new Date(row.expires_at).getTime() <= Date.now()) }));
+    return NextResponse.json({ success: true, data, pagination: { page, limit, total: data.length, totalPages: data.length < limit ? page : page + 1 } });
+  } catch (error) {
+    console.error('获取分享链接失败:', error);
+    return NextResponse.json({ success: false, error: '获取分享链接失败' }, { status: 500 });
+  }
 }

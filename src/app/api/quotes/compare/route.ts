@@ -1,214 +1,73 @@
 import { NextRequest, NextResponse } from 'next/server';
-import pool, { db } from '@/lib/db';
 import { requireApiAuth } from '@/lib/api-auth-server';
+import { getDatabase } from '@/lib/database/client';
 import { asQuoteSource, canAccessQuote } from '@/lib/quote-access';
 
-// 比较两个值的差异
-function diffValues(
-  path: string,
-  oldVal: any,
-  newVal: any
-): { path: string; old: any; new: any; type: 'added' | 'removed' | 'changed' } | null {
-  if (oldVal === newVal) return null;
-
-  // 处理 undefined/null
-  if (oldVal === undefined && newVal !== undefined) {
-    return { path, old: null, new: newVal, type: 'added' };
-  }
-  if (newVal === undefined && oldVal !== undefined) {
-    return { path, old: oldVal, new: null, type: 'removed' };
-  }
-  if (oldVal === null && newVal !== null) {
-    return { path, old: null, new: newVal, type: 'added' };
-  }
-  if (newVal === null && oldVal !== null) {
-    return { path, old: oldVal, new: null, type: 'removed' };
-  }
-
-  return { path, old: oldVal, new: newVal, type: 'changed' };
+interface VersionRow extends Record<string, unknown> {
+  id: string | number | bigint; quote_id: string | number | bigint; quote_type: string;
+  version: number; data: unknown; created_at: Date | string; created_by: string | null;
 }
+type Difference = { path: string; old: unknown; new: unknown; type: 'added' | 'removed' | 'changed' };
 
-// 深度比较两个对象
-function deepDiff(
-  oldObj: Record<string, any>,
-  newObj: Record<string, any>,
-  prefix = ''
-): Array<{ path: string; old: any; new: any; type: 'added' | 'removed' | 'changed' }> {
-  const differences: Array<{ path: string; old: any; new: any; type: 'added' | 'removed' | 'changed' }> = [];
-  const allKeys = new Set([...Object.keys(oldObj || {}), ...Object.keys(newObj || {})]);
-
-  for (const key of allKeys) {
+function asRecord(value: unknown): Record<string, unknown> { return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
+function deepDiff(oldObject: Record<string, unknown>, newObject: Record<string, unknown>, prefix = ''): Difference[] {
+  const differences: Difference[] = [];
+  for (const key of new Set([...Object.keys(oldObject), ...Object.keys(newObject)])) {
     const path = prefix ? `${prefix}.${key}` : key;
-    const oldVal = oldObj?.[key];
-    const newVal = newObj?.[key];
-
-    // 如果两边都是对象或数组，递归比较
-    if (
-      oldVal !== null &&
-      newVal !== null &&
-      typeof oldVal === 'object' &&
-      typeof newVal === 'object' &&
-      !Array.isArray(oldVal) &&
-      !Array.isArray(newVal)
-    ) {
-      differences.push(...deepDiff(oldVal, newVal, path));
-    } else {
-      const diff = diffValues(path, oldVal, newVal);
-      if (diff) {
-        differences.push(diff);
-      }
+    const oldValue = oldObject[key]; const newValue = newObject[key];
+    if (oldValue !== null && newValue !== null && typeof oldValue === 'object' && typeof newValue === 'object' && !Array.isArray(oldValue) && !Array.isArray(newValue)) {
+      differences.push(...deepDiff(asRecord(oldValue), asRecord(newValue), path));
+    } else if (JSON.stringify(oldValue) !== JSON.stringify(newValue)) {
+      differences.push({ path, old: oldValue ?? null, new: newValue ?? null, type: oldValue === undefined || oldValue === null ? 'added' : newValue === undefined || newValue === null ? 'removed' : 'changed' });
     }
   }
-
   return differences;
 }
-
-// 比较数组项
-function compareArrays(
-  oldArr: any[],
-  newArr: any[],
-  itemsKey: string
-): {
-  added: any[];
-  removed: any[];
-  changed: Array<{ index: number; changes: Array<{ path: string; old: any; new: any; type: string }> }>;
-} {
-  const result = {
-    added: [] as any[],
-    removed: [] as any[],
-    changed: [] as Array<{ index: number; changes: Array<{ path: string; old: any; new: any; type: string }> }>
-  };
-
-  // 简单比较：基于数组索引对应比较
-  const maxLen = Math.max(oldArr.length, newArr.length);
-  for (let i = 0; i < maxLen; i++) {
-    if (i >= oldArr.length) {
-      result.added.push({ index: i, item: newArr[i] });
-    } else if (i >= newArr.length) {
-      result.removed.push({ index: i, item: oldArr[i] });
-    } else {
-      const itemDiff = deepDiff(oldArr[i] || {}, newArr[i] || {}, `${itemsKey}[${i}]`);
-      if (itemDiff.length > 0) {
-        result.changed.push({ index: i, changes: itemDiff });
-      }
-    }
+function arrayComparison(oldValue: unknown, newValue: unknown, key: string) {
+  const oldItems = Array.isArray(oldValue) ? oldValue : []; const newItems = Array.isArray(newValue) ? newValue : [];
+  const added: unknown[] = []; const removed: unknown[] = []; const changed: Array<{ index: number; changes: Difference[] }> = [];
+  for (let index = 0; index < Math.max(oldItems.length, newItems.length); index += 1) {
+    if (index >= oldItems.length) added.push({ index, item: newItems[index] });
+    else if (index >= newItems.length) removed.push({ index, item: oldItems[index] });
+    else { const changes = deepDiff(asRecord(oldItems[index]), asRecord(newItems[index]), `${key}[${index}]`); if (changes.length) changed.push({ index, changes }); }
   }
-
-  return result;
+  return { added, removed, changed };
 }
 
-// POST - 比较两个版本
 export async function POST(request: NextRequest) {
   const auth = await requireApiAuth(request);
   if (!auth.ok) return auth.response;
-
   try {
-    const body = await request.json();
-    const { versionIdA, versionIdB } = body;
-
-    if (!versionIdA || !versionIdB) {
-      return NextResponse.json(
-        { success: false, error: '缺少必需参数: versionIdA, versionIdB' },
-        { status: 400 }
-      );
-    }
-
-    const [versionA, versionB] = await Promise.all([
-      pool.query(
-        'SELECT id, quote_id, quote_type, version, data, created_at, created_by FROM quote_versions WHERE id = ?',
-        [parseInt(versionIdA)]
-      ),
-      pool.query(
-        'SELECT id, quote_id, quote_type, version, data, created_at, created_by FROM quote_versions WHERE id = ?',
-        [parseInt(versionIdB)]
-      )
+    const raw = await request.json() as unknown;
+    const body = asRecord(raw);
+    const versionIdA = Number(body.versionIdA); const versionIdB = Number(body.versionIdB);
+    if (![versionIdA, versionIdB].every((id) => Number.isSafeInteger(id) && id > 0)) return NextResponse.json({ success: false, error: '缺少必需参数: versionIdA, versionIdB' }, { status: 400 });
+    const database = getDatabase();
+    const [resultA, resultB] = await Promise.all([
+      database.query<VersionRow>('SELECT id, quote_id, quote_type, version, data, created_at, created_by FROM quote_versions WHERE id=$1', [versionIdA]),
+      database.query<VersionRow>('SELECT id, quote_id, quote_type, version, data, created_at, created_by FROM quote_versions WHERE id=$1', [versionIdB]),
     ]);
-
-    if ((versionA[0] as any).length === 0) {
-      return NextResponse.json(
-        { success: false, error: `版本 A (ID: ${versionIdA}) 不存在` },
-        { status: 404 }
-      );
-    }
-
-    if ((versionB[0] as any).length === 0) {
-      return NextResponse.json(
-        { success: false, error: `版本 B (ID: ${versionIdB}) 不存在` },
-        { status: 404 }
-      );
-    }
-
-    const vA = (versionA[0] as any)[0];
-    const vB = (versionB[0] as any)[0];
-    const sourceA = asQuoteSource(vA.quote_type);
-    const sourceB = asQuoteSource(vB.quote_type);
-    if (
-      !sourceA || !sourceB
-      || !canAccessQuote(db, auth.session, sourceA, Number(vA.quote_id))
-      || !canAccessQuote(db, auth.session, sourceB, Number(vB.quote_id))
-    ) {
+    const versionA = resultA.rows[0]; const versionB = resultB.rows[0];
+    if (!versionA) return NextResponse.json({ success: false, error: `版本 A (ID: ${versionIdA}) 不存在` }, { status: 404 });
+    if (!versionB) return NextResponse.json({ success: false, error: `版本 B (ID: ${versionIdB}) 不存在` }, { status: 404 });
+    const sourceA = asQuoteSource(versionA.quote_type); const sourceB = asQuoteSource(versionB.quote_type);
+    if (!sourceA || !sourceB || !await canAccessQuote(database, auth.session, sourceA, Number(versionA.quote_id)) || !await canAccessQuote(database, auth.session, sourceB, Number(versionB.quote_id))) {
       return NextResponse.json({ success: false, error: '版本不存在或无权访问' }, { status: 404 });
     }
-
-    // 解析 JSON 数据
-    const dataA = typeof vA.data === 'string' ? JSON.parse(vA.data) : vA.data;
-    const dataB = typeof vB.data === 'string' ? JSON.parse(vB.data) : vB.data;
-
-    // 比较顶层字段
+    const dataA = asRecord(versionA.data); const dataB = asRecord(versionB.data);
     const topLevelChanges = deepDiff(dataA, dataB);
-
-    // 比较 items 数组
-    let itemsComparison = null;
-    if (dataA.items && dataB.items) {
-      itemsComparison = compareArrays(dataA.items, dataB.items, 'items');
-    }
-
-    // 比较 devices 数组
-    let devicesComparison = null;
-    if (dataA.devices && dataB.devices) {
-      devicesComparison = compareArrays(dataA.devices, dataB.devices, 'devices');
-    }
-
-    // 计算统计摘要
-    const stats = {
-      totalChanges: topLevelChanges.length,
-      addedCount: topLevelChanges.filter(c => c.type === 'added').length,
-      removedCount: topLevelChanges.filter(c => c.type === 'removed').length,
-      changedCount: topLevelChanges.filter(c => c.type === 'changed').length,
-      itemsAdded: itemsComparison?.added.length || 0,
-      itemsRemoved: itemsComparison?.removed.length || 0,
-      itemsChanged: itemsComparison?.changed.length || 0,
-      devicesAdded: devicesComparison?.added.length || 0,
-      devicesRemoved: devicesComparison?.removed.length || 0,
-      devicesChanged: devicesComparison?.changed.length || 0
-    };
-
-    return NextResponse.json({
-      success: true,
-      data: {
-        versionA: {
-          id: vA.id,
-          version: vA.version,
-          createdAt: vA.created_at,
-          createdBy: vA.created_by
-        },
-        versionB: {
-          id: vB.id,
-          version: vB.version,
-          createdAt: vB.created_at,
-          createdBy: vB.created_by
-        },
-        stats,
-        topLevelChanges,
-        itemsComparison,
-        devicesComparison
-      }
-    });
+    const itemsComparison = dataA.items || dataB.items ? arrayComparison(dataA.items, dataB.items, 'items') : null;
+    const devicesComparison = dataA.devices || dataB.devices ? arrayComparison(dataA.devices, dataB.devices, 'devices') : null;
+    return NextResponse.json({ success: true, data: {
+      versionA: { id: String(versionA.id), version: versionA.version, createdAt: versionA.created_at, createdBy: versionA.created_by },
+      versionB: { id: String(versionB.id), version: versionB.version, createdAt: versionB.created_at, createdBy: versionB.created_by },
+      stats: { totalChanges: topLevelChanges.length, addedCount: topLevelChanges.filter((item) => item.type === 'added').length, removedCount: topLevelChanges.filter((item) => item.type === 'removed').length, changedCount: topLevelChanges.filter((item) => item.type === 'changed').length,
+        itemsAdded: itemsComparison?.added.length ?? 0, itemsRemoved: itemsComparison?.removed.length ?? 0, itemsChanged: itemsComparison?.changed.length ?? 0,
+        devicesAdded: devicesComparison?.added.length ?? 0, devicesRemoved: devicesComparison?.removed.length ?? 0, devicesChanged: devicesComparison?.changed.length ?? 0 },
+      topLevelChanges, itemsComparison, devicesComparison,
+    } });
   } catch (error) {
     console.error('比较版本失败:', error);
-    return NextResponse.json(
-      { success: false, error: '比较版本失败' },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: '比较版本失败' }, { status: 500 });
   }
 }

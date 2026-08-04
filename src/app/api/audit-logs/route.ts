@@ -1,137 +1,50 @@
 import { NextRequest, NextResponse } from 'next/server';
-import pool from '@/lib/db';
-import { verifySession } from '@/lib/auth';
+import { requireApiAuth } from '@/lib/api-auth-server';
+import { getDatabase } from '@/lib/database/client';
 
-// 认证中间件（仅限管理员）
-async function requireAdmin(
-  request: NextRequest,
-): Promise<{ authorized: boolean; response?: NextResponse }> {
-  const session = await verifySession(request);
-  if (!session) {
-    return {
-      authorized: false,
-      response: NextResponse.json(
-        { success: false, error: '请先登录' },
-        { status: 401 }
-      )
-    };
-  }
-  if (session.role !== 'admin') {
-    return {
-      authorized: false,
-      response: NextResponse.json(
-        { success: false, error: '需要管理员权限' },
-        { status: 403 }
-      )
-    };
-  }
-  return { authorized: true };
-}
+interface CountRow extends Record<string, unknown> { total: string | number }
+const ACTIONS = new Set(['create', 'submit_review', 'approve', 'reject', 'send', 'archive', 'update']);
 
-// GET - 获取审核日志列表（管理员）
 export async function GET(request: NextRequest) {
-  const auth = await requireAdmin(request);
-  if (!auth.authorized) return auth.response!;
-
+  const auth = await requireApiAuth(request, ['admin']);
+  if (!auth.ok) return auth.response;
   try {
-    const searchParams = request.nextUrl.searchParams;
-    const page = Math.max(1, parseInt(searchParams.get('page') || '1') || 1);
-    const limit = Math.min(Math.max(1, parseInt(searchParams.get('limit') || '20') || 20), 100);
-    const offset = (page - 1) * limit;
-
-    // 筛选参数
-    const quoteId = searchParams.get('quoteId');
-    const quoteType = searchParams.get('quoteType');
-    const action = searchParams.get('action');
-    const startDate = searchParams.get('startDate');
-    const endDate = searchParams.get('endDate');
-    const operator = searchParams.get('operator');
-
-    // 构建WHERE条件
-    const conditions: string[] = [];
-    const queryParams: any[] = [];
-
+    const page = Math.max(1, Number.parseInt(request.nextUrl.searchParams.get('page') || '1', 10) || 1);
+    const limit = Math.min(100, Math.max(1, Number.parseInt(request.nextUrl.searchParams.get('limit') || '20', 10) || 20));
+    const conditions: string[] = []; const values: unknown[] = [];
+    const add = (sql: string, value: unknown) => { values.push(value); conditions.push(sql.replace('$n', `$${values.length}`)); };
+    const quoteId = request.nextUrl.searchParams.get('quoteId');
     if (quoteId) {
-      conditions.push('quote_id = ?');
-      queryParams.push(parseInt(quoteId));
+      const id = Number(quoteId); if (!Number.isSafeInteger(id) || id <= 0) return NextResponse.json({ success: false, error: '无效的报价ID' }, { status: 400 });
+      add('audit.quote_id=$n', id);
     }
-    if (quoteType && ['maintenance', 'engineering'].includes(quoteType)) {
-      conditions.push('quote_type = ?');
-      queryParams.push(quoteType);
+    const quoteType = request.nextUrl.searchParams.get('quoteType');
+    if (quoteType) {
+      if (!['maintenance', 'engineering', 'quotation'].includes(quoteType)) return NextResponse.json({ success: false, error: '无效的报价类型' }, { status: 400 });
+      add('audit.quote_type=$n', quoteType);
     }
-    if (action && ['create', 'submit_review', 'approve', 'reject', 'send', 'archive', 'update'].includes(action)) {
-      conditions.push('action = ?');
-      queryParams.push(action);
-    }
-    if (startDate) {
-      conditions.push('created_at >= ?');
-      queryParams.push(new Date(startDate));
-    }
-    if (endDate) {
-      conditions.push('created_at <= ?');
-      queryParams.push(new Date(endDate + 'T23:59:59'));
-    }
-    if (operator) {
-      conditions.push('operator = ?');
-      queryParams.push(operator);
-    }
-
-    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-
-    const [rows] = await pool.query(
-      `SELECT id, quote_id, quote_type, action, from_status, to_status, comment, operator, created_at
-       FROM quote_audit_logs
-       ${whereClause}
-       ORDER BY created_at DESC
-       LIMIT ? OFFSET ?`,
-      [...queryParams, limit, offset]
-    ) as [any[], any];
-
-    const [countResult] = await pool.query(
-      `SELECT COUNT(*) as total FROM quote_audit_logs ${whereClause}`,
-      queryParams
-    ) as [any[], any];
-
-    const total = countResult[0]?.total || 0;
-
-    // 获取关联的报价编号
-    const quoteIds = [...new Set(rows.map((r: any) => r.quote_id))];
-    const quoteMap: Record<number, string> = {};
-
-    if (quoteIds.length > 0) {
-      // 分别查询两种报价类型的编号
-      const [maintRows] = await pool.query(
-        `SELECT id, quote_number FROM maintenance_quotes WHERE id IN (?)`,
-        [quoteIds]
-      ) as [any[], any];
-      const [engRows] = await pool.query(
-        `SELECT id, quote_number FROM engineering_quotes WHERE id IN (?)`,
-        [quoteIds]
-      ) as [any[], any];
-
-      [...maintRows, ...engRows].forEach((row: any) => {
-        quoteMap[row.id] = row.quote_number;
-      });
-    }
-
-    return NextResponse.json({
-      success: true,
-      data: rows.map((log: any) => ({
-        ...log,
-        quoteNumber: quoteMap[log.quote_id] || null
-      })),
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit) || 1
-      }
-    });
+    const action = request.nextUrl.searchParams.get('action');
+    if (action) { if (!ACTIONS.has(action)) return NextResponse.json({ success: false, error: '无效的审核动作' }, { status: 400 }); add('audit.action=$n', action); }
+    const startDate = request.nextUrl.searchParams.get('startDate'); if (startDate) add('audit.created_at >= $n::timestamptz', startDate);
+    const endDate = request.nextUrl.searchParams.get('endDate'); if (endDate) add("audit.created_at < ($n::date + INTERVAL '1 day')", endDate);
+    const operator = request.nextUrl.searchParams.get('operator'); if (operator) add('audit.operator=$n', operator);
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const database = getDatabase();
+    const rows = await database.query<Record<string, unknown>>(`
+      SELECT audit.id, audit.quote_id, audit.quote_type, audit.action, audit.from_status,
+             audit.to_status, audit.comment, audit.operator, audit.created_at,
+             COALESCE(engineering.quote_number, maintenance.quote_number, 'QUOTE-' || quotation.id::text) AS "quoteNumber"
+      FROM quote_audit_logs audit
+      LEFT JOIN engineering_quotes engineering ON audit.quote_type='engineering' AND engineering.id=audit.quote_id
+      LEFT JOIN maintenance_quotes maintenance ON audit.quote_type='maintenance' AND maintenance.id=audit.quote_id
+      LEFT JOIN quotation_records quotation ON audit.quote_type='quotation' AND quotation.id=audit.quote_id
+      ${where} ORDER BY audit.created_at DESC LIMIT $${values.length + 1} OFFSET $${values.length + 2}
+    `, [...values, limit, (page - 1) * limit]);
+    const count = await database.query<CountRow>(`SELECT COUNT(*)::text AS total FROM quote_audit_logs audit ${where}`, values);
+    const total = Number(count.rows[0]?.total ?? 0);
+    return NextResponse.json({ success: true, data: rows.rows, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) || 1 } });
   } catch (error) {
     console.error('获取审核日志列表失败:', error);
-    return NextResponse.json(
-      { success: false, error: '获取审核日志列表失败' },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: '获取审核日志列表失败' }, { status: 500 });
   }
 }

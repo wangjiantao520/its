@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { requireApiAuth } from '@/lib/api-auth-server';
-import { db } from '@/lib/db';
+import { getDatabase } from '@/lib/database/client';
 import {
   deleteQuoteByIdentity,
   getQuoteSummaries,
@@ -24,7 +24,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   }
 
   const createdBy = auth.session.role === 'admin' ? undefined : String(auth.session.userId ?? -1);
-  const quote = getQuoteSummaries(db, { source: parsed.source, createdBy })
+  const quote = (await getQuoteSummaries(getDatabase(), { source: parsed.source, createdBy }))
     .find((item) => item.id === parsed.id);
   if (!quote) {
     return NextResponse.json({ success: false, error: '报价不存在或无权访问' }, { status: 404 });
@@ -40,7 +40,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
   if (!parseQuoteIdentity(id)) {
     return NextResponse.json({ success: false, error: '无效的报价标识' }, { status: 400 });
   }
-  if (!deleteQuoteByIdentity(db, id)) {
+  if (!await deleteQuoteByIdentity(getDatabase(), id)) {
     return NextResponse.json({ success: false, error: '报价不存在' }, { status: 404 });
   }
   return NextResponse.json({ success: true, data: { message: '删除成功' } });
@@ -62,7 +62,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     return NextResponse.json({ success: false, error: '无效的报价标识' }, { status: 400 });
   }
   const createdBy = auth.session.role === 'admin' ? undefined : String(auth.session.userId ?? -1);
-  const quote = getQuoteSummaries(db, { source: parsed.source, createdBy })
+  const quote = (await getQuoteSummaries(getDatabase(), { source: parsed.source, createdBy }))
     .find((item) => item.id === parsed.id);
   if (!quote) {
     return NextResponse.json({ success: false, error: '报价不存在或无权访问' }, { status: 404 });
@@ -75,6 +75,6 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       { status: 400 },
     );
   }
-  updateQuoteDetails(db, id, parsedBody.data);
+  await updateQuoteDetails(getDatabase(), id, parsedBody.data);
   return NextResponse.json({ success: true, data: { id } });
 }

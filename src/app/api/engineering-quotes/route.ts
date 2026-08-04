@@ -1,275 +1,147 @@
 import { NextRequest, NextResponse } from 'next/server';
-import pool from '@/lib/db';
 import { requireApiAuth } from '@/lib/api-auth-server';
+import { getDatabase } from '@/lib/database/client';
+
+interface CountRow extends Record<string, unknown> { total: string | number }
+interface IdRow extends Record<string, unknown> { id: string | number | bigint }
+interface OwnerRow extends Record<string, unknown> { created_by: string | null }
+
+function objectBody(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown> : null;
+}
+
+function validNonNegative(value: unknown): boolean {
+  return value === undefined || value === null || value === ''
+    || (Number.isFinite(Number(value)) && Number(value) >= 0);
+}
+
+function safeInteger(value: unknown): number | null {
+  const number = Number(value);
+  return Number.isSafeInteger(number) && number > 0 ? number : null;
+}
 
 export async function GET(request: NextRequest) {
   const auth = await requireApiAuth(request);
   if (!auth.ok) return auth.response;
-
   try {
-    const searchParams = request.nextUrl.searchParams;
-    const page = parseInt(searchParams.get('page') || '1');
-    const limit = parseInt(searchParams.get('limit') || '10');
-    const offset = (page - 1) * limit;
-    const keyword = searchParams.get('keyword') || '';
-    const status = searchParams.get('status') || '';
-
-    // 构建查询条件
-    let whereClause = '';
-    const params: any[] = [];
-
+    const page = Math.max(1, Number.parseInt(request.nextUrl.searchParams.get('page') || '1', 10) || 1);
+    const limit = Math.min(100, Math.max(1, Number.parseInt(request.nextUrl.searchParams.get('limit') || '10', 10) || 10));
+    const keyword = request.nextUrl.searchParams.get('keyword')?.trim() || '';
+    const status = request.nextUrl.searchParams.get('status')?.trim() || '';
+    const conditions: string[] = [];
+    const values: unknown[] = [];
     if (keyword) {
-      whereClause += ' WHERE (project_name LIKE ? OR client_name LIKE ? OR quote_number LIKE ?)';
-      params.push(`%${keyword}%`, `%${keyword}%`, `%${keyword}%`);
+      values.push(`%${keyword}%`);
+      conditions.push(`(project_name ILIKE $${values.length} OR client_name ILIKE $${values.length} OR quote_number ILIKE $${values.length})`);
     }
-
-    if (status) {
-      if (whereClause) {
-        whereClause += ' AND status = ?';
-      } else {
-        whereClause += ' WHERE status = ?';
-      }
-      params.push(status);
-    }
-
+    if (status) { values.push(status); conditions.push(`status = $${values.length}`); }
     if (auth.session.role !== 'admin') {
-      whereClause += whereClause ? ' AND created_by = ?' : ' WHERE created_by = ?';
-      params.push(String(auth.session.userId ?? -1));
+      values.push(String(auth.session.userId ?? -1));
+      conditions.push(`created_by = $${values.length}`);
     }
-
-    const [rows] = await pool.execute(
-      `SELECT * FROM engineering_quotes${whereClause} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
-      [...params, limit, offset]
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const database = getDatabase();
+    const count = await database.query<CountRow>(`SELECT COUNT(*)::text AS total FROM engineering_quotes ${where}`, values);
+    const total = Number(count.rows[0]?.total ?? 0);
+    const listValues = [...values, limit, (page - 1) * limit];
+    const rows = await database.query<Record<string, unknown>>(
+      `SELECT * FROM engineering_quotes ${where} ORDER BY created_at DESC LIMIT $${values.length + 1} OFFSET $${values.length + 2}`,
+      listValues,
     );
-
-    const [countResult] = await pool.execute(
-      `SELECT COUNT(*) as total FROM engineering_quotes${whereClause}`,
-      params
-    );
-    const total = (countResult as any)[0].total;
-
-    // 解析 items JSON 字符串
-    const parsedRows = (rows as any[]).map(row => ({
-      ...row,
-      items: typeof row.items === 'string' ? JSON.parse(row.items) : row.items,
-    }));
-
-    return NextResponse.json({
-      success: true,
-      data: parsedRows,
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit)
-      }
-    });
+    return NextResponse.json({ success: true, data: rows.rows, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } });
   } catch (error) {
     console.error('获取工程报价列表失败:', error);
-    return NextResponse.json(
-      { success: false, error: '获取工程报价列表失败' },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: '获取工程报价列表失败' }, { status: 500 });
   }
 }
 
 export async function POST(request: NextRequest) {
   const auth = await requireApiAuth(request);
   if (!auth.ok) return auth.response;
-
   try {
-    const body = await request.json();
-    const {
-      quoteNumber,
-      projectName,
-      clientName,
-      contactPerson,
-      contactPhone,
-      constructionArea,
-      managementRate,
-      profitRate,
-      regulatoryRate,
-      taxRate,
-      subtotal,
-      managementFee,
-      profit,
-      regulatoryFee,
-      tax,
-      total,
-      items
-    } = body;
-
-    if (typeof quoteNumber !== 'string' || !quoteNumber.trim() || typeof projectName !== 'string' || !projectName.trim()) {
+    const body = objectBody(await request.json());
+    if (!body || typeof body.quoteNumber !== 'string' || !body.quoteNumber.trim()
+      || typeof body.projectName !== 'string' || !body.projectName.trim()) {
       return NextResponse.json({ success: false, error: '报价编号和项目名称不能为空' }, { status: 400 });
     }
-    const numericValues = {
-      constructionArea, managementRate, profitRate, regulatoryRate, taxRate,
-      subtotal, managementFee, profit, regulatoryFee, tax, total,
-    };
-    for (const [field, value] of Object.entries(numericValues)) {
-      if (value !== undefined && (!Number.isFinite(Number(value)) || Number(value) < 0)) {
-        return NextResponse.json({ success: false, error: `${field} 必须是有效的非负数` }, { status: 400 });
-      }
-    }
-    if (items !== undefined && !Array.isArray(items)) {
+    const numericFields = ['constructionArea', 'managementRate', 'profitRate', 'regulatoryRate', 'taxRate', 'subtotal', 'managementFee', 'profit', 'regulatoryFee', 'tax', 'total'];
+    const invalid = numericFields.find((field) => !validNonNegative(body[field]));
+    if (invalid) return NextResponse.json({ success: false, error: `${invalid} 必须是有效的非负数` }, { status: 400 });
+    if (body.items !== undefined && !Array.isArray(body.items)) {
       return NextResponse.json({ success: false, error: '报价明细格式无效' }, { status: 400 });
     }
-
-    const [result] = await pool.execute(
-      `INSERT INTO engineering_quotes 
-       (quote_number, project_name, client_name, contact_person, contact_phone, 
-        construction_area, management_rate, profit_rate, regulatory_rate, tax_rate,
-        subtotal, management_fee, profit, regulatory_fee, tax, total, items, 
-        created_by, created_by_name)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        quoteNumber,
-        projectName,
-        clientName,
-        contactPerson,
-        contactPhone,
-        constructionArea,
-        managementRate,
-        profitRate,
-        regulatoryRate,
-        taxRate,
-        subtotal,
-        managementFee,
-        profit,
-        regulatoryFee,
-        tax,
-        total,
-        JSON.stringify(items),
-        String(auth.session.userId ?? auth.session.username ?? -1),
-        auth.session.name || auth.session.username || auth.session.role,
-      ]
-    );
-
-    return NextResponse.json({
-      success: true,
-      data: { id: (result as { insertId?: number | bigint }).insertId }
-    });
+    const createdBy = String(auth.session.userId ?? auth.session.username ?? -1);
+    const inserted = await getDatabase().query<IdRow>(`
+      INSERT INTO engineering_quotes
+        (quote_number, project_name, client_name, contact_person, contact_phone,
+         construction_area, management_rate, profit_rate, regulatory_rate, tax_rate,
+         subtotal, management_fee, profit, regulatory_fee, tax, total, items, created_by, created_by_name)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18,$19)
+      RETURNING id
+    `, [
+      body.quoteNumber.trim(), body.projectName.trim(), body.clientName ?? null, body.contactPerson ?? null,
+      body.contactPhone ?? null, body.constructionArea ?? 0, body.managementRate ?? 0.08,
+      body.profitRate ?? 0.1, body.regulatoryRate ?? 0.01, body.taxRate ?? 0.13,
+      body.subtotal ?? 0, body.managementFee ?? 0, body.profit ?? 0, body.regulatoryFee ?? 0,
+      body.tax ?? 0, body.total ?? 0, JSON.stringify(body.items ?? []), createdBy,
+      auth.session.name || auth.session.username || auth.session.role,
+    ]);
+    return NextResponse.json({ success: true, data: { id: String(inserted.rows[0]?.id) } });
   } catch (error) {
     console.error('创建工程报价失败:', error);
-    return NextResponse.json(
-      { success: false, error: '创建工程报价失败' },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: '创建工程报价失败' }, { status: 500 });
   }
 }
 
 export async function PUT(request: NextRequest) {
   const auth = await requireApiAuth(request);
   if (!auth.ok) return auth.response;
-
   try {
-    const body = await request.json();
-    const {
-      id,
-      quoteNumber,
-      projectName,
-      clientName,
-      contactPerson,
-      contactPhone,
-      constructionArea,
-      managementRate,
-      profitRate,
-      regulatoryRate,
-      taxRate,
-      subtotal,
-      managementFee,
-      profit,
-      regulatoryFee,
-      tax,
-      total,
-      items,
-      status
-    } = body;
-
-    if (!id) {
-      return NextResponse.json(
-        { success: false, error: '缺少报价ID' },
-        { status: 400 }
-      );
+    const body = objectBody(await request.json());
+    const id = safeInteger(body?.id);
+    if (!body || !id) return NextResponse.json({ success: false, error: '缺少报价ID' }, { status: 400 });
+    if (typeof body.quoteNumber !== 'string' || !body.quoteNumber.trim() || typeof body.projectName !== 'string' || !body.projectName.trim()) {
+      return NextResponse.json({ success: false, error: '报价编号和项目名称不能为空' }, { status: 400 });
     }
-
-    const [ownerRows] = await pool.execute('SELECT created_by FROM engineering_quotes WHERE id = ?', [id]);
-    const owner = (ownerRows as Array<{ created_by: string | null }>)[0];
-    if (!owner) {
-      return NextResponse.json({ success: false, error: '报价不存在' }, { status: 404 });
-    }
-    if (auth.session.role !== 'admin' && owner.created_by !== String(auth.session.userId ?? -1)) {
+    if (body.items !== undefined && !Array.isArray(body.items)) return NextResponse.json({ success: false, error: '报价明细格式无效' }, { status: 400 });
+    const database = getDatabase();
+    const owner = await database.query<OwnerRow>('SELECT created_by FROM engineering_quotes WHERE id = $1', [id]);
+    if (!owner.rows[0]) return NextResponse.json({ success: false, error: '报价不存在' }, { status: 404 });
+    if (auth.session.role !== 'admin' && owner.rows[0].created_by !== String(auth.session.userId ?? -1)) {
       return NextResponse.json({ success: false, error: '权限不足' }, { status: 403 });
     }
-
-    // 将 undefined 转为 null，避免 MySQL2 报错
-    const safeValue = (v: any) => v === undefined ? null : v;
-
-    const [result] = await pool.execute(
-      `UPDATE engineering_quotes
-       SET quote_number = ?, project_name = ?, client_name = ?, contact_person = ?, contact_phone = ?,
-           construction_area = ?, management_rate = ?, profit_rate = ?, regulatory_rate = ?, tax_rate = ?,
-           subtotal = ?, management_fee = ?, profit = ?, regulatory_fee = ?, tax = ?, total = ?,
-           items = ?, status = ?
-       WHERE id = ?`,
-      [
-        safeValue(quoteNumber),
-        safeValue(projectName),
-        safeValue(clientName),
-        safeValue(contactPerson),
-        safeValue(contactPhone),
-        safeValue(constructionArea),
-        safeValue(managementRate),
-        safeValue(profitRate),
-        safeValue(regulatoryRate),
-        safeValue(taxRate),
-        safeValue(subtotal),
-        safeValue(managementFee),
-        safeValue(profit),
-        safeValue(regulatoryFee),
-        safeValue(tax),
-        safeValue(total),
-        JSON.stringify(items),
-        status || 'draft',
-        id
-      ]
-    );
-
-    return NextResponse.json({
-      success: true,
-      data: { id }
-    });
+    const updated = await database.query<IdRow>(`
+      UPDATE engineering_quotes SET quote_number=$1, project_name=$2, client_name=$3,
+        contact_person=$4, contact_phone=$5, construction_area=$6, management_rate=$7,
+        profit_rate=$8, regulatory_rate=$9, tax_rate=$10, subtotal=$11, management_fee=$12,
+        profit=$13, regulatory_fee=$14, tax=$15, total=$16, items=$17::jsonb, status=$18,
+        updated_at=CURRENT_TIMESTAMP WHERE id=$19 RETURNING id
+    `, [body.quoteNumber.trim(), body.projectName.trim(), body.clientName ?? null, body.contactPerson ?? null,
+      body.contactPhone ?? null, body.constructionArea ?? 0, body.managementRate ?? 0.08,
+      body.profitRate ?? 0.1, body.regulatoryRate ?? 0.01, body.taxRate ?? 0.13, body.subtotal ?? 0,
+      body.managementFee ?? 0, body.profit ?? 0, body.regulatoryFee ?? 0, body.tax ?? 0, body.total ?? 0,
+      JSON.stringify(body.items ?? []), body.status ?? 'draft', id]);
+    if (!updated.rows[0]) return NextResponse.json({ success: false, error: '报价不存在' }, { status: 404 });
+    return NextResponse.json({ success: true, data: { id } });
   } catch (error) {
     console.error('更新工程报价失败:', error);
-    return NextResponse.json(
-      { success: false, error: '更新工程报价失败' },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: '更新工程报价失败' }, { status: 500 });
   }
 }
 
 export async function DELETE(request: NextRequest) {
   const auth = await requireApiAuth(request, ['admin']);
   if (!auth.ok) return auth.response;
-
   try {
-    const body = await request.json();
-    const { id } = body;
-
-    const [result] = await pool.execute(
-      'DELETE FROM engineering_quotes WHERE id = ?',
-      [id]
-    );
-
-    return NextResponse.json({
-      success: true,
-      message: '删除成功'
-    });
+    const body = objectBody(await request.json());
+    const id = safeInteger(body?.id);
+    if (!id) return NextResponse.json({ success: false, error: '无效的报价ID' }, { status: 400 });
+    const deleted = await getDatabase().query<IdRow>('DELETE FROM engineering_quotes WHERE id = $1 RETURNING id', [id]);
+    if (!deleted.rows[0]) return NextResponse.json({ success: false, error: '报价不存在' }, { status: 404 });
+    return NextResponse.json({ success: true, message: '删除成功' });
   } catch (error) {
     console.error('删除工程报价失败:', error);
-    return NextResponse.json(
-      { success: false, error: '删除工程报价失败' },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: '删除工程报价失败' }, { status: 500 });
   }
 }

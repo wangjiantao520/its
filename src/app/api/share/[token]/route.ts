@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
+import { getDatabase } from '@/lib/database/client';
 import { consumeQuoteShare } from '@/lib/quote-share';
 
 interface RouteParams {
@@ -13,7 +13,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ success: false, error: '无效的分享链接' }, { status: 400 });
     }
 
-    const result = consumeQuoteShare(db, token);
+    const result = await consumeQuoteShare(getDatabase(), token);
     if (!result.ok) {
       if (result.reason === 'expired') {
         return NextResponse.json({ success: false, error: '分享链接已过期' }, { status: 410 });
