@@ -214,9 +214,13 @@ test('loads exactly the strictly named source migration assets in numeric order'
     .filter((fileName) => /^\d{3}_[a-z0-9_]+\.sql$/.test(fileName))
     .sort();
 
-  assert.deepEqual(migrations.map(({ version }) => version), [1, 2]);
+  assert.deepEqual(migrations.map(({ version }) => version), [1, 2, 3]);
   assert.deepEqual(migrations.map(({ name }) => name), sourceFiles);
-  assert.deepEqual(sourceFiles, ['001_initial_schema.sql', '002_indexes_and_constraints.sql']);
+  assert.deepEqual(sourceFiles, [
+    '001_initial_schema.sql',
+    '002_indexes_and_constraints.sql',
+    '003_sqlite_import_runs.sql',
+  ]);
 });
 
 test('target schema exactly matches canonical definitions and route write compatibility', () => {
@@ -281,11 +285,27 @@ test('indexes and ACL migration preserves required unique and future-object rest
   }
 });
 
+test('SQLite import ledger migration stores only recoverable non-secret facts', () => {
+  const sql = fs.readFileSync('src/lib/database/sql/003_sqlite_import_runs.sql', 'utf8');
+  const normalized = sql.replace(/\s+/g, ' ');
+
+  assert.match(normalized, /CREATE TABLE IF NOT EXISTS sqlite_import_runs/i);
+  assert.match(normalized, /source_fingerprint text NOT NULL UNIQUE/i);
+  assert.match(normalized, /status text NOT NULL CHECK \(status IN \('complete'\)\)/i);
+  assert.match(normalized, /imported_counts jsonb NOT NULL/i);
+  assert.match(normalized, /report_json jsonb NOT NULL/i);
+  assert.doesNotMatch(normalized, /password_hash|token_hash|api_key/i);
+});
+
 test('loads copied SQL assets when only the production dist layout is available', () => {
   const temporaryProject = fs.mkdtempSync(path.join(os.tmpdir(), 'its-migrations-'));
   const distSql = path.join(temporaryProject, 'dist/database/sql');
   fs.mkdirSync(distSql, { recursive: true });
-  for (const fileName of ['001_initial_schema.sql', '002_indexes_and_constraints.sql']) {
+  for (const fileName of [
+    '001_initial_schema.sql',
+    '002_indexes_and_constraints.sql',
+    '003_sqlite_import_runs.sql',
+  ]) {
     fs.copyFileSync(path.join('src/lib/database/sql', fileName), path.join(distSql, fileName));
   }
   fs.writeFileSync(path.join(distSql, '999_untrusted.sql'), 'SELECT dangerous_unlisted_sql();');
@@ -293,7 +313,7 @@ test('loads copied SQL assets when only the production dist layout is available'
   const originalWorkingDirectory = process.cwd();
   try {
     process.chdir(temporaryProject);
-    assert.deepEqual(loadPostgresMigrations().map(({ version }) => version), [1, 2]);
+    assert.deepEqual(loadPostgresMigrations().map(({ version }) => version), [1, 2, 3]);
     assert.equal(
       loadPostgresMigrations().some(({ sql }) => sql.includes('dangerous_unlisted_sql')),
       false,
@@ -343,14 +363,14 @@ test('migration CLI never prints credentials from a malformed database URL', () 
 test('applies each migration exactly once and acquires the required transaction lock', async () => {
   const client = new RecordingMigrationClient();
 
-  assert.deepEqual(await runPostgresMigrations(client), { appliedVersions: [1, 2] });
+  assert.deepEqual(await runPostgresMigrations(client), { appliedVersions: [1, 2, 3] });
   assert.deepEqual(await runPostgresMigrations(client), { appliedVersions: [] });
   assert.equal(client.transactionCount, 2);
   assert.equal(
     client.queries.filter(({ text }) => /pg_advisory_xact_lock\(49375483\)/i.test(text)).length,
     2,
   );
-  assert.deepEqual([...client.versions.keys()], [1, 2]);
+  assert.deepEqual([...client.versions.keys()], [1, 2, 3]);
 });
 
 test('concurrent migration calls serialize safely', async () => {
@@ -363,7 +383,7 @@ test('concurrent migration calls serialize safely', async () => {
   ]);
 
   assert.deepEqual(results, [
-    { appliedVersions: [1, 2] },
+    { appliedVersions: [1, 2, 3] },
     { appliedVersions: [] },
   ]);
   assert.deepEqual(client.transactionStartOrder, [1, 2]);
@@ -375,7 +395,7 @@ test('concurrent migration calls serialize safely', async () => {
   for (const migration of migrations) {
     assert.equal(client.migrationExecutionCounts.get(migration.sql), 1);
   }
-  assert.deepEqual([...client.versions.keys()], [1, 2]);
+  assert.deepEqual([...client.versions.keys()], [1, 2, 3]);
 });
 
 test('a failed migration rolls back its version record and does not continue', async () => {
@@ -461,7 +481,7 @@ const integrationOptions = process.env.TEST_DATABASE_URL
 test('PostgreSQL: migrations are idempotent and create the exact canonical schema', integrationOptions, async (t) => {
   const harness = await createPostgresTestHarness(t);
 
-  assert.deepEqual(await runPostgresMigrations(harness.client), { appliedVersions: [1, 2] });
+  assert.deepEqual(await runPostgresMigrations(harness.client), { appliedVersions: [1, 2, 3] });
   assert.deepEqual(await runPostgresMigrations(harness.client), { appliedVersions: [] });
 
   const columns = await harness.client.query<{
@@ -475,7 +495,7 @@ test('PostgreSQL: migrations are idempotent and create the exact canonical schem
     SELECT table_name, column_name, data_type, udt_name, is_nullable, is_identity
     FROM information_schema.columns
     WHERE table_schema = current_schema()
-      AND table_name <> 'schema_migrations'
+      AND table_name NOT IN ('schema_migrations', 'sqlite_import_runs')
     ORDER BY table_name, ordinal_position
   `);
   const actualManifest = new Map<string, Set<string>>();
@@ -623,11 +643,11 @@ test('PostgreSQL: concurrent runners apply every migration once', integrationOpt
     runPostgresMigrations(secondClient),
   ]);
 
-  assert.deepEqual(results.flatMap(({ appliedVersions }) => appliedVersions).sort(), [1, 2]);
+  assert.deepEqual(results.flatMap(({ appliedVersions }) => appliedVersions).sort(), [1, 2, 3]);
   const versions = await harness.client.query<{ version: number }>(
     'SELECT version FROM schema_migrations ORDER BY version',
   );
-  assert.deepEqual(versions.rows.map(({ version }) => version), [1, 2]);
+  assert.deepEqual(versions.rows.map(({ version }) => version), [1, 2, 3]);
 });
 
 test('PostgreSQL: failed migration rolls back DDL, DML, and version row', integrationOptions, async (t) => {

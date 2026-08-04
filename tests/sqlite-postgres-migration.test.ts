@@ -15,13 +15,17 @@ import {
   assertTargetReadyForImport,
   buildMigrationVerification,
   importSqliteSnapshot,
+  migrateSqliteDatabase,
+  preflightJsonReport,
   prepareSqliteSource,
   readSqliteSnapshot,
   transformSqliteValue,
   verifyDatabaseMigration,
   writeJsonReportAtomic,
+  type DatabaseImportReport,
   type MigrationSnapshot,
 } from '../scripts/database/sqlite-postgres-migration';
+import { runImportCli } from '../scripts/migrate-sqlite-to-postgres.mts';
 import {
   createPostgresTestHarness,
   POSTGRES_TEST_SKIP_REASON,
@@ -394,8 +398,50 @@ test('transforms only declared booleans, nullable empty timestamps, JSON, and ex
     transformSqliteValue('users', 'created_at', '2026-08-01T09:10:11.123Z'),
     '2026-08-01T09:10:11.123Z',
   );
-  assert.equal(transformSqliteValue('engineering_quotes', 'total', 113.1), '113.10');
+  assert.equal(transformSqliteValue('engineering_quotes', 'total', 1.005), '1.01');
+  assert.equal(transformSqliteValue('engineering_quotes', 'total', 2.675), '2.68');
+  assert.equal(transformSqliteValue('engineering_quotes', 'total', -1.005), '-1.01');
+  assert.equal(transformSqliteValue('engineering_quotes', 'total', 113), '113.00');
+  assert.equal(transformSqliteValue('engineering_quotes', 'total', '0.105'), '0.11');
+  assert.equal(transformSqliteValue('engineering_quotes', 'total', '1.005e2'), '100.50');
+  assert.throws(
+    () => transformSqliteValue('engineering_quotes', 'total', '10000000000000000.00'),
+    /numeric\(18,2\).*range/i,
+  );
+  assert.throws(
+    () => transformSqliteValue('engineering_quotes', 'total', '0.0000000000000000001'),
+    /numeric\(18,2\).*scale/i,
+  );
+  assert.throws(
+    () => transformSqliteValue('engineering_quotes', 'total', Number.POSITIVE_INFINITY),
+    /finite numeric/i,
+  );
   assert.equal(transformSqliteValue('engineering_quotes', 'items', '[{"id":1}]'), '[{"id":1}]');
+});
+
+test('independent verification catches a deliberately faulty import money transformer', async (t) => {
+  const sourcePath = createFixture(t);
+  const database = new DatabaseSync(sourcePath);
+  database.exec('UPDATE engineering_quotes SET subtotal = 1.005, tax = 0, total = 1.005');
+  database.close();
+  const snapshot = readSqliteSnapshot(sourcePath);
+  assert.equal(snapshot.summary.aggregates.engineering_quotes.total, '1.01');
+
+  const client = new RecordingClient();
+  await importSqliteSnapshot(client, snapshot, {
+    transformValue: (table, column, value) => table === 'engineering_quotes' && column === 'total'
+      ? '1.00'
+      : transformSqliteValue(table, column, value),
+  });
+  const quoteInsert = client.committed.find(({ text }) => text.startsWith('INSERT INTO "engineering_quotes"'));
+  const totalIndex = snapshot.sourceColumns.engineering_quotes.indexOf('total');
+  assert.equal(quoteInsert?.params[totalIndex], '1.00');
+
+  const faultyTarget = structuredClone(snapshot.summary);
+  faultyTarget.aggregates.engineering_quotes.total = '1.00';
+  const verification = buildMigrationVerification(snapshot.summary, faultyTarget, {});
+  assert.equal(verification.success, false);
+  assert.equal(verification.aggregates.engineering_quotes.matches, false);
 });
 
 test('imports in deterministic dependency groups with parameterized inserts and resets identities', async (t) => {
@@ -579,6 +625,184 @@ test('migration CLIs provide help and redact malformed target credentials', () =
   const output = `${failed.stdout}${failed.stderr}`;
   assert.notEqual(failed.status, 0);
   for (const secret of [target, username, password]) assert.equal(output.includes(secret), false);
+});
+
+interface LedgerClientState {
+  businessCounts: Record<string, number>;
+  ledger: Map<string, DatabaseImportReport>;
+  businessInsertCount: number;
+}
+
+class LedgerRecordingClient implements DatabaseClient {
+  private state: LedgerClientState = {
+    businessCounts: {},
+    ledger: new Map(),
+    businessInsertCount: 0,
+  };
+
+  get completedRuns(): number {
+    return this.state.ledger.size;
+  }
+
+  get insertedBusinessRows(): number {
+    return this.state.businessInsertCount;
+  }
+
+  private cloneState(source: LedgerClientState): LedgerClientState {
+    return {
+      businessCounts: { ...source.businessCounts },
+      ledger: new Map(source.ledger),
+      businessInsertCount: source.businessInsertCount,
+    };
+  }
+
+  private createScopedClient(state: LedgerClientState): DatabaseClient {
+    return {
+      query: <ResultRow extends Row>(text: string, params: readonly unknown[] = []) =>
+        this.executeQuery<ResultRow>(state, text, params),
+      transaction: async <T>(work: (client: DatabaseClient) => Promise<T>): Promise<T> => {
+        const savepoint = this.cloneState(state);
+        const result = await work(this.createScopedClient(savepoint));
+        state.businessCounts = savepoint.businessCounts;
+        state.ledger = savepoint.ledger;
+        state.businessInsertCount = savepoint.businessInsertCount;
+        return result;
+      },
+      healthCheck: async () => {},
+      close: async () => {},
+    };
+  }
+
+  private async executeQuery<ResultRow extends Row>(
+    state: LedgerClientState,
+    text: string,
+    params: readonly unknown[],
+  ): Promise<QueryResult<ResultRow>> {
+    if (/to_regclass\('schema_migrations'\)/i.test(text)) {
+      return { rows: [{ relation_name: null }] as unknown as ResultRow[], rowCount: 1 };
+    }
+    if (/SELECT\s+import_id,\s*report_json\s+FROM\s+sqlite_import_runs/i.test(text)) {
+      const report = state.ledger.get(String(params[0]));
+      return {
+        rows: report ? [{ import_id: report.importId, report_json: report }] as unknown as ResultRow[] : [],
+        rowCount: report ? 1 : 0,
+      };
+    }
+    if (/INSERT\s+INTO\s+sqlite_import_runs/i.test(text)) {
+      const fingerprint = String(params[1]);
+      const report = JSON.parse(String(params[8])) as DatabaseImportReport;
+      state.ledger.set(fingerprint, report);
+      return { rows: [], rowCount: 1 };
+    }
+    if (/SELECT\s+version\s+FROM\s+schema_migrations/i.test(text)) {
+      return {
+        rows: [1, 2, 3].map((version) => ({ version })) as unknown as ResultRow[],
+        rowCount: 3,
+      };
+    }
+    const countTable = /SELECT count\(\*\)::text AS count FROM "([a-z_]+)"/i.exec(text)?.[1];
+    if (countTable) {
+      const count = state.businessCounts[countTable] ?? 0;
+      return { rows: [{ count: String(count) }] as unknown as ResultRow[], rowCount: 1 };
+    }
+    const insertTable = /^INSERT INTO "([a-z_]+)"/i.exec(text)?.[1];
+    if (insertTable) {
+      state.businessCounts[insertTable] = (state.businessCounts[insertTable] ?? 0) + 1;
+      state.businessInsertCount += 1;
+      return { rows: [], rowCount: 1 };
+    }
+    return { rows: [], rowCount: 0 };
+  }
+
+  async query<ResultRow extends Row>(
+    text: string,
+    params: readonly unknown[] = [],
+  ): Promise<QueryResult<ResultRow>> {
+    return this.executeQuery<ResultRow>(this.state, text, params);
+  }
+
+  async transaction<T>(work: (client: DatabaseClient) => Promise<T>): Promise<T> {
+    const transaction = this.cloneState(this.state);
+    const result = await work(this.createScopedClient(transaction));
+    this.state = transaction;
+    return result;
+  }
+
+  async healthCheck(): Promise<void> {}
+  async close(): Promise<void> {}
+}
+
+test('completed ledger recovers a failed report write without duplicate imports', async (t) => {
+  const sourcePath = createFixture(t);
+  const directory = temporaryDirectory(t);
+  const reportPath = path.join(directory, 'migration-report.json');
+  const client = new LedgerRecordingClient();
+  const messages: string[] = [];
+  const migrateDatabase = (options: Parameters<typeof migrateSqliteDatabase>[0]) =>
+    migrateSqliteDatabase({
+      ...options,
+      runMigrations: async () => ({ appliedVersions: [1, 2, 3] }),
+      validateTargetSchema: async () => {},
+      verifyMigration: async ({ sourcePath: verificationSource }) => {
+        const summary = readSqliteSnapshot(verificationSource).summary;
+        return buildMigrationVerification(summary, structuredClone(summary), {});
+      },
+    });
+  const common = {
+    env: {},
+    createClient: () => client,
+    migrateDatabase,
+    preflightReport: preflightJsonReport,
+    writeStdout: (message: string) => messages.push(message),
+    writeStderr: (message: string) => messages.push(message),
+  };
+
+  const first = await runImportCli({
+    ...common,
+    argv: ['--source', sourcePath, '--target', 'postgres://redacted.invalid/db', '--report', reportPath],
+    writeReport: () => {
+      throw new Error('injected report rename failure');
+    },
+  });
+  assert.equal(first, 2);
+  assert.equal(client.completedRuns, 1);
+  assert.ok(client.insertedBusinessRows > 0);
+  assert.equal(fs.existsSync(reportPath), false);
+  assert.match(messages.join('\n'), /migration completed.*rerun.*report/i);
+
+  const insertedAfterFirstRun = client.insertedBusinessRows;
+  const second = await runImportCli({
+    ...common,
+    argv: ['--source', sourcePath, '--target', 'postgres://redacted.invalid/db', '--report', reportPath],
+    writeReport: writeJsonReportAtomic,
+  });
+  assert.equal(second, 0);
+  assert.equal(client.completedRuns, 1);
+  assert.equal(client.insertedBusinessRows, insertedAfterFirstRun);
+  const recoveredReport = fs.readFileSync(reportPath, 'utf8');
+  assert.match(recoveredReport, /"success": true/);
+  for (const secret of ['$2b$admin-hash', 'sha256:token-hash', 'api-key-secret']) {
+    assert.equal(recoveredReport.includes(secret), false);
+  }
+
+  const differentSource = createFixture(t);
+  const differentDatabase = new DatabaseSync(differentSource);
+  differentDatabase.exec("UPDATE users SET name = '不同来源' WHERE id = 7");
+  differentDatabase.close();
+  const different = await runImportCli({
+    ...common,
+    argv: [
+      '--source', differentSource,
+      '--target', 'postgres://redacted.invalid/db',
+      '--report', path.join(directory, 'different-report.json'),
+    ],
+    writeReport: writeJsonReportAtomic,
+  });
+  assert.equal(different, 1);
+  assert.equal(client.completedRuns, 1);
+  assert.equal(client.insertedBusinessRows, insertedAfterFirstRun);
+  assert.equal(messages.join('\n').includes('$2b$admin-hash'), false);
+  assert.equal(messages.join('\n').includes('sha256:token-hash'), false);
 });
 
 const integrationOptions = process.env.TEST_DATABASE_URL

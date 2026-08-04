@@ -1,3 +1,4 @@
+import { createHash, randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -232,6 +233,8 @@ export interface ImportResult {
 
 export interface DatabaseImportReport {
   success: true;
+  importId: string;
+  sourceFingerprint: string;
   backupPath: string;
   sourceIntegrity: 'ok';
   backupIntegrity: 'ok';
@@ -286,6 +289,17 @@ export class MigrationVerificationError extends Error {
     this.name = 'MigrationVerificationError';
     this.report = report;
   }
+}
+
+export interface MigrateSqliteDatabaseOptions {
+  sourcePath: string;
+  client: DatabaseClient;
+  allowNonemptyTarget?: boolean;
+  backupDirectory?: string;
+  now?: Date;
+  runMigrations?: (client: DatabaseClient) => Promise<PostgresMigrationResult>;
+  validateTargetSchema?: (client: DatabaseClient) => Promise<void>;
+  verifyMigration?: typeof verifyDatabaseMigration;
 }
 
 function loadNodeSqlite(): NodeSqliteModule {
@@ -364,24 +378,133 @@ function normalizeLegacyPrimaryKeys(table: string, rows: SqliteRow[]): SqliteRow
   });
 }
 
-function formatMoney(value: SqlitePrimitive): string {
-  if (value === null || value === '') return '0.00';
-  const numeric = typeof value === 'bigint' ? Number(value) : Number(value);
-  if (!Number.isFinite(numeric)) throw new Error('Invalid monetary value in SQLite source.');
-  return numeric.toFixed(2);
+const NUMERIC_18_2_MAX_CENTS = BigInt('999999999999999999');
+
+function decimalToNumeric18_2Cents(value: Exclude<SqlitePrimitive, null>): bigint {
+  if (typeof value === 'number' && !Number.isFinite(value)) {
+    throw new Error('numeric(18,2) requires a finite numeric value.');
+  }
+  const text = String(value).trim();
+  const match = /^([+-]?)(?:(\d+)(?:\.(\d*))?|\.(\d+))(?:[eE]([+-]?\d+))?$/.exec(text);
+  if (!match) throw new Error('numeric(18,2) requires a valid decimal value.');
+
+  const negative = match[1] === '-';
+  const integerPart = match[2] ?? '0';
+  const fractionPart = match[3] ?? match[4] ?? '';
+  const exponentText = match[5] ?? '0';
+  if (exponentText.length > 6) {
+    throw new Error(exponentText.startsWith('-')
+      ? 'numeric(18,2) source scale exceeds the supported limit.'
+      : 'numeric(18,2) value is out of range.');
+  }
+  const exponent = Number.parseInt(exponentText, 10);
+  let digits = `${integerPart}${fractionPart}`.replace(/^0+/, '') || '0';
+  let scale = fractionPart.length - exponent;
+
+  if (digits === '0') return BigInt(0);
+  while (scale > 0 && digits.endsWith('0')) {
+    digits = digits.slice(0, -1);
+    scale -= 1;
+  }
+  if (scale > 18) {
+    throw new Error('numeric(18,2) source scale exceeds the supported limit.');
+  }
+  const wholeDigits = Math.max(0, digits.length - scale);
+  if (wholeDigits > 16 || scale < -16) {
+    throw new Error('numeric(18,2) value is out of range.');
+  }
+  if (scale < 0) {
+    digits = `${digits}${'0'.repeat(-scale)}`;
+    scale = 0;
+  }
+
+  const coefficient = BigInt(digits);
+  let cents: bigint;
+  if (scale <= 2) {
+    cents = coefficient * (BigInt(10) ** BigInt(2 - scale));
+  } else {
+    const divisor = BigInt(10) ** BigInt(scale - 2);
+    cents = coefficient / divisor;
+    const remainder = coefficient % divisor;
+    if (remainder * BigInt(2) >= divisor) cents += BigInt(1);
+  }
+  if (cents > NUMERIC_18_2_MAX_CENTS) {
+    throw new Error('numeric(18,2) value is out of range.');
+  }
+  return negative ? -cents : cents;
 }
 
-function sumMoney(rows: readonly SqliteRow[], column: string): string {
-  const cents = rows.reduce((sum, row) => {
-    const value = formatMoney(row[column] ?? null);
-    const negative = value.startsWith('-');
-    const [whole, fraction] = (negative ? value.slice(1) : value).split('.');
-    const amount = BigInt(whole) * BigInt(100) + BigInt(fraction);
-    return sum + (negative ? -amount : amount);
-  }, BigInt(0));
+function formatCents(cents: bigint): string {
   const negative = cents < BigInt(0);
   const absolute = negative ? -cents : cents;
   return `${negative ? '-' : ''}${absolute / BigInt(100)}.${String(absolute % BigInt(100)).padStart(2, '0')}`;
+}
+
+function formatNumeric18_2(value: Exclude<SqlitePrimitive, null>): string {
+  return formatCents(decimalToNumeric18_2Cents(value));
+}
+
+function sourceDecimalToRoundedCents(value: Exclude<SqlitePrimitive, null>): bigint {
+  if (typeof value === 'number' && !Number.isFinite(value)) {
+    throw new Error('numeric(18,2) requires a finite numeric value.');
+  }
+  const match = /^([+-]?)(?:(\d+)(?:\.(\d*))?|\.(\d+))(?:[eE]([+-]?\d+))?$/.exec(String(value).trim());
+  if (!match) throw new Error('numeric(18,2) requires a valid decimal value.');
+
+  const negative = match[1] === '-';
+  const integerPart = match[2] ?? '0';
+  const fractionPart = match[3] ?? match[4] ?? '';
+  const exponentText = match[5] ?? '0';
+  if (exponentText.length > 6) {
+    throw new Error(exponentText.startsWith('-')
+      ? 'numeric(18,2) source scale exceeds the supported limit.'
+      : 'numeric(18,2) value is out of range.');
+  }
+  const exponent = Number.parseInt(exponentText, 10);
+  let digits = `${integerPart}${fractionPart}`.replace(/^0+/, '') || '0';
+  let scale = fractionPart.length - exponent;
+  if (digits === '0') return BigInt(0);
+  while (scale > 0 && digits.endsWith('0')) {
+    digits = digits.slice(0, -1);
+    scale -= 1;
+  }
+  if (scale > 18) {
+    throw new Error('numeric(18,2) source scale exceeds the supported limit.');
+  }
+
+  let whole: string;
+  let fraction: string;
+  if (scale <= 0) {
+    if (scale < -16) throw new Error('numeric(18,2) value is out of range.');
+    whole = `${digits}${'0'.repeat(-scale)}`;
+    fraction = '';
+  } else if (digits.length > scale) {
+    whole = digits.slice(0, -scale);
+    fraction = digits.slice(-scale);
+  } else {
+    whole = '0';
+    fraction = `${'0'.repeat(scale - digits.length)}${digits}`;
+  }
+  whole = whole.replace(/^0+(?=\d)/, '');
+  if (whole.length > 16) throw new Error('numeric(18,2) value is out of range.');
+
+  let cents = BigInt(whole) * BigInt(100)
+    + BigInt(fraction.slice(0, 2).padEnd(2, '0') || '0');
+  if ((fraction[2] ?? '0') >= '5') cents += BigInt(1);
+  if (cents > NUMERIC_18_2_MAX_CENTS) {
+    throw new Error('numeric(18,2) value is out of range.');
+  }
+  return negative ? -cents : cents;
+}
+
+function sumSourceMoney(rows: readonly SqliteRow[], column: string): string {
+  const cents = rows.reduce((sum, row) => {
+    const value = row[column];
+    return value === null || value === undefined
+      ? sum
+      : sum + sourceDecimalToRoundedCents(value);
+  }, BigInt(0));
+  return formatCents(cents);
 }
 
 function comparePrimitive(left: SqlitePrimitive, right: SqlitePrimitive): number {
@@ -442,9 +565,9 @@ function buildSummary(
   }));
   const quoteAggregate = (name: 'engineering_quotes' | 'maintenance_quotes'): QuoteAggregateSummary => ({
     count: rows[name]?.length ?? 0,
-    subtotal: sumMoney(rows[name] ?? [], 'subtotal'),
-    tax: sumMoney(rows[name] ?? [], 'tax'),
-    total: sumMoney(rows[name] ?? [], 'total'),
+    subtotal: sumSourceMoney(rows[name] ?? [], 'subtotal'),
+    tax: sumSourceMoney(rows[name] ?? [], 'tax'),
+    total: sumSourceMoney(rows[name] ?? [], 'total'),
   });
   return {
     tables,
@@ -610,7 +733,7 @@ export function transformSqliteValue(table: string, column: string, value: Sqlit
     if (Number.isNaN(Date.parse(normalized))) throw new Error(`Invalid timestamp value for ${key}.`);
     return normalized;
   }
-  if (MONEY_COLUMNS.has(key) && value !== null) return formatMoney(value);
+  if (MONEY_COLUMNS.has(key) && value !== null) return formatNumeric18_2(value);
   if (JSON_COLUMNS.has(key) && value !== null) {
     if (typeof value !== 'string') throw new Error(`Invalid JSON value for ${key}.`);
     JSON.parse(value);
@@ -628,7 +751,19 @@ function insertSql(table: MigrationTableSpec, columns: readonly string[]): strin
 export async function importSqliteSnapshot(
   client: DatabaseClient,
   snapshot: MigrationSnapshot,
+  options: {
+    transformValue?: typeof transformSqliteValue;
+    finalize?: (client: DatabaseClient, result: ImportResult) => Promise<void>;
+  } = {},
 ): Promise<ImportResult> {
+  const transformValue = options.transformValue ?? transformSqliteValue;
+  if (options.finalize) {
+    return client.transaction(async (transactionClient) => {
+      const result = await importSqliteSnapshot(transactionClient, snapshot, { transformValue });
+      await options.finalize?.(transactionClient, result);
+      return result;
+    });
+  }
   const importedCounts = Object.fromEntries(MIGRATION_TABLES.map(({ name }) => [name, 0]));
   for (const group of MIGRATION_GROUPS) {
     await client.transaction(async (transactionClient) => {
@@ -639,7 +774,7 @@ export async function importSqliteSnapshot(
         if (columns.length === 0) continue;
         const sql = insertSql(table, columns);
         for (const row of snapshot.rows[tableName] ?? []) {
-          const params = columns.map((column) => transformSqliteValue(tableName, column, row[column] ?? null));
+          const params = columns.map((column) => transformValue(tableName, column, row[column] ?? null));
           await transactionClient.query(sql, params);
           importedCounts[tableName] += 1;
         }
@@ -715,19 +850,67 @@ async function targetMigrationVersions(client: DatabaseClient): Promise<number[]
   return result.rows.map(({ version }) => Number(version));
 }
 
-export async function migrateSqliteDatabase(options: {
-  sourcePath: string;
-  client: DatabaseClient;
-  allowNonemptyTarget?: boolean;
-  backupDirectory?: string;
-  now?: Date;
-  runMigrations?: (client: DatabaseClient) => Promise<PostgresMigrationResult>;
-}): Promise<DatabaseImportReport> {
+function fingerprintSnapshot(snapshot: MigrationSnapshot): string {
+  return createHash('sha256').update(JSON.stringify(snapshot)).digest('hex');
+}
+
+function parseCompletedReport(value: unknown, fingerprint: string): DatabaseImportReport {
+  const parsed = typeof value === 'string' ? JSON.parse(value) as unknown : value;
+  if (!parsed || typeof parsed !== 'object') throw new Error('Completed import ledger report is invalid.');
+  const report = parsed as Partial<DatabaseImportReport>;
+  if (report.success !== true || report.sourceFingerprint !== fingerprint
+    || typeof report.importId !== 'string' || !report.importId) {
+    throw new Error('Completed import ledger report is invalid.');
+  }
+  return report as DatabaseImportReport;
+}
+
+async function completedImportReport(
+  client: DatabaseClient,
+  fingerprint: string,
+): Promise<DatabaseImportReport | null> {
+  const result = await client.query<{ import_id: string; report_json: unknown }>(`
+    SELECT import_id, report_json
+    FROM sqlite_import_runs
+    WHERE source_fingerprint = $1 AND status = 'complete'
+  `, [fingerprint]);
+  if (result.rows.length === 0) return null;
+  const report = parseCompletedReport(result.rows[0].report_json, fingerprint);
+  if (report.importId !== result.rows[0].import_id) {
+    throw new Error('Completed import ledger report is invalid.');
+  }
+  return report;
+}
+
+function serializeSafeReport(report: unknown): string {
+  const serialized = JSON.stringify(report, null, 2);
+  if (/postgres(?:ql)?:\/\//i.test(serialized) || /\$2[aby]\$/i.test(serialized)
+    || /sha256:/i.test(serialized)) {
+    throw new Error('Refusing to persist a report containing secrets.');
+  }
+  return serialized;
+}
+
+export async function migrateSqliteDatabase(
+  options: MigrateSqliteDatabaseOptions,
+): Promise<DatabaseImportReport> {
   const startTime = (options.now ?? new Date()).toISOString();
-  assertSafeSourceTables(options.sourcePath);
+  const sourceSnapshot = readSqliteSnapshot(options.sourcePath);
+  const sourceFingerprint = fingerprintSnapshot(sourceSnapshot);
+  const importId = `sqlite-${sourceFingerprint.slice(0, 32)}`;
   const hadMigrationMetadata = await targetHasMigrationMetadata(options.client);
   await (options.runMigrations ?? runPostgresMigrations)(options.client);
-  await assertTargetSchema(options.client);
+  await (options.validateTargetSchema ?? assertTargetSchema)(options.client);
+  const verifyMigration = options.verifyMigration ?? verifyDatabaseMigration;
+  const completed = await completedImportReport(options.client, sourceFingerprint);
+  if (completed) {
+    const verification = await verifyMigration({
+      sourcePath: options.sourcePath,
+      client: options.client,
+    });
+    if (!verification.success) throw new MigrationVerificationError(verification);
+    return completed;
+  }
   await assertTargetReadyForImport(options.client, {
     allowNonemptyTarget: options.allowNonemptyTarget ?? false,
     hadMigrationMetadata,
@@ -737,29 +920,63 @@ export async function migrateSqliteDatabase(options: {
     now: options.now,
   });
   const snapshot = readSqliteSnapshot(prepared.backupPath);
-  const imported = await importSqliteSnapshot(options.client, snapshot);
-  const verification = await verifyDatabaseMigration({
-    sourcePath: options.sourcePath,
-    client: options.client,
-  });
-  const endTime = new Date().toISOString();
-  return {
-    success: true,
-    backupPath: prepared.backupPath,
-    sourceIntegrity: prepared.sourceIntegrity,
-    backupIntegrity: prepared.backupIntegrity,
-    targetMigrationVersions: await targetMigrationVersions(options.client),
-    baseline: {
-      tables: prepared.baseline.tables,
-      aggregates: prepared.baseline.aggregates,
-      normalizations: prepared.baseline.normalizations,
-      ignoredSourceTables: prepared.baseline.ignoredSourceTables,
+  if (fingerprintSnapshot(snapshot) !== sourceFingerprint) {
+    throw new Error('SQLite backup fingerprint does not match the checked source.');
+  }
+  const migrationVersions = await targetMigrationVersions(options.client);
+  let completedReport: DatabaseImportReport | undefined;
+  await importSqliteSnapshot(options.client, snapshot, {
+    finalize: async (transactionClient, imported) => {
+      const verification = await verifyMigration({
+        sourcePath: options.sourcePath,
+        client: transactionClient,
+      });
+      if (!verification.success) throw new MigrationVerificationError(verification);
+      const endTime = new Date().toISOString();
+      const report: DatabaseImportReport = {
+        success: true,
+        importId,
+        sourceFingerprint,
+        backupPath: prepared.backupPath,
+        sourceIntegrity: prepared.sourceIntegrity,
+        backupIntegrity: prepared.backupIntegrity,
+        targetMigrationVersions: migrationVersions,
+        baseline: {
+          tables: prepared.baseline.tables,
+          aggregates: prepared.baseline.aggregates,
+          normalizations: prepared.baseline.normalizations,
+          ignoredSourceTables: prepared.baseline.ignoredSourceTables,
+        },
+        importedCounts: imported.importedCounts,
+        verification,
+        startTime,
+        endTime,
+      };
+      const serializedReport = serializeSafeReport(report);
+      await transactionClient.query(`
+        INSERT INTO sqlite_import_runs
+          (import_id, source_fingerprint, status, source_integrity, backup_integrity,
+           backup_path, target_migration_versions, imported_counts, report_json,
+           started_at, completed_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      `, [
+        importId,
+        sourceFingerprint,
+        'complete',
+        prepared.sourceIntegrity,
+        prepared.backupIntegrity,
+        prepared.backupPath,
+        JSON.stringify(migrationVersions),
+        JSON.stringify(imported.importedCounts),
+        serializedReport,
+        startTime,
+        endTime,
+      ]);
+      completedReport = report;
     },
-    importedCounts: imported.importedCounts,
-    verification,
-    startTime,
-    endTime,
-  };
+  });
+  if (!completedReport) throw new Error('SQLite import did not produce a completed ledger report.');
+  return completedReport;
 }
 
 function rangesEqual(left: PrimaryKeyRange | null, right: PrimaryKeyRange | null): boolean {
@@ -835,7 +1052,15 @@ function parseCount(row: Record<string, unknown> | undefined): number {
 
 function normalizeTargetMoney(value: unknown): string {
   if (value === null || value === undefined) return '0.00';
-  return Number(value).toFixed(2);
+  const match = /^([+-]?)(\d+)(?:\.(\d+))?$/.exec(String(value).trim());
+  if (!match) throw new Error('Target PostgreSQL returned an invalid numeric aggregate.');
+  const fraction = match[3] ?? '';
+  if (fraction.length > 2 && /[^0]/.test(fraction.slice(2))) {
+    throw new Error('Target PostgreSQL returned an over-scale numeric aggregate.');
+  }
+  const sign = match[1] === '-' && !/^0+$/.test(`${match[2]}${fraction}`) ? '-' : '';
+  const whole = match[2].replace(/^0+(?=\d)/, '');
+  return `${sign}${whole}.${fraction.slice(0, 2).padEnd(2, '0')}`;
 }
 
 async function collectTargetSummary(client: DatabaseClient): Promise<MigrationSummary> {
@@ -942,14 +1167,29 @@ export function writeJsonReportAtomic(reportPath: string, report: unknown): void
     path.dirname(reportPath),
     `.${path.basename(reportPath)}.${process.pid}.${Date.now()}.tmp`,
   );
-  const serialized = `${JSON.stringify(report, null, 2)}\n`;
-  if (/postgres(?:ql)?:\/\//i.test(serialized) || /\$2[aby]\$/i.test(serialized) || /sha256:/i.test(serialized)) {
-    throw new Error('Refusing to write a report containing secrets.');
-  }
+  const serialized = `${serializeSafeReport(report)}\n`;
   try {
     fs.writeFileSync(temporaryPath, serialized, { flag: 'wx', mode: 0o600 });
     fs.renameSync(temporaryPath, reportPath);
   } finally {
     fs.rmSync(temporaryPath, { force: true });
+  }
+}
+
+export function preflightJsonReport(reportPath: string): void {
+  const directory = path.dirname(reportPath);
+  fs.mkdirSync(directory, { recursive: true });
+  if (fs.existsSync(reportPath) && fs.statSync(reportPath).isDirectory()) {
+    throw new Error('Migration report destination is a directory.');
+  }
+  const probePath = path.join(directory, `.${path.basename(reportPath)}.${randomUUID()}.probe`);
+  let descriptor: number | undefined;
+  try {
+    descriptor = fs.openSync(probePath, 'wx', 0o600);
+    fs.writeFileSync(descriptor, '{}\n');
+    fs.fsyncSync(descriptor);
+  } finally {
+    if (descriptor !== undefined) fs.closeSync(descriptor);
+    fs.rmSync(probePath, { force: true });
   }
 }

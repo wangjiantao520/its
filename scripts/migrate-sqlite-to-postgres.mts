@@ -7,7 +7,9 @@ import {
 } from '../src/lib/database/client';
 import {
   migrateSqliteDatabase,
+  preflightJsonReport,
   writeJsonReportAtomic,
+  type MigrateSqliteDatabaseOptions,
 } from './database/sqlite-postgres-migration';
 
 const HELP = `Usage:
@@ -33,6 +35,9 @@ export interface ImportCliDependencies {
   argv?: readonly string[];
   env?: Readonly<Record<string, string | undefined>>;
   createClient?: (options: DatabaseClientOptions) => DatabaseClient;
+  migrateDatabase?: (options: MigrateSqliteDatabaseOptions) => ReturnType<typeof migrateSqliteDatabase>;
+  preflightReport?: (reportPath: string) => void;
+  writeReport?: (reportPath: string, report: unknown) => void;
   writeStdout?: (message: string) => void;
   writeStderr?: (message: string) => void;
 }
@@ -82,17 +87,25 @@ export async function runImportCli(dependencies: ImportCliDependencies = {}): Pr
       writeStdout(HELP);
       return 0;
     }
+    (dependencies.preflightReport ?? preflightJsonReport)(parsed.report);
     client = (dependencies.createClient ?? createDatabaseClient)({
       url: parsed.target,
       max: 1,
       prepare: false,
     });
-    const report = await migrateSqliteDatabase({
+    const report = await (dependencies.migrateDatabase ?? migrateSqliteDatabase)({
       sourcePath: parsed.source,
       client,
       allowNonemptyTarget: parsed.allowNonemptyTarget,
     });
-    writeJsonReportAtomic(parsed.report, report);
+    try {
+      (dependencies.writeReport ?? writeJsonReportAtomic)(parsed.report, report);
+    } catch {
+      writeStderr(
+        'Database migration completed, but report materialization failed. Rerun the same command to recover the report without reinserting rows.',
+      );
+      return 2;
+    }
     writeStdout('SQLite to PostgreSQL migration completed.');
     return 0;
   } catch {
