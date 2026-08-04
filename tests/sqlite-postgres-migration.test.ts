@@ -508,6 +508,7 @@ test('transforms only declared booleans, nullable empty timestamps, JSON, and ex
   assert.equal(transformSqliteValue('users', 'is_active', 0), false);
   assert.equal(transformSqliteValue('agent_sessions', 'is_deleted', 1), true);
   assert.equal(transformSqliteValue('engineering_quotes', 'version', 1), 1);
+  assert.equal(transformSqliteValue('intelligent_project_quotas', 'serial_number', 'IP-0200'), 200);
   assert.equal(transformSqliteValue('quote_shares', 'expires_at', ''), null);
   assert.throws(
     () => transformSqliteValue('users', 'created_at', ''),

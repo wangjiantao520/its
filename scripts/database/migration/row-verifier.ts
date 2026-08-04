@@ -59,6 +59,10 @@ function canonicalSourceValue(
 ): string {
   if (value === null || value === undefined) return 'null';
   if (value === '' && input.nullableTemporalColumns.has(qualifiedColumn)) return 'null';
+  if (qualifiedColumn === 'intelligent_project_quotas.serial_number' && typeof value === 'string') {
+    const legacySerial = /^IP-(\d+)$/i.exec(value.trim());
+    if (legacySerial) return `scalar:${Number.parseInt(legacySerial[1], 10)}`;
+  }
   if (input.moneyColumns.has(qualifiedColumn)) return `money:${canonicalizeSourceMoney(value)}`;
   if (input.booleanColumns.has(qualifiedColumn)) return `boolean:${Number(value) === 0 ? 'false' : 'true'}`;
   if (input.timestampColumns.has(qualifiedColumn)) {

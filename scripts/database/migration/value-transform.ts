@@ -77,6 +77,10 @@ function formatNumeric18_2(value: Exclude<SqlitePrimitive, null>): string {
 
 export function transformSqliteValue(table: string, column: string, value: SqlitePrimitive): unknown {
   const key = `${table}.${column}`;
+  if (key === 'intelligent_project_quotas.serial_number' && typeof value === 'string') {
+    const legacySerial = /^IP-(\d+)$/i.exec(value.trim());
+    if (legacySerial) return Number.parseInt(legacySerial[1], 10);
+  }
   if (BOOLEAN_COLUMNS.has(key)) {
     if (value === 0 || value === BigInt(0) || value === '0') return false;
     if (value === 1 || value === BigInt(1) || value === '1') return true;
