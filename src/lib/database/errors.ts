@@ -3,11 +3,14 @@ const UNAVAILABLE_DATABASE_ERROR_CODES = new Set([
   'CONNECTION_DESTROYED',
   'CONNECTION_ENDED',
   'CONNECT_TIMEOUT',
+  'EAI_AGAIN',
   'ECONNREFUSED',
   'ECONNRESET',
   'EHOSTUNREACH',
   'ENETUNREACH',
+  'ENOTFOUND',
   'ETIMEDOUT',
+  '57P03',
 ]);
 
 type ErrorWithCode = {
@@ -33,7 +36,8 @@ function getErrorCode(error: unknown): string | undefined {
 }
 
 export function isDatabaseUnavailableError(error: unknown): boolean {
-  return UNAVAILABLE_DATABASE_ERROR_CODES.has(getErrorCode(error) ?? '');
+  const code = getErrorCode(error);
+  return code !== undefined && (code.startsWith('08') || UNAVAILABLE_DATABASE_ERROR_CODES.has(code));
 }
 
 export function toDatabaseUnavailableError(error: unknown): DatabaseUnavailableError {

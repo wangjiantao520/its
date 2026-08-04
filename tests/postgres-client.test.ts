@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import type postgres from 'postgres';
 
 import {
   createDatabaseClient,
@@ -7,7 +8,11 @@ import {
   type DatabaseClient,
   type QueryResult,
 } from '../src/lib/database/client';
-import { DatabaseUnavailableError, toDatabaseUnavailableError } from '../src/lib/database/errors';
+import {
+  DatabaseUnavailableError,
+  isDatabaseUnavailableError,
+  toDatabaseUnavailableError,
+} from '../src/lib/database/errors';
 
 test('redactDatabaseUrl hides credentials', () => {
   assert.equal(
@@ -31,6 +36,40 @@ test('unavailable database errors never expose connection credentials', () => {
   assert.equal(error.message, 'Database is temporarily unavailable. Please try again later.');
   assert.doesNotMatch(error.message, /user|secret|db\.example\.com/);
   assert.doesNotMatch(error.stack ?? '', /user|secret|db\.example\.com/);
+});
+
+test('classifies DNS and PostgreSQL availability failures without classifying SQL errors', () => {
+  for (const code of ['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND', 'EAI_AGAIN', '57P03', '08006']) {
+    assert.equal(isDatabaseUnavailableError({ code }), true, `expected ${code} to be unavailable`);
+  }
+
+  assert.equal(isDatabaseUnavailableError({ code: '23505' }), false);
+  assert.equal(isDatabaseUnavailableError({ code: '42601' }), false);
+});
+
+test('query maps injected unavailable failures without exposing raw connection details', async () => {
+  const secretUrl = 'postgres://user:secret@db.example.com:6543/postgres';
+  const sql = {
+    unsafe: () => Promise.reject({
+      code: 'EAI_AGAIN',
+      message: `getaddrinfo EAI_AGAIN ${secretUrl}`,
+    }),
+  } as unknown as postgres.Sql;
+  const client = createDatabaseClient(
+    { url: secretUrl },
+    { createSql: () => sql },
+  );
+
+  await assert.rejects(
+    () => client.query('SELECT $1', [secretUrl]),
+    (error: unknown) => {
+      assert.ok(error instanceof DatabaseUnavailableError);
+      assert.equal(error.message, 'Database is temporarily unavailable. Please try again later.');
+      assert.doesNotMatch(error.message, /user|secret|db\.example\.com/);
+      assert.doesNotMatch(error.stack ?? '', /user|secret|db\.example\.com/);
+      return true;
+    },
+  );
 });
 
 test('database client has typed query, transaction, health, and close contracts', () => {

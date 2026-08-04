@@ -23,6 +23,15 @@ export interface DatabaseClientOptions {
   prepare?: boolean;
 }
 
+type CreateSql = (
+  url: string,
+  options: NonNullable<Parameters<typeof postgres>[1]>,
+) => postgres.Sql;
+
+export interface DatabaseClientDependencies {
+  createSql?: CreateSql;
+}
+
 type PostgresQueryResult<Row extends Record<string, unknown>> = Row[] & {
   count: number;
 };
@@ -121,13 +130,16 @@ export function redactDatabaseUrl(value: string): string {
   );
 }
 
-export function createDatabaseClient(options: DatabaseClientOptions): DatabaseClient {
+export function createDatabaseClient(
+  options: DatabaseClientOptions,
+  dependencies: DatabaseClientDependencies = {},
+): DatabaseClient {
   const url = options.url.trim();
   if (!url) {
     throw new Error('DATABASE_URL must be configured before using PostgreSQL.');
   }
 
-  const sql = postgres(url, {
+  const sql = (dependencies.createSql ?? postgres)(url, {
     ssl: 'require',
     prepare: options.prepare ?? false,
     max: options.max ?? 10,
