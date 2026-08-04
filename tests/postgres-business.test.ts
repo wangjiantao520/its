@@ -278,6 +278,7 @@ test('route business flow distinguishes auth, validation, ownership, admin, audi
     const shareResponse = await shareRoutes.POST(request('/api/quotes/share', 'member-a-token', 'POST', { quoteId: 'engineering:101', expiryDays: 7, maxViews: 2 }));
     const sharePayload = await payload(shareResponse); const shareData = sharePayload.data as Record<string, unknown>;
     assert.match(String(shareData.shareUrl), /^\/share\/[a-f0-9]{32}$/);
+    assert.equal(shareData.expiresAt, '2026-08-11T00:00:00.000Z');
     const token = String(shareData.token);
     const publicResponse = await publicShareRoutes.GET(request(`/api/share/${token}`), { params: Promise.resolve({ token }) });
     assert.equal(publicResponse.status, 200);
@@ -318,7 +319,7 @@ test('version save/list/detail/restore preserves supplied maintenance DTO fields
     const listed = await payload(await versionRoutes.GET(request('/api/quotes/versions?quoteId=201&quoteType=maintenance', 'member-a-token')));
     assert.equal((listed.data as unknown[]).length, 1);
     const detail = await payload(await versionDetailRoutes.GET(request('/api/quotes/versions/1', 'member-a-token'), { params: Promise.resolve({ id: '1' }) }));
-    assert.deepEqual((detail.data as Record<string, unknown>).data, quoteData);
+    assert.deepEqual((detail.data as Record<string, unknown>).data, { ...quoteData, total: '345.67' });
     const revised = { ...quoteData, versionName: '最终审定版', total: 456.78 };
     const second = await payload(await versionRoutes.POST(request('/api/quotes/versions', 'member-a-token', 'POST', { quoteId: 201, quoteType: 'maintenance', quoteData: revised })));
     assert.equal((second.data as Record<string, unknown>).version, 2);
@@ -328,8 +329,48 @@ test('version save/list/detail/restore preserves supplied maintenance DTO fields
     assert.equal(restored.status, 200);
     assert.equal(database.maintenance[0]?.project_name, '新项目');
     assert.equal(database.maintenance[0]?.client_name, '新客户');
-    assert.equal(database.maintenance[0]?.total, 345.67);
+    assert.equal(database.maintenance[0]?.total, '345.67');
     assert.deepEqual(database.maintenance[0]?.devices, [{ name: '摄像机', quantity: 2 }]);
+  } finally { delete globalDatabase.__itsPostgresDatabaseClient__; }
+});
+
+test('version totals enforce numeric(18,2), persist canonical decimals, and restore the same value', async () => {
+  const database = new RouteDatabase();
+  database.maintenance.push({ id: 201, quote_number: 'MAINT-MONEY', project_name: '旧项目', client_name: '旧客户', total: '100.00', status: 'draft', created_by: '11', created_by_name: '成员甲', created_at: '2026-08-04T01:00:00.000Z', updated_at: '2026-08-04T01:00:00.000Z' });
+  const globalDatabase = globalThis as typeof globalThis & { __itsPostgresDatabaseClient__?: DatabaseClient };
+  globalDatabase.__itsPostgresDatabaseClient__ = database;
+  try {
+    for (const total of [100.005, Number.POSITIVE_INFINITY, '10000000000000000.00']) {
+      const response = await versionRoutes.POST(request('/api/quotes/versions', 'member-a-token', 'POST', {
+        quoteId: 201, quoteType: 'maintenance', quoteData: { versionName: '非法金额', total, devices: [] },
+      }));
+      assert.equal(response.status, 400, `expected ${String(total)} to be rejected`);
+    }
+    assert.equal(database.versions.length, 0);
+
+    const saved = await versionRoutes.POST(request('/api/quotes/versions', 'member-a-token', 'POST', {
+      quoteId: 201, quoteType: 'maintenance', quoteData: { versionName: '规范金额', total: '000345.6', devices: [] },
+    }));
+    assert.equal(saved.status, 200);
+    const storedSnapshot = database.versions[0]?.data as Record<string, unknown>;
+    assert.equal(storedSnapshot.total, '345.60');
+
+    const restored = await versionDetailRoutes.POST(request('/api/quotes/versions/1', 'member-a-token', 'POST'), { params: Promise.resolve({ id: '1' }) });
+    assert.equal(restored.status, 200);
+    assert.equal(database.maintenance[0]?.total, storedSnapshot.total);
+  } finally { delete globalDatabase.__itsPostgresDatabaseClient__; }
+});
+
+test('version restore rejects a legacy snapshot outside numeric(18,2)', async () => {
+  const database = new RouteDatabase();
+  database.maintenance.push({ id: 201, quote_number: 'MAINT-LEGACY', project_name: '旧项目', client_name: '旧客户', total: '100.00', status: 'draft', created_by: '11', created_by_name: '成员甲', created_at: '2026-08-04T01:00:00.000Z', updated_at: '2026-08-04T01:00:00.000Z' });
+  database.versions.push({ id: '1', quote_id: '201', quote_type: 'maintenance', version: 1, data: { total: '100.005', devices: [] } });
+  const globalDatabase = globalThis as typeof globalThis & { __itsPostgresDatabaseClient__?: DatabaseClient };
+  globalDatabase.__itsPostgresDatabaseClient__ = database;
+  try {
+    const restored = await versionDetailRoutes.POST(request('/api/quotes/versions/1', 'member-a-token', 'POST'), { params: Promise.resolve({ id: '1' }) });
+    assert.equal(restored.status, 400);
+    assert.equal(database.maintenance[0]?.total, '100.00');
   } finally { delete globalDatabase.__itsPostgresDatabaseClient__; }
 });
 
@@ -434,4 +475,30 @@ test('live PostgreSQL quote business flow', {
     );
     assert.equal(audits.rows[0]?.count, '1');
   } finally { delete globalDatabase.__itsPostgresDatabaseClient__; }
+});
+
+test('live PostgreSQL concurrent share requests enforce max_views=1', {
+  skip: process.env.TEST_DATABASE_URL ? false : POSTGRES_TEST_SKIP_REASON,
+}, async (t) => {
+  const harness = await createPostgresTestHarness(t);
+  await runPostgresMigrations(harness.client);
+  const quote = await harness.client.query<{ id: string } & Record<string, unknown>>(`
+    INSERT INTO engineering_quotes (quote_number, project_name, total, created_by)
+    VALUES ($1,$2,$3,$4) RETURNING id::text AS id
+  `, ['ENG-LIVE-SHARE-RACE', '并发分享集成', '10.00', '11']);
+  const quoteId = Number(quote.rows[0]?.id);
+  const token = '1234567890abcdef1234567890abcdef';
+  await harness.client.query(`
+    INSERT INTO quote_shares (token, quote_id, quote_type, expires_at, max_views)
+    VALUES ($1,$2,'engineering',CURRENT_TIMESTAMP + INTERVAL '1 day',1)
+  `, [token, quoteId]);
+  const secondClient = harness.createAdditionalClient();
+  const results = await Promise.all([
+    consumeQuoteShare(harness.client, token),
+    consumeQuoteShare(secondClient, token),
+  ]);
+  assert.equal(results.filter((result) => result.ok).length, 1);
+  assert.equal(results.filter((result) => !result.ok && result.reason === 'view_limit').length, 1);
+  const views = await harness.client.query<{ view_count: number } & Record<string, unknown>>('SELECT view_count FROM quote_shares WHERE token=$1', [token]);
+  assert.equal(views.rows[0]?.view_count, 1);
 });

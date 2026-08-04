@@ -5,6 +5,7 @@ import { getDatabase } from '@/lib/database/client';
 import { getQuoteSummaries, parseQuoteIdentity } from '@/lib/quote-summary';
 
 interface IdRow extends Record<string, unknown> { id: string | number | bigint }
+interface InsertedShareRow extends IdRow { expires_at: Date | string }
 interface ShareRow extends Record<string, unknown> { id: string | number | bigint; token: string; quote_id: string | number | bigint; quote_type: string; expires_at: Date | string | null; view_count: number; is_active: boolean; created_at: Date | string }
 interface CountRow extends Record<string, unknown> { total: string | number }
 function objectBody(value: unknown): Record<string, unknown> { return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
@@ -25,12 +26,14 @@ export async function POST(request: NextRequest) {
     const maxViews = body.maxViews === undefined ? 0 : Number(body.maxViews);
     if (!Number.isInteger(maxViews) || maxViews < 0 || maxViews > 1_000_000) return NextResponse.json({ success: false, error: '访问次数上限必须是有效的非负整数' }, { status: 400 });
     const token = crypto.randomBytes(16).toString('hex');
-    const inserted = await database.query<IdRow>(`
+    const inserted = await database.query<InsertedShareRow>(`
       INSERT INTO quote_shares (token, quote_id, quote_type, expires_at, max_views)
       VALUES ($1,$2,$3,CURRENT_TIMESTAMP + ($4 * INTERVAL '1 day'),$5) RETURNING id, expires_at
     `, [token, parsed.id, parsed.source, daysInput, maxViews]);
-    const expiresAt = new Date(Date.now() + daysInput * 86_400_000).toISOString();
-    return NextResponse.json({ success: true, data: { id: String(inserted.rows[0]?.id), token, quoteId: quote.identity, quoteType: parsed.source, expiresAt, shareUrl: `/share/${token}` } });
+    const insertedShare = inserted.rows[0];
+    if (!insertedShare) throw new Error('分享链接未写入');
+    const expiresAt = insertedShare.expires_at instanceof Date ? insertedShare.expires_at.toISOString() : insertedShare.expires_at;
+    return NextResponse.json({ success: true, data: { id: String(insertedShare.id), token, quoteId: quote.identity, quoteType: parsed.source, expiresAt, shareUrl: `/share/${token}` } });
   } catch (error) {
     console.error('创建分享链接失败:', error);
     return NextResponse.json({ success: false, error: '创建分享链接失败' }, { status: 500 });

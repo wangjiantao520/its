@@ -3,6 +3,7 @@ import { requireApiAuth } from '@/lib/api-auth-server';
 import { getDatabase, type DatabaseClient } from '@/lib/database/client';
 import { asQuoteSource, canAccessQuote } from '@/lib/quote-access';
 import type { QuoteSource } from '@/lib/quote-summary';
+import { normalizeQuoteVersionSnapshot } from '@/lib/quote-version-snapshot';
 
 type Context = { params: Promise<{ id: string }> };
 interface VersionRow extends Record<string, unknown> { id: string | number | bigint; quote_id: string | number | bigint; quote_type: string; version: number; data: unknown }
@@ -77,8 +78,10 @@ export async function POST(request: NextRequest, { params }: Context) {
     const database = getDatabase();
     const version = (await database.query<VersionRow>('SELECT id, quote_id, quote_type, version, data FROM quote_versions WHERE id=$1', [id])).rows[0];
     if (!version) return NextResponse.json({ success: false, error: '版本不存在' }, { status: 404 });
-    const source = asQuoteSource(version.quote_type); const quoteId = Number(version.quote_id); const snapshot = asRecord(version.data);
-    if (!source || !snapshot || !await canAccessQuote(database, auth.session, source, quoteId)) return NextResponse.json({ success: false, error: '版本不存在或无权访问' }, { status: 404 });
+    const source = asQuoteSource(version.quote_type); const quoteId = Number(version.quote_id); const rawSnapshot = asRecord(version.data);
+    if (!source || !rawSnapshot || !await canAccessQuote(database, auth.session, source, quoteId)) return NextResponse.json({ success: false, error: '版本不存在或无权访问' }, { status: 404 });
+    const snapshot = normalizeQuoteVersionSnapshot(rawSnapshot);
+    if (!snapshot) return NextResponse.json({ success: false, error: '版本金额格式无效' }, { status: 400 });
     const nextVersion = await database.transaction(async (client) => {
       await client.query<Record<string, unknown>>(`SELECT id FROM ${TABLES[source]} WHERE id=$1 FOR UPDATE`, [quoteId]);
       if (!await canAccessQuote(client, auth.session, source, quoteId)) throw new Error('报价不存在或无权访问');

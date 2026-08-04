@@ -3,6 +3,7 @@ import { requireApiAuth } from '@/lib/api-auth-server';
 import { getDatabase, type DatabaseClient } from '@/lib/database/client';
 import { asQuoteSource, canAccessQuote } from '@/lib/quote-access';
 import type { QuoteSource } from '@/lib/quote-summary';
+import { normalizeQuoteVersionSnapshot } from '@/lib/quote-version-snapshot';
 
 interface VersionRow extends Record<string, unknown> { id: string | number | bigint; version: number; data?: unknown }
 const TABLES: Record<QuoteSource, 'engineering_quotes' | 'maintenance_quotes' | 'quotation_records'> = {
@@ -21,10 +22,6 @@ function jsonSnapshot(value: Record<string, unknown>): Record<string, unknown> |
 }
 function validSnapshot(snapshot: Record<string, unknown>): boolean {
   if (snapshot.versionName !== undefined && (typeof snapshot.versionName !== 'string' || !snapshot.versionName.trim() || snapshot.versionName.length > 200)) return false;
-  if (snapshot.total !== undefined) {
-    const total = Number(snapshot.total);
-    if (!Number.isFinite(total) || total < 0) return false;
-  }
   if (snapshot.devices !== undefined && !Array.isArray(snapshot.devices)) return false;
   return snapshot.items === undefined || Array.isArray(snapshot.items);
 }
@@ -64,7 +61,8 @@ export async function POST(request: NextRequest) {
     if (!quoteId || !quoteType || !body.quoteData || typeof body.quoteData !== 'object' || Array.isArray(body.quoteData)) {
       return NextResponse.json({ success: false, error: '缺少必需参数: quoteId, quoteType, quoteData' }, { status: 400 });
     }
-    const supplied = jsonSnapshot(body.quoteData as Record<string, unknown>);
+    const serialized = jsonSnapshot(body.quoteData as Record<string, unknown>);
+    const supplied = serialized ? normalizeQuoteVersionSnapshot(serialized) : null;
     if (!supplied || !validSnapshot(supplied)) return NextResponse.json({ success: false, error: '版本数据格式无效' }, { status: 400 });
     const database = getDatabase();
     const saved = await database.transaction(async (client) => {
