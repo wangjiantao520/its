@@ -197,11 +197,12 @@ class AssistantRouteDatabase implements DatabaseClient {
   async close(): Promise<void> {}
 }
 
-function request(pathname: string, token?: string, method = 'GET', body?: unknown): NextRequest {
+function request(pathname: string, token?: string, method = 'GET', body?: unknown, signal?: AbortSignal): NextRequest {
   return new NextRequest(`http://localhost${pathname}`, {
     method,
     headers: token ? { authorization: `Bearer ${token}`, 'content-type': 'application/json' } : undefined,
     body: body === undefined ? undefined : JSON.stringify(body),
+    signal,
   });
 }
 
@@ -293,6 +294,30 @@ test('fake PostgreSQL covers assistant ownership, CRUD, terminal logs, feedback,
     await waitFor(() => (database.logs.at(-1)?.actions_executed as Record<string, unknown> | undefined)?.status === 'interrupted');
     assert.equal(database.logs.at(-1)?.agent_response, '');
 
+    let requestAbortReachedProvider = false;
+    globalThis.fetch = async (_input, init) => new Promise((_resolve, reject) => {
+      if (init?.signal?.aborted) {
+        requestAbortReachedProvider = true;
+        reject(new DOMException('Aborted', 'AbortError'));
+        return;
+      }
+      const safetyTimer = setTimeout(() => reject(new Error('provider did not receive request abort')), 30);
+      init?.signal?.addEventListener('abort', () => {
+        clearTimeout(safetyTimer);
+        requestAbortReachedProvider = true;
+        reject(new DOMException('Aborted', 'AbortError'));
+      }, { once: true });
+    });
+    const requestAbort = new AbortController();
+    const requestInterrupted = await chatRoutes.POST(
+      request('/api/agents/1/chat', 'member-a-token', 'POST', { message: '请求中断' }, requestAbort.signal),
+      { params: Promise.resolve({ id: '1' }) },
+    );
+    requestAbort.abort();
+    await requestInterrupted.text();
+    assert.equal(requestAbortReachedProvider, true);
+    assert.equal((database.logs.at(-1)?.actions_executed as Record<string, unknown>).status, 'interrupted');
+
     globalThis.fetch = async (_input, init) => {
       const body = JSON.parse(String(init?.body)) as { messages?: Array<{ content?: string }> };
       const recognition = body.messages?.some(({ content }) => content?.includes('设备识别助手'));
@@ -303,7 +328,7 @@ test('fake PostgreSQL covers assistant ownership, CRUD, terminal logs, feedback,
     };
 
     const memberList = await json(await sessionRoutes.GET(request('/api/agent-sessions', 'member-a-token')));
-    assert.equal(((memberList.data as Record<string, unknown>).list as unknown[]).length, 5);
+    assert.equal(((memberList.data as Record<string, unknown>).list as unknown[]).length, 6);
     const otherMemberList = await json(await sessionRoutes.GET(request('/api/agent-sessions', 'member-b-token')));
     assert.equal(((otherMemberList.data as Record<string, unknown>).list as unknown[]).length, 0);
     assert.equal((await sessionDetailRoutes.GET(request(`/api/agent-sessions/${sessionId}`, 'member-b-token'), { params: Promise.resolve({ sessionId }) })).status, 403);
@@ -325,6 +350,19 @@ test('fake PostgreSQL covers assistant ownership, CRUD, terminal logs, feedback,
     const matched = await json(await matchRoutes.POST(request('/api/ai-match-devices', 'member-a-token', 'POST', { text: '交换机1台' })));
     assert.equal(matched.success, true);
     assert.equal(((matched.devices as Array<Record<string, unknown>>)[0]).matchedDeviceId, '9007199254740993');
+
+    const loggedErrors: unknown[][] = [];
+    const originalConsoleError = console.error;
+    console.error = (...args: unknown[]) => { loggedErrors.push(args); };
+    globalThis.fetch = async () => { throw new Error('internal provider secret detail'); };
+    try {
+      const failedMatch = await json(await matchRoutes.POST(request('/api/ai-match-devices', 'member-a-token', 'POST', { text: '交换机1台' })));
+      assert.equal(failedMatch.error, 'AI服务暂时不可用');
+      assert.equal(JSON.stringify(failedMatch).includes('internal provider secret detail'), false);
+      assert.equal(loggedErrors.flat().some((value) => String(value).includes('internal provider secret detail')), true);
+    } finally {
+      console.error = originalConsoleError;
+    }
 
     assert.equal((await sessionDetailRoutes.DELETE(request(`/api/agent-sessions/${sessionId}`, 'member-a-token', 'DELETE'), { params: Promise.resolve({ sessionId }) })).status, 200);
     assert.equal((await sessionDetailRoutes.GET(request(`/api/agent-sessions/${sessionId}`, 'member-a-token'), { params: Promise.resolve({ sessionId }) })).status, 404);
@@ -366,17 +404,78 @@ test('live PostgreSQL assistant persistence', {
 }, async (t) => {
   const harness = await createPostgresTestHarness(t);
   await runPostgresMigrations(harness.client);
-  await harness.client.query(`INSERT INTO users (id, username, password_hash, name, role, is_active) VALUES ($1,$2,$3,$4,$5,$6)`, [11, 'live-assistant-user', 'unused', '集成测试用户', 'its_member', true]);
+  await harness.client.query(`INSERT INTO users (id, username, password_hash, name, role, is_active) VALUES ($1,$2,$3,$4,$5,$6),($7,$8,$9,$10,$11,$12)`, [11, 'live-assistant-user', 'unused', '集成测试用户', 'its_member', true, 22, 'live-other-user', 'unused', '其他测试用户', 'its_member', true]);
   await harness.client.query(`INSERT INTO agent_configs (id, name, system_prompt, enabled) VALUES ($1,$2,$3,$4)`, [1, 'ITS助手', '帮助用户', true]);
+  await harness.client.query(`INSERT INTO ai_model_configs (name, provider, model_name, api_endpoint, api_key, is_active, is_default) VALUES ($1,$2,$3,$4,$5,$6,$7)`, ['live-mock', 'mock', 'mock-model', 'https://mock.invalid/chat', 'live-secret', true, true]);
   await saveSession(harness.client, 'live-member-token', { role: 'its_member', userId: 11, username: 'live-assistant-user', name: '集成测试用户', expiresAt: Date.now() + 60_000 });
+  await saveSession(harness.client, 'live-other-token', { role: 'its_member', userId: 22, username: 'live-other-user', name: '其他测试用户', expiresAt: Date.now() + 60_000 });
+  await saveSession(harness.client, 'live-admin-token', { role: 'admin', name: '管理员', expiresAt: Date.now() + 60_000 });
   const databaseGlobal = globalThis as typeof globalThis & { __itsPostgresDatabaseClient__?: DatabaseClient };
+  const originalFetch = globalThis.fetch;
   databaseGlobal.__itsPostgresDatabaseClient__ = harness.client;
+  globalThis.fetch = async () => new Response(JSON.stringify({ choices: [{ message: { content: '真实 PG 终态回复' } }] }), { status: 200 });
   try {
     const created = await sessionRoutes.POST(request('/api/agent-sessions', 'live-member-token', 'POST', { agent_id: 1, title: '真实 PG 会话' }));
     assert.equal(created.status, 201);
     const listed = await json(await sessionRoutes.GET(request('/api/agent-sessions', 'live-member-token')));
     assert.equal(((listed.data as Record<string, unknown>).list as unknown[]).length, 1);
+
+    const completed = await chatRoutes.POST(request('/api/agents/1/chat', 'live-member-token', 'POST', { message: '完成消息' }), { params: Promise.resolve({ id: '1' }) });
+    assert.match(await completed.text(), /真实 PG 终态回复/);
+    const completedLog = await harness.client.query<{ actions_executed: Record<string, unknown>; agent_response: string; session_id: string }>(`SELECT actions_executed, agent_response, session_id FROM agent_logs WHERE user_message=$1`, ['完成消息']);
+    assert.equal(completedLog.rows[0].actions_executed.status, 'completed');
+    assert.equal(completedLog.rows[0].agent_response, '真实 PG 终态回复');
+
+    let liveProviderAborted = false;
+    globalThis.fetch = async (_input, init) => new Promise((_resolve, reject) => {
+      if (init?.signal?.aborted) {
+        liveProviderAborted = true;
+        reject(new DOMException('Aborted', 'AbortError'));
+        return;
+      }
+      init?.signal?.addEventListener('abort', () => {
+        liveProviderAborted = true;
+        reject(new DOMException('Aborted', 'AbortError'));
+      }, { once: true });
+    });
+    const liveAbortController = new AbortController();
+    const liveInterrupted = await chatRoutes.POST(request('/api/agents/1/chat', 'live-member-token', 'POST', { message: '中断消息' }, liveAbortController.signal), { params: Promise.resolve({ id: '1' }) });
+    liveAbortController.abort();
+    await liveInterrupted.text();
+    assert.equal(liveProviderAborted, true);
+    const interruptedLog = await harness.client.query<{ actions_executed: Record<string, unknown>; agent_response: string }>(`SELECT actions_executed, agent_response FROM agent_logs WHERE user_message=$1`, ['中断消息']);
+    assert.equal(interruptedLog.rows[0].actions_executed.status, 'interrupted');
+    assert.equal(interruptedLog.rows[0].agent_response, '');
+
+    const beforeUnauthorized = await harness.client.query<{ total: string }>('SELECT COUNT(*)::text AS total FROM agent_logs');
+    const unauthorized = await chatRoutes.POST(request('/api/agents/1/chat', 'live-other-token', 'POST', { message: '越权消息', session_id: completedLog.rows[0].session_id }), { params: Promise.resolve({ id: '1' }) });
+    assert.equal(unauthorized.status, 403);
+    const afterUnauthorized = await harness.client.query<{ total: string }>('SELECT COUNT(*)::text AS total FROM agent_logs');
+    assert.equal(afterUnauthorized.rows[0].total, beforeUnauthorized.rows[0].total);
+
+    globalThis.fetch = async () => new Response(JSON.stringify({ choices: [{ message: { content: '触发回滚' } }] }), { status: 200 });
+    await harness.client.query(`CREATE FUNCTION reject_assistant_log() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'forced log failure'; END $$`);
+    await harness.client.query(`CREATE TRIGGER reject_assistant_log BEFORE INSERT ON agent_logs FOR EACH ROW EXECUTE FUNCTION reject_assistant_log()`);
+    const beforeRollback = await harness.client.query<{ total: string }>('SELECT COUNT(*)::text AS total FROM agent_sessions');
+    const rollbackResponse = await chatRoutes.POST(request('/api/agents/1/chat', 'live-member-token', 'POST', { message: '回滚消息' }), { params: Promise.resolve({ id: '1' }) });
+    assert.match(await rollbackResponse.text(), /"type":"error"/);
+    await harness.client.query('DROP TRIGGER reject_assistant_log ON agent_logs');
+    await harness.client.query('DROP FUNCTION reject_assistant_log()');
+    const afterRollback = await harness.client.query<{ total: string }>('SELECT COUNT(*)::text AS total FROM agent_sessions');
+    assert.equal(afterRollback.rows[0].total, beforeRollback.rows[0].total);
+
+    const learningBody = { clientName: '并发客户', deviceConfigs: [{ deviceName: '并发交换机', useYears: 2 }] };
+    const learningResponses = await Promise.all([
+      learningRoutes.POST(request('/api/ai-learning', 'live-admin-token', 'POST', learningBody)),
+      learningRoutes.POST(request('/api/ai-learning', 'live-admin-token', 'POST', learningBody)),
+    ]);
+    assert.deepEqual(learningResponses.map(({ status }) => status), [200, 200]);
+    const memories = await harness.client.query<{ usage_count: number; device_config: Record<string, unknown> }>(`SELECT usage_count, device_config FROM ai_learning_memory WHERE device_signature=$1`, ['并发交换机::mid']);
+    assert.equal(memories.rows.length, 1);
+    assert.equal(memories.rows[0].usage_count, 2);
+    assert.equal(memories.rows[0].device_config.deviceName, '并发交换机');
   } finally {
+    globalThis.fetch = originalFetch;
     delete databaseGlobal.__itsPostgresDatabaseClient__;
   }
 });

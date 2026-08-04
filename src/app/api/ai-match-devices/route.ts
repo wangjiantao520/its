@@ -315,7 +315,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         success: false,
-        error: message,
+        error: 'AI服务暂时不可用',
         devices: [],
         suggestions: ['AI服务暂时不可用，请稍后重试']
       },

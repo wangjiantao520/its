@@ -162,6 +162,9 @@ export async function POST(request: NextRequest, context: RouteContext) {
     }
 
     const streamAbort = new AbortController();
+    const abortFromRequest = () => streamAbort.abort();
+    if (request.signal.aborted) streamAbort.abort();
+    else request.signal.addEventListener('abort', abortFromRequest, { once: true });
     const encoder = new TextEncoder();
     let cancelled = false;
     const stream = new ReadableStream<Uint8Array>({
@@ -231,6 +234,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
             enqueue({ type: 'error', error: '对话失败' });
             controller.close();
           }
+        } finally {
+          request.signal.removeEventListener('abort', abortFromRequest);
         }
       },
       cancel() {
