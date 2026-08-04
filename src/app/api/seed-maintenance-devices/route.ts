@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireApiAuth } from '@/lib/api-auth-server';
-import { pool } from '@/lib/db';
+import { getDatabase, type DatabaseClient } from '@/lib/database/client';
 
 // 云数据中心维保设备数据（47条）
 const maintenanceDevices = [
@@ -92,57 +92,66 @@ export async function GET(request: NextRequest) {
   if (!auth.ok) return auth.response;
 
   try {
-    // 检查是否已导入
-    const [existing] = await pool.execute('SELECT COUNT(*) as count FROM maintenance_device_quotas');
-    const count = (existing as any[])[0]?.count || 0;
-
-    if (count > 0) {
-      return NextResponse.json({
-        success: true,
-        message: `数据库中已有 ${count} 条维保设备数据`,
-        data: { count }
-      });
-    }
-
-    // 导入数据
-    let imported = 0;
-    for (const device of maintenanceDevices) {
-      const id = `maint_${Date.now()}_${imported}`;
-      const annual_fee = device.original_price * device.maintenance_rate;
-      
-      await pool.execute(
-        `INSERT INTO maintenance_device_quotas 
-         (id, category, name, brand, model, specification, unit, quantity, original_price, maintenance_rate, annual_fee, network_type, sort_order)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          id,
-          device.category,
-          device.name,
-          device.brand,
-          device.model,
-          device.specification,
-          device.unit,
-          1, // quantity 默认为1
-          device.original_price,
-          device.maintenance_rate,
-          annual_fee,
-          device.network_type,
-          imported
-        ]
-      );
-      imported++;
-    }
-
+    const data = await seedMaintenanceDevices(getDatabase());
     return NextResponse.json({
       success: true,
-      message: `成功导入 ${imported} 条维保设备数据`,
-      data: { imported }
+      message: data.imported === 0
+        ? `数据库中已有 ${data.count} 条维保设备数据`
+        : `成功导入 ${data.imported} 条维保设备数据`,
+      data: data.imported === 0 ? { count: data.count } : { imported: data.imported },
     });
   } catch (error) {
     console.error('导入维保设备数据失败:', error);
     return NextResponse.json(
-      { success: false, error: '导入失败: ' + (error as Error).message },
+      { success: false, error: '导入失败' },
       { status: 500 }
     );
   }
+}
+
+interface CountRow extends Record<string, unknown> {
+  count: string | number | bigint;
+}
+
+const SEED_BATCH_SIZE = 50;
+
+function safeCount(value: string | number | bigint): number {
+  const parsed = typeof value === 'bigint' ? value : BigInt(value);
+  if (parsed > BigInt(Number.MAX_SAFE_INTEGER)) throw new RangeError('maintenance device count exceeds safe integer range');
+  return Number(parsed);
+}
+
+function placeholders(rows: number, columns: number): string {
+  return Array.from({ length: rows }, (_, row) => `(${
+    Array.from({ length: columns }, (__, column) => `$${row * columns + column + 1}`).join(', ')
+  })`).join(', ');
+}
+
+async function seedMaintenanceDevices(database: DatabaseClient) {
+  return await database.transaction(async (transaction) => {
+    const before = await transaction.query<CountRow>('SELECT COUNT(*) AS count FROM maintenance_device_quotas');
+    const existingCount = safeCount(before.rows[0]?.count ?? 0);
+    if (existingCount > 0) return { imported: 0, count: existingCount };
+
+    let imported = 0;
+    for (let offset = 0; offset < maintenanceDevices.length; offset += SEED_BATCH_SIZE) {
+      const batch = maintenanceDevices.slice(offset, offset + SEED_BATCH_SIZE);
+      const inserted = await transaction.query(`
+        INSERT INTO maintenance_device_quotas
+          (id, category, name, brand, model, specification, unit, quantity,
+           original_price, maintenance_rate, annual_fee, network_type, sort_order)
+        VALUES ${placeholders(batch.length, 13)}
+        ON CONFLICT (id) DO NOTHING
+        RETURNING id
+      `, batch.flatMap((device, index) => [
+        `maintenance-seed-${String(offset + index + 1).padStart(3, '0')}`,
+        device.category, device.name, device.brand, device.model, device.specification,
+        device.unit, 1, device.original_price, device.maintenance_rate,
+        device.original_price * device.maintenance_rate, device.network_type,
+        offset + index,
+      ]));
+      imported += inserted.rowCount;
+    }
+    return { imported, count: imported };
+  });
 }
