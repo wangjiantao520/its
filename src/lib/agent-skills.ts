@@ -1,15 +1,18 @@
-import { pool } from '@/lib/db';
+import { getDatabase } from './database/client';
 
 // 技能执行器
 export const skillExecutors: Record<string, (params: Record<string, unknown>) => Promise<string>> = {
   // 设备定额查询
   quota_query: async (params) => {
     const keyword = (params.keyword as string) || '';
-    const devices = await pool.execute(
-      'SELECT name, category, model, original_price, maintenance_rate FROM maintenance_device_quotas WHERE name LIKE ? OR category LIKE ? OR model LIKE ? LIMIT 20',
-      [`%${keyword}%`, `%${keyword}%`, `%${keyword}%`]
+    const devices = await getDatabase().query<Record<string, unknown>>(
+      `SELECT name, category, model, original_price, maintenance_rate
+       FROM maintenance_device_quotas
+       WHERE name ILIKE $1 OR category ILIKE $1 OR model ILIKE $1
+       LIMIT 20`,
+      [`%${keyword}%`],
     );
-    const deviceList = devices[0] as Array<Record<string, unknown>>;
+    const deviceList = devices.rows;
     if (!deviceList || deviceList.length === 0) {
       return `未找到与"${keyword}"相关的设备定额信息。`;
     }
@@ -22,11 +25,14 @@ export const skillExecutors: Record<string, (params: Record<string, unknown>) =>
   // 维保费率查询
   maintenance_rate_query: async (params) => {
     const category = (params.category as string) || '';
-    const rates = await pool.execute(
-      'SELECT DISTINCT category, maintenance_rate FROM maintenance_device_quotas WHERE category LIKE ? LIMIT 20',
-      [`%${category}%`]
+    const rates = await getDatabase().query<Record<string, unknown>>(
+      `SELECT DISTINCT category, maintenance_rate
+       FROM maintenance_device_quotas
+       WHERE category ILIKE $1
+       LIMIT 20`,
+      [`%${category}%`],
     );
-    const rateList = rates[0] as Array<Record<string, unknown>>;
+    const rateList = rates.rows;
     if (!rateList || rateList.length === 0) {
       return `未找到与"${category}"相关的维保费率配置。`;
     }
@@ -78,11 +84,15 @@ export const skillExecutors: Record<string, (params: Record<string, unknown>) =>
   // 报价历史查询
   quote_history: async (params) => {
     const keyword = (params.keyword as string) || '';
-    const quotes = await pool.execute(
-      'SELECT id, client_name, project_name, total_amount, status, created_at FROM quotation_records WHERE client_name LIKE ? OR project_name LIKE ? ORDER BY created_at DESC LIMIT 10',
-      [`%${keyword}%`, `%${keyword}%`]
+    const quotes = await getDatabase().query<Record<string, unknown>>(
+      `SELECT id, client_name, project_name, total_amount, status, created_at
+       FROM quotation_records
+       WHERE client_name ILIKE $1 OR project_name ILIKE $1
+       ORDER BY created_at DESC
+       LIMIT 10`,
+      [`%${keyword}%`],
     );
-    const quoteList = quotes[0] as Array<Record<string, unknown>>;
+    const quoteList = quotes.rows;
     if (!quoteList || quoteList.length === 0) {
       return `未找到与"${keyword}"相关的报价记录。`;
     }

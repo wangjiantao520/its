@@ -1,6 +1,42 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
+
 import { requireApiAuth } from '@/lib/api-auth-server';
-import pool, { initDatabase } from '@/lib/db';
+import { validateBody } from '@/lib/api-validate';
+import { getDatabase } from '@/lib/database/client';
+
+interface CountRow extends Record<string, unknown> {
+  total: string | number | bigint;
+}
+
+interface IdRow extends Record<string, unknown> {
+  id: string;
+}
+
+const finiteNonNegative = z.coerce.number().finite().nonnegative();
+const quotaSchema = z.object({
+  id: z.string().trim().min(1),
+  category: z.string().trim().min(1),
+  name: z.string().trim().min(1),
+  unit: z.string().trim().min(1),
+  quantity: finiteNonNegative.optional().default(1),
+  price: finiteNonNegative,
+  remark: z.string().optional().default(''),
+  sortOrder: z.coerce.number().int().nonnegative().optional().default(0),
+});
+const deleteSchema = z.object({ id: z.string().trim().min(1) });
+
+function parseCount(value: string | number | bigint): number {
+  const parsed = typeof value === 'bigint' ? value : BigInt(value);
+  if (parsed > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new RangeError('self_construction_quotas count exceeds JavaScript safe integer range');
+  }
+  return Number(parsed);
+}
+
+function isUniqueViolation(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === '23505';
+}
 
 // GET /api/self-construction-quotas - 获取自施工定额列表
 export async function GET(request: NextRequest) {
@@ -8,63 +44,47 @@ export async function GET(request: NextRequest) {
   if (!auth.ok) return auth.response;
 
   try {
-    await initDatabase();
-
     const searchParams = request.nextUrl.searchParams;
     const keyword = searchParams.get('keyword') || '';
     const category = searchParams.get('category') || '';
-    const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10));
-    const limit = Math.max(1, Math.min(200, parseInt(searchParams.get('limit') || '20', 10)));
+    const page = Math.max(1, Number.parseInt(searchParams.get('page') || '1', 10) || 1);
+    const limit = Math.max(1, Math.min(200, Number.parseInt(searchParams.get('limit') || '20', 10) || 20));
     const offset = (page - 1) * limit;
-
-    let whereClause = '';
-    const params: any[] = [];
+    const conditions: string[] = [];
+    const params: unknown[] = [];
 
     if (keyword) {
-      whereClause += ' WHERE (name LIKE ? OR id LIKE ? OR remark LIKE ?)';
-      params.push(`%${keyword}%`, `%${keyword}%`, `%${keyword}%`);
+      params.push(`%${keyword}%`);
+      conditions.push(`(name ILIKE $${params.length} OR id ILIKE $${params.length} OR COALESCE(remark, '') ILIKE $${params.length})`);
     }
-
     if (category) {
-      if (whereClause) {
-        whereClause += ' AND category = ?';
-      } else {
-        whereClause += ' WHERE category = ?';
-      }
       params.push(category);
+      conditions.push(`category = $${params.length}`);
     }
 
-    // 获取总数
-    const [countResult] = await pool.execute(
-      `SELECT COUNT(*) as total FROM self_construction_quotas${whereClause}`,
-      params
+    const whereClause = conditions.length > 0 ? ` WHERE ${conditions.join(' AND ')}` : '';
+    const database = getDatabase();
+    const countResult = await database.query<CountRow>(
+      `SELECT COUNT(*) AS total FROM self_construction_quotas${whereClause}`,
+      params,
     );
-    const total = (countResult as any[])[0].total;
-
-    // 分页查询（LIMIT/OFFSET 不支持预编译占位符，直接拼接整数）
-    const [rows] = await pool.execute(
-      `SELECT * FROM self_construction_quotas${whereClause} ORDER BY sort_order ASC, id ASC LIMIT ${limit} OFFSET ${offset}`,
-      params
+    const total = parseCount(countResult.rows[0]?.total ?? 0);
+    const pageParams = [...params, limit, offset];
+    const rows = await database.query<Record<string, unknown>>(
+      `SELECT * FROM self_construction_quotas${whereClause}
+       ORDER BY sort_order ASC, id ASC
+       LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      pageParams,
     );
-
-    const totalPages = Math.ceil(total / limit);
 
     return NextResponse.json({
       success: true,
-      data: rows,
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages,
-      },
+      data: rows.rows,
+      pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
     });
   } catch (error) {
     console.error('获取自施工定额列表失败:', error);
-    return NextResponse.json(
-      { success: false, error: '获取自施工定额列表失败' },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: '获取自施工定额列表失败' }, { status: 500 });
   }
 }
 
@@ -72,48 +92,25 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const auth = await requireApiAuth(request, ['admin']);
   if (!auth.ok) return auth.response;
+  const parsed = await validateBody(request, quotaSchema);
+  if (!parsed.ok) return parsed.response;
 
   try {
-    await initDatabase();
-
-    const body = await request.json();
-    const { id, category, name, unit, quantity, price, remark, sortOrder } = body;
-
-    if (!id || !category || !name || !unit || price === undefined) {
-      return NextResponse.json(
-        { success: false, error: '缺少必填字段（编号、分类、名称、单位、单价）' },
-        { status: 400 }
-      );
-    }
-
-    // 检查ID是否重复
-    const [existing] = await pool.execute(
-      'SELECT id FROM self_construction_quotas WHERE id = ?',
-      [id]
+    const { id, category, name, unit, quantity, price, remark, sortOrder } = parsed.data;
+    const inserted = await getDatabase().query<IdRow>(
+      `INSERT INTO self_construction_quotas
+         (id, item_id, category, name, unit, quantity, price, remark, sort_order)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING id`,
+      [id, id, category, name, unit, quantity, price, remark, sortOrder],
     );
-    if ((existing as any[]).length > 0) {
-      return NextResponse.json(
-        { success: false, error: '定额编号已存在' },
-        { status: 400 }
-      );
-    }
-
-    await pool.execute(
-      `INSERT INTO self_construction_quotas (id, category, name, unit, quantity, price, remark, sort_order)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, category, name, unit, quantity || 1, price, remark || '', sortOrder || 0]
-    );
-
-    return NextResponse.json({
-      success: true,
-      data: { id },
-    });
+    return NextResponse.json({ success: true, data: { id: inserted.rows[0]?.id ?? id } });
   } catch (error) {
+    if (isUniqueViolation(error)) {
+      return NextResponse.json({ success: false, error: '定额编号已存在' }, { status: 400 });
+    }
     console.error('新增自施工定额失败:', error);
-    return NextResponse.json(
-      { success: false, error: '新增自施工定额失败' },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: '新增自施工定额失败' }, { status: 500 });
   }
 }
 
@@ -121,49 +118,26 @@ export async function POST(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   const auth = await requireApiAuth(request, ['admin']);
   if (!auth.ok) return auth.response;
+  const parsed = await validateBody(request, quotaSchema);
+  if (!parsed.ok) return parsed.response;
 
   try {
-    await initDatabase();
-
-    const body = await request.json();
-    const { id, category, name, unit, quantity, price, remark, sortOrder } = body;
-
-    if (!id) {
-      return NextResponse.json(
-        { success: false, error: '缺少定额编号' },
-        { status: 400 }
-      );
-    }
-
-    // 检查是否存在
-    const [existing] = await pool.execute(
-      'SELECT id FROM self_construction_quotas WHERE id = ?',
-      [id]
-    );
-    if ((existing as any[]).length === 0) {
-      return NextResponse.json(
-        { success: false, error: '定额项不存在' },
-        { status: 404 }
-      );
-    }
-
-    await pool.execute(
+    const { id, category, name, unit, quantity, price, remark, sortOrder } = parsed.data;
+    const updated = await getDatabase().query<IdRow>(
       `UPDATE self_construction_quotas
-       SET category = ?, name = ?, unit = ?, quantity = ?, price = ?, remark = ?, sort_order = ?
-       WHERE id = ?`,
-      [category, name, unit, quantity || 1, price, remark || '', sortOrder || 0, id]
+       SET category = $1, name = $2, unit = $3, quantity = $4, price = $5,
+           remark = $6, sort_order = $7, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $8
+       RETURNING id`,
+      [category, name, unit, quantity, price, remark, sortOrder, id],
     );
-
-    return NextResponse.json({
-      success: true,
-      data: { id },
-    });
+    if (!updated.rows[0]) {
+      return NextResponse.json({ success: false, error: '定额项不存在' }, { status: 404 });
+    }
+    return NextResponse.json({ success: true, data: { id: updated.rows[0].id } });
   } catch (error) {
     console.error('编辑自施工定额失败:', error);
-    return NextResponse.json(
-      { success: false, error: '编辑自施工定额失败' },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: '编辑自施工定额失败' }, { status: 500 });
   }
 }
 
@@ -171,41 +145,20 @@ export async function PUT(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   const auth = await requireApiAuth(request, ['admin']);
   if (!auth.ok) return auth.response;
+  const parsed = await validateBody(request, deleteSchema);
+  if (!parsed.ok) return parsed.response;
 
   try {
-    await initDatabase();
-
-    const body = await request.json();
-    const { id } = body;
-
-    if (!id) {
-      return NextResponse.json(
-        { success: false, error: '缺少定额编号' },
-        { status: 400 }
-      );
-    }
-
-    const [result] = await pool.execute(
-      'DELETE FROM self_construction_quotas WHERE id = ?',
-      [id]
+    const deleted = await getDatabase().query<IdRow>(
+      'DELETE FROM self_construction_quotas WHERE id = $1 RETURNING id',
+      [parsed.data.id],
     );
-
-    if ((result as any).affectedRows === 0) {
-      return NextResponse.json(
-        { success: false, error: '定额项不存在' },
-        { status: 404 }
-      );
+    if (!deleted.rows[0]) {
+      return NextResponse.json({ success: false, error: '定额项不存在' }, { status: 404 });
     }
-
-    return NextResponse.json({
-      success: true,
-      message: '删除成功',
-    });
+    return NextResponse.json({ success: true, message: '删除成功' });
   } catch (error) {
     console.error('删除自施工定额失败:', error);
-    return NextResponse.json(
-      { success: false, error: '删除自施工定额失败' },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: '删除自施工定额失败' }, { status: 500 });
   }
 }
