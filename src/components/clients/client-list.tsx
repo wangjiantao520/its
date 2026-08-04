@@ -32,6 +32,10 @@ import {
   MapPin,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { apiFetch } from '@/lib/api-fetch';
+
+// 响应数据可能是 { items, total } 或直接数组；这里统一用宽松类型
+type ClientListData = Client[] | { items: Client[]; total: number };
 
 export interface Client {
   id?: number;
@@ -97,13 +101,11 @@ export function ClientList({ onCreateQuote }: ClientListProps) {
         level: levelFilter === 'all' ? '' : levelFilter,
         region: regionFilter === 'all' ? '' : regionFilter,
       });
-      const res = await fetch(`/api/clients?${params}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
-      if (data.success) {
-        setClients(data.data?.items ?? data.data ?? []);
-        setTotal(data.data?.total ?? 0);
+      const result = await apiFetch<ClientListData>(`/api/clients?${params}`);
+      if (result.success && result.data) {
+        const payload = result.data;
+        setClients(Array.isArray(payload) ? payload : (payload.items ?? []));
+        setTotal(Array.isArray(payload) ? payload.length : (payload.total ?? 0));
       }
     } catch (err) {
       console.error('Failed to fetch clients:', err);
@@ -177,12 +179,8 @@ export function ClientList({ onCreateQuote }: ClientListProps) {
       // POST each row as a new client (skip rows without name)
       for (const row of json) {
         if (!row.name) continue;
-        await fetch('/api/clients', {
+        await apiFetch('/api/clients', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
           body: JSON.stringify(row),
         });
       }

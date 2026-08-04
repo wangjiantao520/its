@@ -11,6 +11,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import * as XLSX from 'xlsx-js-style';
+import { toast } from 'sonner';
 import { useUser } from '@/contexts/user-context';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -131,7 +132,7 @@ import { ValueAddedServicesSelector } from '@/components/value-added-services-se
 import { SurveyQuestionnaire } from '@/components/survey-questionnaire';
 import type { SurveyAnswer } from '@/lib/survey-questions';
 import { VALUE_ADDED_SERVICES, calculateValueAddedServicesTotal, type ValueAddedService } from '@/lib/value-added-services';
-import { parseQuoteRequirement, parseQuoteWithHistory, AI_QUOTE_EXAMPLES, type AiQuoteDraft, type RecognitionStatus, type ChatMessage, formatPrice } from '@/lib/ai-quote-parser';
+import { AI_QUOTE_EXAMPLES } from '@/lib/ai-quote-parser';
 import { AiChatPanel } from '@/components/quotes/ai-chat-panel';
 import {
   generateMaintenanceQuoteHTML,
@@ -140,26 +141,48 @@ import {
   type MaintenanceQuoteExportData,
 } from '@/lib/export-utils';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import {
+  DEPRECIATION_GRADE_MAP,
+  DEPRECIATION_LEVEL_TO_GRADE,
+  exportSummaryExcel,
+} from './maintenance-helpers';
+import { useAiQuote } from './use-ai-quote';
+import { apiFetch } from '@/lib/api-fetch';
 
 export default function MaintenanceQuotePage() {
   const { user } = useUser();
   // 动态设备数据（从数据库加载）
   const [dbDeviceQuotas, setDbDeviceQuotas] = useState<any[]>([]);
   const [dbDataLoading, setDbDataLoading] = useState(true);
-  
-  // AI辅助报价状态
-  const [aiRequirementText, setAiRequirementText] = useState('');
-  const [aiRecognitionStatus, setAiRecognitionStatus] = useState<RecognitionStatus>('idle');
-  const [aiDraft, setAiDraft] = useState<AiQuoteDraft | null>(null);
-  const [showAiPreview, setShowAiPreview] = useState(false);
-  const [showAiCompletionDialog, setShowAiCompletionDialog] = useState(false);
-  const [completionDraft, setCompletionDraft] = useState<AiQuoteDraft | null>(null);
-  const [showAiChat, setShowAiChat] = useState(false);  // 新增：AI对话面板
-  const [aiChatHistory, setAiChatHistory] = useState<ChatMessage[]>([]);  // 新增：对话历史
-  const [uploadedFileContent, setUploadedFileContent] = useState<string>('');  // 新增：上传文件内容
-  const [uploadedFileName, setUploadedFileName] = useState<string>('');  // 新增：上传文件名
-  const [aiMatchingDevices, setAiMatchingDevices] = useState<any[]>([]);  // 新增：AI匹配的设备列表
-  const [isAiMatching, setIsAiMatching] = useState(false);  // 新增：AI匹配状态
+
+  // AI辅助报价状态与处理器（抽取到 ./use-ai-quote）
+  const {
+    aiRequirementText,
+    setAiRequirementText,
+    aiRecognitionStatus,
+    aiDraft,
+    setAiDraft,
+    showAiPreview,
+    setShowAiPreview,
+    showAiCompletionDialog,
+    setShowAiCompletionDialog,
+    completionDraft,
+    setCompletionDraft,
+    showAiChat,
+    setShowAiChat,
+    aiChatHistory,
+    setAiChatHistory,
+    uploadedFileContent,
+    uploadedFileName,
+    aiMatchingDevices,
+    isAiMatching,
+    handleAiParse,
+    handleAiMatchDevices,
+    handleClearAi,
+    handleClearFile,
+    handleFileUpload,
+    handleUseExample,
+  } = useAiQuote();
 
   // 价格设置功能
   const [showPriceSettings, setShowPriceSettings] = useState(false);
@@ -169,150 +192,8 @@ export default function MaintenanceQuotePage() {
   // 成本测算功能
   const [costRatio, setCostRatio] = useState(65);
 
-  // AI辅助报价处理函数
-  const handleAiParse = async () => {
-    if (!aiRequirementText.trim()) {
-      return;
-    }
-    setAiRecognitionStatus('analyzing');
-    try {
-      const draft = await parseQuoteRequirement(aiRequirementText);
-      setAiDraft(draft);
-      setCompletionDraft(JSON.parse(JSON.stringify(draft)));
-      setAiRecognitionStatus(draft.missingFields.length > 0 && draft.devices.length === 0 ? 'needs_info' : 'success');
-      setShowAiCompletionDialog(true);
-    } catch (error) {
-      console.error('AI解析失败:', error);
-      setAiRecognitionStatus('failed');
-    }
-  };
+  // AI 处理器已抽取到 ./use-ai-quote（handleAiParse / handleAiMatchDevices / handleClearAi / handleClearFile / handleFileUpload / handleUseExample）
 
-  // AI设备匹配处理函数
-  const handleAiMatchDevices = async () => {
-    if (!aiRequirementText.trim()) {
-      return;
-    }
-    setIsAiMatching(true);
-    try {
-      const response = await fetch('/api/ai-match-devices', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: aiRequirementText })
-      });
-      const result = await response.json();
-      if (result.success) {
-        setAiMatchingDevices(result.devices);
-        setAiRecognitionStatus('success');
-      } else {
-        console.error('AI设备匹配失败:', result.error);
-        setAiRecognitionStatus('failed');
-      }
-    } catch (error) {
-      console.error('AI设备匹配失败:', error);
-      setAiRecognitionStatus('failed');
-    } finally {
-      setIsAiMatching(false);
-    }
-  };
-
-  const handleClearAi = () => {
-    setAiRequirementText('');
-    setAiRecognitionStatus('idle');
-    setAiDraft(null);
-    setShowAiPreview(false);
-    setUploadedFileContent('');
-    setUploadedFileName('');
-  };
-
-  const handleClearFile = () => {
-    setUploadedFileName('');
-    setUploadedFileContent('');
-    setAiRequirementText('');
-    setAiRecognitionStatus('idle');
-    // 清空文件输入框
-    const fileInput = document.getElementById('file-upload') as HTMLInputElement;
-    if (fileInput) {
-      fileInput.value = '';
-    }
-  };
-
-  // 文件上传处理函数
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    setUploadedFileName(file.name);
-    setAiRecognitionStatus('recognizing');
-
-    try {
-      // 根据文件类型选择读取方式
-      if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
-        // Excel 文件解析
-        const reader = new FileReader();
-        reader.onload = async (e) => {
-          const data = new Uint8Array(e.target?.result as ArrayBuffer);
-          const workbook = XLSX.read(data, { type: 'array' });
-          const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-          const jsonData = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
-          
-          // 转换为文本格式
-          const textContent = (jsonData as unknown[][]).map((row: unknown[]) => Array.isArray(row) ? row.join('\t') : String(row)).join('\n');
-          setUploadedFileContent(textContent);
-          
-          // 将文件内容作为需求文本进行AI识别
-          const fullText = `从文件 ${file.name} 中提取的设备清单：\n\n${textContent}`;
-          setAiRequirementText(fullText);
-          
-          // 自动触发AI识别
-          try {
-            const draft = await parseQuoteRequirement(fullText);
-            setAiDraft(draft);
-            setCompletionDraft(JSON.parse(JSON.stringify(draft)));
-            setAiRecognitionStatus(draft.missingFields.length > 0 && draft.devices.length === 0 ? 'needs_info' : 'success');
-            setShowAiCompletionDialog(true);
-          } catch (error) {
-            console.error('AI解析失败:', error);
-            setAiRecognitionStatus('failed');
-          }
-        };
-        reader.readAsArrayBuffer(file);
-      } else if (file.name.endsWith('.txt') || file.name.endsWith('.csv') || file.name.endsWith('.md')) {
-        const reader = new FileReader();
-        reader.onload = async (e) => {
-          const content = e.target?.result as string;
-          setUploadedFileContent(content);
-          
-          // 将文件内容作为需求文本进行AI识别
-          const fullText = `从文件 ${file.name} 中提取的设备清单：\n\n${content}`;
-          setAiRequirementText(fullText);
-          
-          // 自动触发AI识别
-          try {
-            const draft = await parseQuoteRequirement(fullText);
-            setAiDraft(draft);
-            setCompletionDraft(JSON.parse(JSON.stringify(draft)));
-            setAiRecognitionStatus(draft.missingFields.length > 0 && draft.devices.length === 0 ? 'needs_info' : 'success');
-            setShowAiCompletionDialog(true);
-          } catch (error) {
-            console.error('AI解析失败:', error);
-            setAiRecognitionStatus('failed');
-          }
-        };
-        reader.readAsText(file);
-      } else {
-        setAiRecognitionStatus('failed');
-        alert('暂不支持该文件格式，请上传 .xlsx, .xls, .csv, .txt 或 .md 文件');
-      }
-    } catch (error) {
-      console.error('文件读取失败:', error);
-      setAiRecognitionStatus('failed');
-    }
-  };
-
-  const handleUseExample = (example: string) => {
-    setAiRequirementText(example);
-  };
-  
   // 价格设置处理函数
   const handleOpenPriceSettings = () => {
     // 初始化价格设置
@@ -360,7 +241,7 @@ export default function MaintenanceQuotePage() {
   
   const handleSavePriceSettings = () => {
     if (saveType === 'permanent' && user?.role !== 'admin') {
-      alert('永久保存仅限管理员操作');
+      toast.error('永久保存仅限管理员操作');
       return;
     }
     
@@ -508,28 +389,14 @@ export default function MaintenanceQuotePage() {
     }
     
     if (saveType === 'permanent') {
-      alert('价格已永久保存！');
+      toast.success('价格已永久保存！');
     } else {
-      alert('价格已暂时保存！');
+      toast.success('价格已暂时保存！');
     }
     setShowPriceSettings(false);
   };
 
-  // 成新率等级映射：1级=全新，2级=较新，3级=一般，4级=偏旧，5级=老旧
-  const DEPRECIATION_GRADE_MAP: Record<string, DepreciationLevel> = {
-    '1': '全新',
-    '2': '较新',
-    '3': '一般',
-    '4': '偏旧',
-    '5': '老旧',
-  };
-  const DEPRECIATION_LEVEL_TO_GRADE: Record<DepreciationLevel, string> = {
-    '全新': '1',
-    '较新': '2',
-    '一般': '3',
-    '偏旧': '4',
-    '老旧': '5',
-  };
+  // 成新率等级映射已抽取到 ./maintenance-helpers（DEPRECIATION_GRADE_MAP / DEPRECIATION_LEVEL_TO_GRADE）
 
   const [activeTab, setActiveTab] = useState('new');
   const [quoteDate, setQuoteDate] = useState<string>('');
@@ -553,20 +420,18 @@ export default function MaintenanceQuotePage() {
       try {
         setDbDataLoading(true);
         // 加载两种设备数据：政企设备定额 + 云数据中心设备
-        const [response1, response2] = await Promise.all([
-          fetch('/api/device-params?type=device_quotas'),
-          fetch('/api/device-params?type=maintenance_device_quotas')
+        const [result1, result2] = await Promise.all([
+          apiFetch<unknown[]>('/api/device-params?type=device_quotas'),
+          apiFetch<unknown[]>('/api/device-params?type=maintenance_device_quotas')
         ]);
-        const result1 = await response1.json();
-        const result2 = await response2.json();
-        
+
         const allData = [];
-        
+
         // 添加政企设备定额
         if (result1.success && Array.isArray(result1.data)) {
           allData.push(...result1.data);
         }
-        
+
         // 添加云数据中心设备
         if (result2.success && Array.isArray(result2.data)) {
           allData.push(...result2.data);
@@ -774,10 +639,9 @@ export default function MaintenanceQuotePage() {
     setShowHistoryDialog(true);
     setHistoryLoading(true);
     try {
-      const response = await fetch('/api/quotes?type=quotation&page_size=50');
-      const result = await response.json();
-      if (!response.ok || !result.success) throw new Error(result.error || '加载失败');
-      setHistoryQuotes(result.data.map((quote: any) => ({
+      const result = await apiFetch<any[]>('/api/quotes?type=quotation&page_size=50');
+      if (!result.success) throw new Error(result.error || '加载失败');
+      setHistoryQuotes((result.data ?? []).map((quote: any) => ({
         id: quote.id,
         sourceId: quote.source_id,
         quoteNumber: quote.quote_number,
@@ -788,7 +652,7 @@ export default function MaintenanceQuotePage() {
         status: quote.status,
       })));
     } catch (error) {
-      alert(error instanceof Error ? error.message : '加载历史报价失败');
+      toast.error(error instanceof Error ? error.message : '加载历史报价失败');
       setHistoryQuotes([]);
     } finally {
       setHistoryLoading(false);
@@ -797,9 +661,8 @@ export default function MaintenanceQuotePage() {
 
   const handleSelectHistoryQuote = async (quote: any) => {
     try {
-      const response = await fetch(`/api/quotations/${quote.sourceId}`);
-      const result = await response.json();
-      if (!response.ok || !result.success) throw new Error(result.error || '读取历史报价失败');
+      const result = await apiFetch<any>(`/api/quotations/${quote.sourceId}`);
+      if (!result.success) throw new Error(result.error || '读取历史报价失败');
       const detail = result.data;
       const reusedDevices = detail.quote_data?.devices;
       if (Array.isArray(reusedDevices) && reusedDevices.length > 0) {
@@ -808,16 +671,16 @@ export default function MaintenanceQuotePage() {
       setClientName(detail.client_name || quote.clientName || '');
       setProjectName(detail.project_name || quote.projectName || '');
       setShowHistoryDialog(false);
-      alert(`已复用历史报价 ${quote.quoteNumber}`);
+      toast.success(`已复用历史报价 ${quote.quoteNumber}`);
     } catch (error) {
-      alert(error instanceof Error ? error.message : '复用历史报价失败');
+      toast.error(error instanceof Error ? error.message : '复用历史报价失败');
     }
   };
 
   // 批量编辑
   const handleBatchEdit = () => {
     if (batchSelected.length === 0) {
-      alert('请先选择要编辑的设备');
+      toast.error('请先选择要编辑的设备');
       return;
     }
     setShowBatchDialog(true);
@@ -843,14 +706,12 @@ export default function MaintenanceQuotePage() {
   const handleGenerateShareLink = async (): Promise<string | null> => {
     const identity = await ensureQuoteSaved();
     if (!identity) return null;
-    const response = await fetch('/api/quotes/share', {
+    const result = await apiFetch<{ shareUrl: string }>('/api/quotes/share', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ quoteId: identity, expiryDays: 7 }),
     });
-    const result = await response.json();
-    if (!response.ok || !result.success) {
-      alert(result.error || '生成分享链接失败');
+    if (!result.success || !result.data) {
+      toast.error(result.error || '生成分享链接失败');
       return null;
     }
     const link = `${window.location.origin}${result.data.shareUrl}`;
@@ -872,7 +733,7 @@ export default function MaintenanceQuotePage() {
       setShareLinkCopied(true);
       setTimeout(() => setShareLinkCopied(false), 2000);
     } catch {
-      alert('复制失败，请手动复制');
+      toast.error('复制失败，请手动复制');
     }
   };
 
@@ -884,27 +745,25 @@ export default function MaintenanceQuotePage() {
   // 保存新版本
   const handleSaveAsNewVersion = async () => {
     if (!versionName.trim()) {
-      alert('请输入版本名称');
+      toast.error('请输入版本名称');
       return;
     }
     const identity = await ensureQuoteSaved();
     if (!identity) return;
     const [quoteType, quoteId] = identity.split(':');
-    const response = await fetch('/api/quotes/versions', {
+    const result = await apiFetch<{ version: string | number }>('/api/quotes/versions', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         quoteId: Number(quoteId),
         quoteType,
         quoteData: { versionName, projectName, clientName, total: fullQuoteResult?.finalTotal || quoteResult?.total || 0, devices: selectedDevices },
       }),
     });
-    const result = await response.json();
-    if (!response.ok || !result.success) {
-      alert(result.error || '保存版本失败');
+    if (!result.success || !result.data) {
+      toast.error(result.error || '保存版本失败');
       return;
     }
-    alert(`已保存为版本 ${result.data.version}：${versionName}`);
+    toast.success(`已保存为版本 ${result.data.version}：${versionName}`);
     setShowSaveVersionDialog(false);
     setVersionName('');
   };
@@ -912,22 +771,20 @@ export default function MaintenanceQuotePage() {
   // 提交审核
   const handleSubmitForReview = async () => {
     if (!reviewComment.trim()) {
-      alert('请填写审核意见');
+      toast.error('请填写审核意见');
       return;
     }
     const identity = await ensureQuoteSaved();
     if (!identity) return;
-    const response = await fetch(`/api/quotes/${encodeURIComponent(identity)}/status`, {
+    const result = await apiFetch(`/api/quotes/${encodeURIComponent(identity)}/status`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'submit_review', comment: reviewComment }),
     });
-    const result = await response.json();
-    if (!response.ok || !result.success) {
-      alert(result.error || '提交审核失败');
+    if (!result.success) {
+      toast.error(result.error || '提交审核失败');
       return;
     }
-    alert('已提交审核');
+    toast.success('已提交审核');
     setShowReviewDialog(false);
     setReviewComment('');
   };
@@ -935,7 +792,7 @@ export default function MaintenanceQuotePage() {
   // 专业报表导出
   const handleProfessionalExport = (format: 'standard' | 'detailed' | 'summary') => {
     if ((!quoteResult && !fullQuoteResult) || selectedDevices.length === 0) {
-      alert('请先添加设备并计算报价后再导出！');
+      toast.error('请先添加设备并计算报价后再导出！');
       return;
     }
     setExportFormat(format);
@@ -952,42 +809,19 @@ export default function MaintenanceQuotePage() {
     setShowProfessionalExportDialog(false);
   };
 
-  // 汇总格式导出Excel（单页汇总表）
+  // 汇总格式导出Excel（单页汇总表）—— 实现已抽取到 ./maintenance-helpers
   const handleExportSummaryExcel = () => {
     if ((!quoteResult && !fullQuoteResult) || selectedDevices.length === 0) return;
-
-    const activeFullResult = fullQuoteResult;
-    const years = parseInt(contractYears) as 1 | 2 | 3;
-    const grandTotal = activeFullResult
-      ? activeFullResult.totalByYear[years]
-      : (quoteResult?.totalByYear[years] ?? 0);
-    const costRatioVal = costRatio / 100;
-    const maintenanceCost = grandTotal * costRatioVal;
-    const maintenanceProfit = grandTotal - maintenanceCost;
-
-    const summaryData = [
-      { '项目': '报价单号', '数值': `WB${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}${String(new Date().getDate()).padStart(2, '0')}` },
-      { '项目': '项目名称', '数值': projectName || '-' },
-      { '项目': '客户名称', '数值': clientName || '-' },
-      { '项目': '设备数量', '数值': `${selectedDevices.reduce((s, d) => s + d.quantity, 0)} 台` },
-      { '项目': '服务区域', '数值': region },
-      { '项目': '合同年限', '数值': `${contractYears} 年` },
-      { '项目': '', '数值': '' },
-      { '项目': '维保报价（不含税）', '数值': `¥${(activeFullResult?.subtotalAfterDiscount ?? quoteResult?.subtotal ?? 0).toLocaleString()}` },
-      { '项目': '增值税（13%）', '数值': `¥${(activeFullResult?.taxAmount ?? quoteResult?.taxAmount ?? 0).toLocaleString()}` },
-      { '项目': '含税总价', '数值': `¥${grandTotal.toLocaleString()}` },
-      { '项目': '', '数值': '' },
-      { '项目': '维保成本', '数值': `¥${maintenanceCost.toLocaleString()}` },
-      { '项目': '维保利润', '数值': `¥${maintenanceProfit.toLocaleString()}` },
-      { '项目': '成本率', '数值': `${costRatio}%` },
-      { '项目': '利润率', '数值': `${100 - costRatio}%` },
-    ];
-
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.json_to_sheet(summaryData);
-    ws['!cols'] = [{ wch: 25 }, { wch: 35 }];
-    XLSX.utils.book_append_sheet(wb, ws, '报价汇总');
-    XLSX.writeFile(wb, `维保报价汇总_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    exportSummaryExcel({
+      fullQuoteResult,
+      quoteResult,
+      contractYears,
+      costRatio,
+      projectName,
+      clientName,
+      region,
+      selectedDevices,
+    });
   };
 
   // 确保报价已保存（自动保存辅助函数）
@@ -1232,7 +1066,7 @@ export default function MaintenanceQuotePage() {
   // 手动触发计算
   const handleCalculateClick = () => {
     if (selectedDevices.length === 0) {
-      alert('请先添加设备到设备列表！');
+      toast.error('请先添加设备到设备列表！');
       return;
     }
     handleCalculate();
@@ -1248,7 +1082,7 @@ export default function MaintenanceQuotePage() {
   // 导出报价单（导出Word）- 优先使用完整数据
   const handleExportQuote = () => {
     if ((!quoteResult && !fullQuoteResult) || selectedDevices.length === 0) {
-      alert('请先添加设备并计算报价后再导出！');
+      toast.error('请先添加设备并计算报价后再导出！');
       return;
     }
 
@@ -1355,7 +1189,7 @@ export default function MaintenanceQuotePage() {
   // 保存报价
   const handleSaveQuote = async (): Promise<string | null> => {
     if ((!quoteResult && !fullQuoteResult) || selectedDevices.length === 0) {
-      alert('请先添加设备并点击"计算报价"按钮后再保存！');
+      toast.error('请先添加设备并点击"计算报价"按钮后再保存！');
       return null;
     }
 
@@ -1378,9 +1212,8 @@ export default function MaintenanceQuotePage() {
     }));
 
     try {
-      const response = await fetch('/api/quotations', {
+      const result = await apiFetch<{ id: number | string }>('/api/quotations', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           client_name: clientName || '未命名客户',
           client_region: '城区',
@@ -1397,24 +1230,22 @@ export default function MaintenanceQuotePage() {
         })
       });
 
-      if (response.ok) {
-        const saved = await response.json();
-        if (saved.success && saved.data?.id) {
-          const identity = `quotation:${saved.data.id}`;
+      if (result.success) {
+        if (result.data?.id) {
+          const identity = `quotation:${result.data.id}`;
           setCurrentQuoteIdentity(identity);
-          alert(`报价单 ${newQuoteNumber} 已保存！`);
+          toast.success(`报价单 ${newQuoteNumber} 已保存！`);
           return identity;
         }
-        alert(`报价单 ${newQuoteNumber} 已保存！`);
+        toast.success(`报价单 ${newQuoteNumber} 已保存！`);
         return null;
       } else {
-        const error = await response.json();
-        alert(`保存失败: ${error.error}`);
+        toast.error(`保存失败: ${result.error}`);
         return null;
       }
     } catch (error) {
       console.error('保存报价单失败:', error);
-      alert('保存失败，请重试');
+      toast.error('保存失败，请重试');
       return null;
     }
   };
@@ -1422,7 +1253,7 @@ export default function MaintenanceQuotePage() {
   // 导出Excel
   const handleExportExcel = () => {
     if ((!quoteResult && !fullQuoteResult) || selectedDevices.length === 0) {
-      alert('请先添加设备并点击"计算报价"按钮后再导出！');
+      toast.error('请先添加设备并点击"计算报价"按钮后再导出！');
       return;
     }
 
@@ -1972,7 +1803,7 @@ export default function MaintenanceQuotePage() {
                         if (aiDraft.region) setRegion(aiDraft.region as RegionType);
                         if (aiDraft.contractYears) setContractYears(String(aiDraft.contractYears));
                         setShowAiPreview(false);
-                        alert('AI识别的地区和合同年限已应用；设备匹配结果可在设备列表中继续确认');
+                        toast.info('AI识别的地区和合同年限已应用；设备匹配结果可在设备列表中继续确认');
                       }}
                     >
                       应用到报价单
@@ -2062,7 +1893,7 @@ export default function MaintenanceQuotePage() {
                             }
                           }
                         });
-                        alert(`已添加 ${matchedDevices.length} 个匹配设备到报价单`);
+                        toast.success(`已添加 ${matchedDevices.length} 个匹配设备到报价单`);
                       }}
                     >
                       <Plus className="h-4 w-4 mr-2" />
@@ -2079,13 +1910,14 @@ export default function MaintenanceQuotePage() {
                               handleAddFullDevice(quota);
                             }
                           } else if (device.candidates && device.candidates.length > 0) {
-                            const quota = dbDeviceQuotas.find((q: any) => String(q.id) === device.candidates[0].id);
+                            const firstCandidate = device.candidates[0];
+                            const quota = firstCandidate ? dbDeviceQuotas.find((q: any) => String(q.id) === firstCandidate.id) : undefined;
                             if (quota) {
                               handleAddFullDevice(quota);
                             }
                           }
                         });
-                        alert(`已添加所有设备到报价单`);
+                        toast.success(`已添加所有设备到报价单`);
                       }}
                     >
                       添加所有设备
@@ -3721,7 +3553,7 @@ export default function MaintenanceQuotePage() {
             initialAnswers={surveyAnswers}
             onSave={(answers) => {
               setSurveyAnswers(answers);
-              alert('查勘记录保存成功！');
+              toast.success('查勘记录保存成功！');
             }}
           />
         </TabsContent>
@@ -3862,10 +3694,10 @@ export default function MaintenanceQuotePage() {
                 if (editingQuota) {
                   const updated = updateDeviceQuota(editingQuota.id, editingQuota);
                   if (updated) {
-                    alert('设备定额更新成功！');
+                    toast.success('设备定额更新成功！');
                     setIsEditDialogOpen(false);
                   } else {
-                    alert('更新失败：未找到设备');
+                    toast.error('更新失败：未找到设备');
                   }
                 }
               }}

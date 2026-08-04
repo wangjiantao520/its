@@ -94,6 +94,8 @@ function LoginContent() {
         return;
       }
 
+      // 保留原生 fetch：登录失败时需读取服务端返回的具体 error 文案
+      // （apiFetch 在 401 时只返回固定文案，会丢失"用户名或密码错误"等业务错误）
       const response = await fetch('/api/auth', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

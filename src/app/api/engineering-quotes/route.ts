@@ -1,16 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import pool, { initDatabase } from '@/lib/db';
+import pool from '@/lib/db';
 import { requireApiAuth } from '@/lib/api-auth-server';
 
-// 初始化数据库
 export async function GET(request: NextRequest) {
   const auth = requireApiAuth(request);
   if (!auth.ok) return auth.response;
 
   try {
-    // 初始化数据库表
-    await initDatabase();
-
     const searchParams = request.nextUrl.searchParams;
     const page = parseInt(searchParams.get('page') || '1');
     const limit = parseInt(searchParams.get('limit') || '10');
@@ -42,8 +38,8 @@ export async function GET(request: NextRequest) {
     }
 
     const [rows] = await pool.execute(
-      `SELECT * FROM engineering_quotes${whereClause} ORDER BY created_at DESC LIMIT ${Number(limit)} OFFSET ${Number(offset)}`,
-      params
+      `SELECT * FROM engineering_quotes${whereClause} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+      [...params, limit, offset]
     );
 
     const [countResult] = await pool.execute(

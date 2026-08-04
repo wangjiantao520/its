@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Building2, User, Phone, Mail, MapPin, Tag, StickyNote, Loader2 } from 'lucide-react';
 import type { Client } from './client-list';
+import { apiFetch } from '@/lib/api-fetch';
 
 interface ClientFormProps {
   client: Client | null;
@@ -99,19 +100,13 @@ export function ClientForm({ client, token, onSuccess, onCancel }: ClientFormPro
       const url = isEdit ? `/api/clients/${client.id}` : '/api/clients';
       const method = isEdit ? 'PUT' : 'POST';
 
-      const res = await fetch(url, {
+      const result = await apiFetch(url, {
         method,
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
         body: JSON.stringify(form),
       });
 
-      const data = await res.json();
-
-      if (!data.success) {
-        setSubmitError(data.error ?? '保存失败，请重试');
+      if (!result.success) {
+        setSubmitError(result.error ?? '保存失败，请重试');
         return;
       }
 

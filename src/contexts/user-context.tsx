@@ -106,6 +106,8 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(async (role: UserRole, password: string): Promise<{ success: boolean; error?: string }> => {
     try {
+      // 保留原生 fetch：登录失败时需读取服务端返回的具体 error 文案
+      // （apiFetch 在 401 时只返回固定文案"未登录或登录已过期"，会丢失"用户名或密码错误"等业务错误）
       const response = await fetch('/api/auth', {
         method: 'POST',
         headers: {
@@ -141,6 +143,8 @@ export function UserProvider({ children }: { children: ReactNode }) {
     // 尝试通知服务器使会话失效
     if (token) {
       try {
+        // 保留原生 fetch：登出失败不需要处理响应体，且 apiFetch 会触发 401 跳转登录页
+        // （此处本身就是登出流程，跳转无意义）
         await fetch('/api/auth', {
           method: 'DELETE',
           headers: {

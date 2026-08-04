@@ -50,6 +50,7 @@ import {
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { downloadAsPDF } from '@/lib/export-utils';
+import { useConfirm } from '@/hooks/use-confirm';
 
 // 报价单状态
 type QuoteStatus = 'draft' | 'pending_review' | 'approved' | 'sent' | 'archived';
@@ -127,6 +128,7 @@ interface SortConfig {
 export default function QuotesPage() {
   const router = useRouter();
   const { token } = useUser();
+  const { confirm, ConfirmDialog } = useConfirm();
 
   // 状态
   const [activeTab, setActiveTab] = useState('all');
@@ -235,11 +237,10 @@ export default function QuotesPage() {
     try {
       const results = await Promise.allSettled(
         Array.from(selectedIds).map((id) =>
-          fetch(`/api/quotes/${encodeURIComponent(id)}/status`, {
+          apiFetch(`/api/quotes/${encodeURIComponent(id)}/status`, {
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ action: 'approve' }),
-          }).then((r) => r.json())
+          })
         )
       );
       const succeeded = results.filter((r) => r.status === 'fulfilled' && r.value.success).length;
@@ -300,11 +301,10 @@ export default function QuotesPage() {
     try {
       const results = await Promise.allSettled(
         Array.from(selectedIds).map((id) =>
-          fetch(`/api/quotes/${encodeURIComponent(id)}/status`, {
+          apiFetch(`/api/quotes/${encodeURIComponent(id)}/status`, {
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ action: 'archive' }),
-          }).then((r) => r.json())
+          })
         )
       );
       const succeeded = results.filter((r) => r.status === 'fulfilled' && r.value.success).length;
@@ -335,14 +335,12 @@ export default function QuotesPage() {
   // 分享报价（生成分享链接）
   const handleShareQuote = async (quote: Quote) => {
     try {
-      const response = await fetch('/api/quotes/share', {
+      const result = await apiFetch<{ shareUrl: string }>('/api/quotes/share', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ quoteId: quote.id, expiryDays: 7 }),
       });
-      const data = await response.json();
-      if (data.success && data.data?.shareUrl) {
-        const shareUrl = `${window.location.origin}${data.data.shareUrl}`;
+      if (result.success && result.data?.shareUrl) {
+        const shareUrl = `${window.location.origin}${result.data.shareUrl}`;
         if (navigator.clipboard) {
           await navigator.clipboard.writeText(shareUrl);
           toast.success('分享链接已复制到剪贴板');
@@ -350,7 +348,7 @@ export default function QuotesPage() {
           toast.info(`分享链接：${shareUrl}`);
         }
       } else {
-        toast.error(data.error || '生成分享链接失败');
+        toast.error(result.error || '生成分享链接失败');
       }
     } catch (e) {
       const err = e instanceof Error ? e : new Error(String(e));
@@ -361,17 +359,15 @@ export default function QuotesPage() {
   // 单条操作：批准
   const handleApproveQuote = async (quote: Quote) => {
     try {
-      const res = await fetch(`/api/quotes/${encodeURIComponent(quote.id)}/status`, {
+      const result = await apiFetch(`/api/quotes/${encodeURIComponent(quote.id)}/status`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'approve' }),
       });
-      const data = await res.json();
-      if (data.success) {
+      if (result.success) {
         toast.success(`已批准：${quote.quote_number}`);
         void loadQuotes();
       } else {
-        toast.error(data.error || '批准失败');
+        toast.error(result.error || '批准失败');
       }
     } catch (e) {
       const err = e instanceof Error ? e : new Error(String(e));
@@ -382,17 +378,15 @@ export default function QuotesPage() {
   // 单条操作：发送
   const handleSendQuote = async (quote: Quote) => {
     try {
-      const res = await fetch(`/api/quotes/${encodeURIComponent(quote.id)}/status`, {
+      const result = await apiFetch(`/api/quotes/${encodeURIComponent(quote.id)}/status`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'send' }),
       });
-      const data = await res.json();
-      if (data.success) {
+      if (result.success) {
         toast.success(`已发送：${quote.quote_number}`);
         void loadQuotes();
       } else {
-        toast.error(data.error || '发送失败');
+        toast.error(result.error || '发送失败');
       }
     } catch (e) {
       const err = e instanceof Error ? e : new Error(String(e));
@@ -431,7 +425,11 @@ export default function QuotesPage() {
 
   // 单条操作：删除
   const handleDeleteQuote = async (quote: Quote) => {
-    if (!window.confirm(`确认删除报价 ${quote.quote_number}？此操作不可恢复。`)) {
+    if (!await confirm({
+      title: '删除报价',
+      description: `确认删除报价 ${quote.quote_number}？此操作不可恢复。`,
+      confirmText: '删除',
+    })) {
       return;
     }
     try {
@@ -815,6 +813,7 @@ export default function QuotesPage() {
           </TabsContent>
         ))}
       </Tabs>
+      {ConfirmDialog}
     </div>
   );
 }

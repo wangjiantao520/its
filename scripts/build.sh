@@ -8,6 +8,9 @@ cd "${COZE_WORKSPACE_PATH}"
 echo "Installing dependencies..."
 pnpm install --prefer-frozen-lockfile --prefer-offline --loglevel debug --reporter=append-only
 
+echo "Installing deploy-compatible better-sqlite3 binary..."
+node ./scripts/ensure-better-sqlite3-prebuild.mjs
+
 echo "Building the Next.js project..."
 pnpm next build
 

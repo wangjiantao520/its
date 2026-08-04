@@ -34,6 +34,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useSearchParams } from "next/navigation";
 import { TiltIcon } from "@/components/ui/tilt-icon";
 import { createAssistantStreamParser } from "@/lib/assistant-stream";
+import { apiFetch } from "@/lib/api-fetch";
 
 interface Message {
   role: "user" | "assistant";
@@ -62,10 +63,10 @@ function AssistantContent() {
   // 加载会话列表
   const loadSessions = useCallback(async () => {
     try {
-      const res = await fetch("/api/agent-sessions");
-      const data = await res.json();
-      if (data.success) {
-        setSessions(data.data.list || []);
+      // 响应结构为 { success, data: { list: Session[] } }
+      const result = await apiFetch<{ list: Session[] }>("/api/agent-sessions");
+      if (result.success && result.data) {
+        setSessions(result.data.list || []);
       }
     } catch (e) {
       console.error("加载会话失败", e);
@@ -75,10 +76,9 @@ function AssistantContent() {
   // 加载某个会话的消息
   const loadSession = useCallback(async (sessionId: string) => {
     try {
-      const res = await fetch(`/api/agent-sessions/${sessionId}`);
-      const data = await res.json();
-      if (data.success) {
-        setMessages(data.data.messages || []);
+      const result = await apiFetch<{ messages: Message[] }>(`/api/agent-sessions/${sessionId}`);
+      if (result.success && result.data) {
+        setMessages(result.data.messages || []);
         setCurrentSessionId(sessionId);
       }
     } catch (e) {
@@ -117,6 +117,7 @@ function AssistantContent() {
     }
 
     try {
+      // 保留原生 fetch：该接口返回流式响应（SSE），需通过 reader 逐块解析
       const response = await fetch(`/api/agents/1/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -197,11 +198,10 @@ function AssistantContent() {
   const handleDeleteSession = async (sessionId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     try {
-      const res = await fetch(`/api/agent-sessions/${sessionId}`, {
+      const result = await apiFetch(`/api/agent-sessions/${sessionId}`, {
         method: "DELETE",
       });
-      const data = await res.json();
-      if (data.success) {
+      if (result.success) {
         setSessions(prev => prev.filter(s => s.session_id !== sessionId));
         if (currentSessionId === sessionId) {
           setMessages([]);

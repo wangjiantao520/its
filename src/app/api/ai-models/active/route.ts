@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('[AI Models] 激活配置失败:', error);
     return NextResponse.json(
-      { success: false, error: '激活配置失败', detail: (error as Error).message },
+      { success: false, error: '激活配置失败', detail: process.env.NODE_ENV === 'development' ? (error as Error).message : undefined },
       { status: 500 }
     );
   }

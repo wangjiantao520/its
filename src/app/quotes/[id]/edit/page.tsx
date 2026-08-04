@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import type { QuoteSummary } from '@/lib/quote-summary';
+import { apiFetch } from '@/lib/api-fetch';
 
 export default function EditQuotePage() {
   const params = useParams<{ id: string }>();
@@ -19,14 +20,13 @@ export default function EditQuotePage() {
 
   useEffect(() => {
     const load = async () => {
-      const response = await fetch(`/api/quotes/${encodeURIComponent(params.id)}`);
-      const result = await response.json();
-      if (!response.ok || !result.success) {
+      const result = await apiFetch<QuoteSummary>(`/api/quotes/${encodeURIComponent(params.id)}`);
+      if (!result.success || !result.data) {
         toast.error(result.error || '加载失败');
         router.replace('/quotes');
         return;
       }
-      const quote = result.data as QuoteSummary;
+      const quote = result.data;
       setForm({ projectName: quote.projectName, clientName: quote.clientName, total: String(quote.total) });
       setLoading(false);
     };
@@ -37,13 +37,11 @@ export default function EditQuotePage() {
     event.preventDefault();
     setSaving(true);
     try {
-      const response = await fetch(`/api/quotes/${encodeURIComponent(params.id)}`, {
+      const result = await apiFetch(`/api/quotes/${encodeURIComponent(params.id)}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...form, total: Number(form.total) }),
       });
-      const result = await response.json();
-      if (!response.ok || !result.success) throw new Error(result.error || '保存失败');
+      if (!result.success) throw new Error(result.error || '保存失败');
       toast.success('报价已更新');
       router.push(`/quotes/${encodeURIComponent(params.id)}`);
     } catch (error) {

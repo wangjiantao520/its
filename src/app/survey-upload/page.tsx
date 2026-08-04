@@ -9,6 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Upload, FileSpreadsheet, Download, Trash2, CheckCircle2, Calculator } from 'lucide-react';
 import { parseSurveyExcel, generateQuoteFromSurvey, type SurveyFormData, type QuoteResult } from '@/lib/survey-parser';
 import type { FullDeviceQuota } from '@/lib/device-quota-full';
+import { toast } from 'sonner';
 
 const SurveyUploadPage = () => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -55,7 +56,7 @@ const SurveyUploadPage = () => {
 
   const handleGenerateQuote = () => {
     if (!formData) {
-      alert('请先上传或填写记录表数据');
+      toast.error('请先上传或填写记录表数据');
       return;
     }
     

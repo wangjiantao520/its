@@ -33,116 +33,21 @@ import { Pagination, PaginationContent, PaginationItem, PaginationLink, Paginati
 import { Empty, EmptyHeader, EmptyMedia, EmptyTitle, EmptyDescription } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
 
-interface LaborPriceLevel {
-  id: number;
-  level: string;
-  unitPrice: number;
-  unit: string;
-  description: string;
-  sortOrder: number;
-  isActive: boolean;
-}
-
-interface QuoteItem {
-  id: number;
-  itemType: 'selfConstruction' | 'intelligent' | 'custom' | 'labor';
-  itemId: string;
-  quantity: number;
-  // 自定义明细字段
-  customName?: string;
-  customUnit?: string;
-  customPrice?: number;
-  customRemark?: string;
-  // 人工天计价字段
-  laborLevelId?: number;       // 人工单价档位ID
-  laborLevelName?: string;     // 人工等级名称（如：中级）
-  laborUnitPrice?: number;     // 档位单价（人天）
-  laborDays?: number;          // 预估用工天数
-  laborDescription?: string;   // 工作内容描述
-}
-
-interface EngineeringQuote {
-  id: number;
-  quote_number: string;
-  project_name: string;
-  client_name: string | null;
-  contact_person: string | null;
-  contact_phone: string | null;
-  construction_area: number | null;
-  management_rate: number;
-  profit_rate: number;
-  regulatory_rate: number;
-  tax_rate: number;
-  subtotal: number;
-  management_fee: number;
-  profit: number;
-  regulatory_fee: number;
-  tax: number;
-  total: number;
-  status: string;
-  items: Array<{
-    itemType: string;
-    itemId: string;
-    quantity: number;
-    name: string;
-    unit: string;
-    price: number;
-    customRemark?: string;
-    laborLevelId?: number;
-    laborLevelName?: string;
-    laborUnitPrice?: number;
-    laborDays?: number;
-    laborDescription?: string;
-  }> | null;
-  created_at: string;
-  updated_at: string;
-}
-
-// 统计数据接口
-interface StatsOverview {
-  totalCount: number;
-  totalAmount: number;
-  avgAmount: number;
-  maxAmount: number;
-  minAmount: number;
-}
-
-interface StatsByStatus {
-  status: string;
-  count: number;
-  totalAmount: number;
-}
-
-interface StatsByMonth {
-  month: string;
-  count: number;
-  totalAmount: number;
-}
-
-interface StatsByClient {
-  clientName: string;
-  count: number;
-  totalAmount: number;
-}
-
-interface StatsByAmountRange {
-  range: string;
-  count: number;
-}
-
-interface StatsData {
-  overview: StatsOverview;
-  byStatus: StatsByStatus[];
-  byMonth: StatsByMonth[];
-  byClient: StatsByClient[];
-  byAmountRange: StatsByAmountRange[];
-  thisMonth: {
-    count: number;
-    totalAmount: number;
-    countChange: number;
-    amountChange: number;
-  };
-}
+// 类型定义与纯函数已抽取到 ./engineering-helpers
+import type {
+  LaborPriceLevel,
+  QuoteItem,
+  EngineeringQuote,
+  StatsOverview,
+  StatsByStatus,
+  StatsByMonth,
+  StatsByClient,
+  StatsByAmountRange,
+  StatsData,
+  QuotaType,
+} from './engineering-helpers';
+import { downloadQuotaTemplate } from './engineering-helpers';
+import { apiFetch } from '@/lib/api-fetch';
 
 export default function EngineeringPage() {
   const [customerName, setCustomerName] = useState('');
@@ -273,10 +178,9 @@ export default function EngineeringPage() {
   const fetchLaborPrices = useCallback(async () => {
     setIsLoadingLaborPrices(true);
     try {
-      const response = await fetch('/api/labor-price-config?active_only=true');
-      const result = await response.json();
+      const result = await apiFetch<LaborPriceLevel[]>('/api/labor-price-config?active_only=true');
       if (result.success) {
-        setLaborPriceLevels(result.data);
+        setLaborPriceLevels(result.data as LaborPriceLevel[]);
       } else {
         toast.error('加载人工单价失败', { description: result.error || '无法获取人工单价配置' });
       }
@@ -292,11 +196,10 @@ export default function EngineeringPage() {
   const fetchStats = useCallback(async () => {
     setIsLoadingStats(true);
     try {
-      const response = await fetch('/api/engineering-quotes/stats');
-      const result = await response.json();
+      const result = await apiFetch<StatsData>('/api/engineering-quotes/stats');
 
       if (result.success) {
-        setStatsData(result.data);
+        setStatsData(result.data as StatsData);
       } else {
         toast.error('加载统计失败', { description: result.error || '无法获取统计数据' });
       }
@@ -337,7 +240,9 @@ export default function EngineeringPage() {
       if (category && category !== 'all') intelligentParams.set('category', category);
 
       const [selfRes, intelligentRes] = await Promise.all([
+        // raw fetch: pagination shape
         fetch(`/api/self-construction-quotas?${selfParams.toString()}`),
+        // raw fetch: pagination shape
         fetch(`/api/intelligent-project-quotas?${intelligentParams.toString()}`),
       ]);
       const selfResult = await selfRes.json();
@@ -381,12 +286,13 @@ export default function EngineeringPage() {
 
       // 如果数据库为空（无筛选条件时），自动初始化种子数据
       if (!keyword && (!category || category === 'all') && selfResult.success && intelligentResult.success && selfResult.pagination?.total === 0 && intelligentResult.pagination?.total === 0) {
-        const seedRes = await fetch('/api/quotas-seed', { method: 'POST' });
-        const seedResult = await seedRes.json();
-        if (seedResult.success && (seedResult.data.selfInserted > 0 || seedResult.data.intelligentInserted > 0)) {
+        const seedResult = await apiFetch<{ selfInserted: number; intelligentInserted: number }>('/api/quotas-seed', { method: 'POST' });
+        if (seedResult.success && seedResult.data && (seedResult.data.selfInserted > 0 || seedResult.data.intelligentInserted > 0)) {
           // 重新加载
           const [selfRes2, intelligentRes2] = await Promise.all([
+            // raw fetch: pagination shape
             fetch(`/api/self-construction-quotas?page=1&limit=${quotaPageSize}`),
+            // raw fetch: pagination shape
             fetch(`/api/intelligent-project-quotas?page=1&limit=${quotaPageSize}`),
           ]);
           const selfResult2 = await selfRes2.json();
@@ -465,19 +371,17 @@ export default function EngineeringPage() {
         };
       }
 
-      const response = await fetch(apiUrl, {
+      const response = await apiFetch(apiUrl, {
         method,
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-      const result = await response.json();
 
-      if (result.success) {
+      if (response.success) {
         toast.success(quotaEditMode === 'add' ? '新增成功' : '保存成功');
         setQuotaEditDialogOpen(false);
         fetchQuotas();
       } else {
-        toast.error('操作失败', { description: result.error || '请稍后重试' });
+        toast.error('操作失败', { description: response.error || '请稍后重试' });
       }
     } catch (error) {
       console.error('保存定额项失败:', error);
@@ -493,20 +397,18 @@ export default function EngineeringPage() {
       : '/api/intelligent-project-quotas';
 
     try {
-      const response = await fetch(apiUrl, {
+      const response = await apiFetch(apiUrl, {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: quotaDeleteTarget.id }),
       });
-      const result = await response.json();
 
-      if (result.success) {
+      if (response.success) {
         toast.success('删除成功');
         setQuotaDeleteDialogOpen(false);
         setQuotaDeleteTarget(null);
         fetchQuotas();
       } else {
-        toast.error('删除失败', { description: result.error || '请稍后重试' });
+        toast.error('删除失败', { description: response.error || '请稍后重试' });
       }
     } catch (error) {
       console.error('删除定额项失败:', error);
@@ -695,23 +597,19 @@ export default function EngineeringPage() {
         }
 
         // 尝试新增，若ID已存在则更新
-        const postRes = await fetch(apiUrl, {
+        const postResult = await apiFetch(apiUrl, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
         });
-        const postResult = await postRes.json();
 
         if (postResult.success) {
           successCount++;
         } else if (postResult.error?.includes('已存在')) {
           // ID已存在，尝试更新
-          const putRes = await fetch(apiUrl, {
+          const putResult = await apiFetch(apiUrl, {
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
           });
-          const putResult = await putRes.json();
           if (putResult.success) {
             successCount++;
           } else {
@@ -744,31 +642,9 @@ export default function EngineeringPage() {
     }
   }, [quotaImportData, quotaImportType, fetchQuotas]);
 
-  // 下载导入模板
-  const handleDownloadTemplate = useCallback((type: 'selfConstruction' | 'intelligent') => {
-    const isSelf = type === 'selfConstruction';
-    const headers = isSelf
-      ? ['编号', '分类', '名称', '单位', '数量', '单价', '备注']
-      : ['编号', '序号', '分类', '名称', '品牌型号', '描述', '可抵扣税率', '单位', '单价', '备注'];
-
-    const sampleRows = isSelf
-      ? [
-          ['1', '宽带、专线项目', '光缆布放', '米', 1, 1.65, '施工测量、做拉线'],
-          ['2', '常规内部布线', '网线布放', '米', 1, 3.5, '含网线材料'],
-        ]
-      : [
-          ['I-1', 1, '设备', '高清摄像头', '海康威视DS-2CD3T46', '400万像素', 13, '台', 800, '含安装'],
-          ['I-2', 2, '施工安装', '摄像机安装', '', '包括定位、固定、接线', 6, '台', 150, '含辅料'],
-        ];
-
-    const ws = XLSX.utils.aoa_to_sheet([headers, ...sampleRows]);
-
-    // 设置列宽
-    ws['!cols'] = headers.map(() => ({ wch: 16 }));
-
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, isSelf ? '自施工定额' : '智能化定额');
-    XLSX.writeFile(wb, isSelf ? '自施工定额导入模板.xlsx' : '智能化定额导入模板.xlsx');
+  // 下载导入模板（实现已抽取到 ./engineering-helpers）
+  const handleDownloadTemplate = useCallback((type: QuotaType) => {
+    downloadQuotaTemplate(type);
   }, []);
 
   // 加载报价单列表
@@ -782,6 +658,7 @@ export default function EngineeringPage() {
       if (keyword) params.set('keyword', keyword);
       if (status && status !== 'all') params.set('status', status);
 
+      // raw fetch: pagination shape
       const response = await fetch(`/api/engineering-quotes?${params.toString()}`);
       const result = await response.json();
 
@@ -824,15 +701,14 @@ export default function EngineeringPage() {
   // 加载报价单到编辑表单（从后端获取最新数据）
   const handleLoadQuote = async (quote: EngineeringQuote) => {
     try {
-      const response = await fetch(`/api/engineering-quotes/${quote.id}`);
-      const result = await response.json();
+      const result = await apiFetch<EngineeringQuote>(`/api/engineering-quotes/${quote.id}`);
 
       if (!result.success) {
         toast.error('加载失败', { description: result.error || '获取报价详情失败' });
         return;
       }
 
-      const data: EngineeringQuote = result.data;
+      const data = result.data as EngineeringQuote;
       setCustomerName(data.client_name || '');
       setProjectName(data.project_name);
       setContactPerson(data.contact_person || '');
@@ -893,12 +769,10 @@ export default function EngineeringPage() {
 
     setIsDeleting(true);
     try {
-      const response = await fetch('/api/engineering-quotes', {
+      const result = await apiFetch('/api/engineering-quotes', {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: deleteTarget.id, password: deletePassword }),
       });
-      const result = await response.json();
 
       if (result.success) {
         toast.success('删除成功', { description: `报价单 ${deleteTarget.quote_number} 已删除` });
@@ -928,12 +802,10 @@ export default function EngineeringPage() {
 
     setIsChangingStatus(true);
     try {
-      const response = await fetch(`/api/engineering-quotes/${statusTarget.id}`, {
+      const result = await apiFetch(`/api/engineering-quotes/${statusTarget.id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: newStatus }),
       });
-      const result = await response.json();
 
       if (result.success) {
         const statusLabels: Record<string, string> = {
@@ -1172,15 +1044,14 @@ export default function EngineeringPage() {
   // 从列表预览报价单（从后端获取最新数据）
   const handlePreviewFromList = useCallback(async (quote: EngineeringQuote) => {
     try {
-      const response = await fetch(`/api/engineering-quotes/${quote.id}`);
-      const result = await response.json();
+      const result = await apiFetch<EngineeringQuote>(`/api/engineering-quotes/${quote.id}`);
 
       if (!result.success) {
         toast.error('预览失败', { description: result.error || '获取报价详情失败' });
         return;
       }
 
-      const data: EngineeringQuote = result.data;
+      const data = result.data as EngineeringQuote;
       // 数据库返回的数值字段可能是字符串，统一转为数字
       const num = (v: any) => Number(v) || 0;
 
@@ -1257,19 +1128,17 @@ export default function EngineeringPage() {
 
     setIsBatchExporting(true);
     try {
-      const response = await fetch('/api/engineering-quotes/batch-export', {
+      const result = await apiFetch<EngineeringQuote[]>('/api/engineering-quotes/batch-export', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ids: Array.from(selectedIds) }),
       });
-      const result = await response.json();
 
       if (!result.success) {
         toast.error('批量导出失败', { description: result.error || '获取报价数据失败' });
         return;
       }
 
-      const quoteList: EngineeringQuote[] = result.data;
+      const quoteList: EngineeringQuote[] = result.data as EngineeringQuote[];
       const num = (v: any) => Number(v) || 0;
 
       let exportedCount = 0;
@@ -1327,19 +1196,17 @@ export default function EngineeringPage() {
 
     setIsBatchExporting(true);
     try {
-      const response = await fetch('/api/engineering-quotes/batch-export', {
+      const result = await apiFetch<EngineeringQuote[]>('/api/engineering-quotes/batch-export', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ids: Array.from(selectedIds) }),
       });
-      const result = await response.json();
 
       if (!result.success) {
         toast.error('批量导出失败', { description: result.error || '获取报价数据失败' });
         return;
       }
 
-      const quoteList: EngineeringQuote[] = result.data;
+      const quoteList: EngineeringQuote[] = result.data as EngineeringQuote[];
       const num = (v: any) => Number(v) || 0;
 
       const wb = XLSX.utils.book_new();
@@ -1416,19 +1283,17 @@ export default function EngineeringPage() {
 
     setIsBatchExporting(true);
     try {
-      const response = await fetch('/api/engineering-quotes/batch-export', {
+      const result = await apiFetch<EngineeringQuote[]>('/api/engineering-quotes/batch-export', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ids: Array.from(selectedIds) }),
       });
-      const result = await response.json();
 
       if (!result.success) {
         toast.error('批量导出失败', { description: result.error || '获取报价数据失败' });
         return;
       }
 
-      const quoteList: EngineeringQuote[] = result.data;
+      const quoteList: EngineeringQuote[] = result.data as EngineeringQuote[];
       const num = (v: any) => Number(v) || 0;
 
       let exportedCount = 0;
@@ -1500,19 +1365,17 @@ export default function EngineeringPage() {
 
     setIsLoadingCompare(true);
     try {
-      const response = await fetch('/api/engineering-quotes/batch-export', {
+      const result = await apiFetch<EngineeringQuote[]>('/api/engineering-quotes/batch-export', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ids: [compareQuoteA.id, compareQuoteB.id] }),
       });
-      const result = await response.json();
 
       if (!result.success) {
         toast.error('对比失败', { description: result.error || '获取报价数据失败' });
         return;
       }
 
-      const quoteList: EngineeringQuote[] = result.data;
+      const quoteList: EngineeringQuote[] = result.data as EngineeringQuote[];
       const dataA = quoteList.find(q => q.id === compareQuoteA.id) || null;
       const dataB = quoteList.find(q => q.id === compareQuoteB.id) || null;
       setCompareDataA(dataA);
@@ -1611,9 +1474,8 @@ export default function EngineeringPage() {
     if (!shareTarget) return;
     setIsCreatingShare(true);
     try {
-      const response = await fetch('/api/quote-shares', {
+      const result = await apiFetch<{ shareUrl: string; shareToken: string }>('/api/quote-shares', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           quoteId: shareTarget.id,
           password: sharePassword || null,
@@ -1622,11 +1484,11 @@ export default function EngineeringPage() {
           remark: shareRemark || null,
         }),
       });
-      const result = await response.json();
 
       if (result.success) {
-        const fullUrl = `${window.location.origin}${result.data.shareUrl}`;
-        setShareResult({ shareUrl: fullUrl, shareToken: result.data.shareToken });
+        const shareData = result.data as { shareUrl: string; shareToken: string };
+        const fullUrl = `${window.location.origin}${shareData.shareUrl}`;
+        setShareResult({ shareUrl: fullUrl, shareToken: shareData.shareToken });
         toast.success('分享链接已创建');
       } else {
         toast.error('创建分享链接失败', { description: result.error || '请稍后重试' });
@@ -1667,10 +1529,9 @@ export default function EngineeringPage() {
     setShareListDialogOpen(true);
     setIsLoadingShareList(true);
     try {
-      const response = await fetch(`/api/quote-shares?quoteId=${quote.id}`);
-      const result = await response.json();
+      const result = await apiFetch<any[]>(`/api/quote-shares?quoteId=${quote.id}`);
       if (result.success) {
-        setShareList(result.data);
+        setShareList(result.data as any[]);
       } else {
         toast.error('获取分享记录失败', { description: result.error });
       }
@@ -1685,19 +1546,16 @@ export default function EngineeringPage() {
   // 停用分享链接
   const handleDeactivateShare = useCallback(async (shareId: number) => {
     try {
-      const response = await fetch('/api/quote-shares', {
+      const result = await apiFetch('/api/quote-shares', {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: shareId }),
       });
-      const result = await response.json();
       if (result.success) {
         toast.success('分享链接已停用');
         // 刷新分享列表
         if (shareTarget) {
-          const listRes = await fetch(`/api/quote-shares?quoteId=${shareTarget.id}`);
-          const listResult = await listRes.json();
-          if (listResult.success) setShareList(listResult.data);
+          const listResult = await apiFetch<any[]>(`/api/quote-shares?quoteId=${shareTarget.id}`);
+          if (listResult.success) setShareList(listResult.data as any[]);
         }
       } else {
         toast.error('停用失败', { description: result.error });
@@ -1812,15 +1670,13 @@ export default function EngineeringPage() {
   const [allQuotaCategories, setAllQuotaCategories] = useState<string[]>([]);
   async function fetchQuotaCategories() {
     try {
-      const [selfRes, intelligentRes] = await Promise.all([
-        fetch('/api/self-construction-quotas?limit=9999'),
-        fetch('/api/intelligent-project-quotas?limit=9999'),
+      const [selfResult, intelligentResult] = await Promise.all([
+        apiFetch<any[]>('/api/self-construction-quotas?limit=9999'),
+        apiFetch<any[]>('/api/intelligent-project-quotas?limit=9999'),
       ]);
-      const selfResult = await selfRes.json();
-      const intelligentResult = await intelligentRes.json();
       const categories = Array.from(new Set([
-        ...(selfResult.success ? selfResult.data.map((r: any) => r.category) : []),
-        ...(intelligentResult.success ? intelligentResult.data.map((r: any) => r.category) : []),
+        ...(selfResult.success && selfResult.data ? selfResult.data.map((r: any) => r.category) : []),
+        ...(intelligentResult.success && intelligentResult.data ? intelligentResult.data.map((r: any) => r.category) : []),
       ]));
       setAllQuotaCategories(categories);
     } catch {
@@ -2027,28 +1883,25 @@ export default function EngineeringPage() {
         status: 'draft',
       };
 
-      let response;
+      let result;
       if (savedQuoteId) {
         // 更新已有草稿
-        response = await fetch('/api/engineering-quotes', {
+        result = await apiFetch<{ id: number }>('/api/engineering-quotes', {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ...payload, id: savedQuoteId }),
         });
       } else {
         // 新建草稿
-        response = await fetch('/api/engineering-quotes', {
+        result = await apiFetch<{ id: number }>('/api/engineering-quotes', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         });
       }
 
-      const result = await response.json();
-
       if (result.success) {
         if (!savedQuoteId) {
-          setSavedQuoteId(result.data.id);
+          const data = result.data as { id: number };
+          setSavedQuoteId(data.id);
         }
         setLastSavedAt(new Date().toLocaleString('zh-CN'));
         toast.success('保存成功', {

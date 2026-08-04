@@ -24,6 +24,10 @@ import {
   Loader2,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { apiFetch } from '@/lib/api-fetch';
+
+// 响应数据可能是 { items, total } 或直接数组
+type ClientQuoteData = QuoteRecord[] | { items: QuoteRecord[]; total: number };
 
 interface QuoteRecord {
   id: number;
@@ -77,13 +81,11 @@ export function ClientHistory({ clientId, token }: ClientHistoryProps) {
         search,
         status: statusFilter === 'all' ? '' : statusFilter,
       });
-      const res = await fetch(`/api/clients/${clientId}/quotes?${params}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
-      if (data.success) {
-        setRecords(data.data?.items ?? data.data ?? []);
-        setTotal(data.data?.total ?? 0);
+      const result = await apiFetch<ClientQuoteData>(`/api/clients/${clientId}/quotes?${params}`);
+      if (result.success && result.data) {
+        const payload = result.data;
+        setRecords(Array.isArray(payload) ? payload : (payload.items ?? []));
+        setTotal(Array.isArray(payload) ? payload.length : (payload.total ?? 0));
       }
     } catch (err) {
       console.error('Failed to fetch client quote history:', err);

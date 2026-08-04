@@ -13,6 +13,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Plus, Edit, Trash2, Bot, MessageSquare, Settings } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { apiFetch } from '@/lib/api-fetch';
+import { useConfirm } from '@/hooks/use-confirm';
 
 interface Agent {
   id: number;
@@ -63,6 +65,7 @@ const AVAILABLE_SKILLS = [
 ];
 
 export default function AgentsPage() {
+  const { confirm, ConfirmDialog } = useConfirm();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
   const [skills, setSkills] = useState<AgentSkill[]>([]);
@@ -75,10 +78,9 @@ export default function AgentsPage() {
 
   const loadAgents = async () => {
     try {
-      const res = await fetch('/api/agents');
-      if (res.ok) {
-        const data = await res.json();
-        setAgents(data.data || []);
+      const result = await apiFetch<Agent[]>('/api/agents');
+      if (result.success) {
+        setAgents(result.data || []);
       }
     } catch (error) {
       console.error('加载智能体列表失败:', error);
@@ -87,10 +89,9 @@ export default function AgentsPage() {
 
   const loadSkills = async (agentId: number) => {
     try {
-      const res = await fetch(`/api/agents/${agentId}/skills`);
-      if (res.ok) {
-        const data = await res.json();
-        setSkills(data.data || []);
+      const result = await apiFetch<AgentSkill[]>(`/api/agents/${agentId}/skills`);
+      if (result.success) {
+        setSkills(result.data || []);
       }
     } catch (error) {
       console.error('加载技能列表失败:', error);
@@ -99,9 +100,8 @@ export default function AgentsPage() {
 
   const loadLogs = async (agentId: number) => {
     try {
-      const response = await fetch(`/api/agent-logs?agent_id=${agentId}`);
-      const result = await response.json();
-      if (response.ok && result.success) setLogs(result.data);
+      const result = await apiFetch<AgentLog[]>(`/api/agent-logs?agent_id=${agentId}`);
+      if (result.success) setLogs(result.data || []);
     } catch (error) {
       console.error('加载对话日志失败:', error);
     }
@@ -138,19 +138,18 @@ export default function AgentsPage() {
   const handleSaveAgent = async () => {
     try {
       const isEdit = !!editingAgent.id;
-      const res = await fetch('/api/agents', {
+      const url = isEdit ? `/api/agents/${editingAgent.id}` : '/api/agents';
+      const result = await apiFetch<Agent>(url, {
         method: isEdit ? 'PUT' : 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(editingAgent),
       });
 
-      if (res.ok) {
+      if (result.success) {
         toast({ title: isEdit ? '更新成功' : '创建成功' });
         setIsDialogOpen(false);
         loadAgents();
       } else {
-        const error = await res.json();
-        toast({ title: '操作失败', description: error.error, variant: 'destructive' });
+        toast({ title: '操作失败', description: result.error, variant: 'destructive' });
       }
     } catch (error) {
       toast({ title: '操作失败', variant: 'destructive' });
@@ -158,11 +157,15 @@ export default function AgentsPage() {
   };
 
   const handleDeleteAgent = async (id: number) => {
-    if (!confirm('确定要删除这个智能体吗？')) return;
+    if (!await confirm({
+      title: '删除智能体',
+      description: '确定要删除这个智能体吗？',
+      confirmText: '删除',
+    })) return;
 
     try {
-      const res = await fetch(`/api/agents?id=${id}`, { method: 'DELETE' });
-      if (res.ok) {
+      const result = await apiFetch(`/api/agents/${id}`, { method: 'DELETE' });
+      if (result.success) {
         toast({ title: '删除成功' });
         if (selectedAgent?.id === id) {
           setSelectedAgent(null);
@@ -189,13 +192,12 @@ export default function AgentsPage() {
     if (!selectedAgent) return;
 
     try {
-      const res = await fetch(`/api/agents/${selectedAgent.id}/skills`, {
+      const result = await apiFetch<AgentSkill>(`/api/agents/${selectedAgent.id}/skills`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(editingSkill),
       });
 
-      if (res.ok) {
+      if (result.success) {
         toast({ title: '技能添加成功' });
         setIsSkillDialogOpen(false);
         loadSkills(selectedAgent.id);
@@ -206,14 +208,19 @@ export default function AgentsPage() {
   };
 
   const handleDeleteSkill = async (skillId: number) => {
-    if (!selectedAgent || !confirm('确定要删除这个技能吗？')) return;
+    if (!selectedAgent) return;
+    if (!await confirm({
+      title: '删除技能',
+      description: '确定要删除这个技能吗？',
+      confirmText: '删除',
+    })) return;
 
     try {
-      const res = await fetch(`/api/agents/${selectedAgent.id}/skills?skill_id=${skillId}`, {
+      const result = await apiFetch(`/api/agents/${selectedAgent.id}/skills?skill_id=${skillId}`, {
         method: 'DELETE',
       });
 
-      if (res.ok) {
+      if (result.success) {
         toast({ title: '删除成功' });
         loadSkills(selectedAgent.id);
       }

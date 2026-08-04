@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import type { QuoteSummary } from '@/lib/quote-summary';
+import { apiFetch } from '@/lib/api-fetch';
 
 export default function QuoteDetailPage() {
   const router = useRouter();
@@ -19,9 +20,8 @@ export default function QuoteDetailPage() {
   useEffect(() => {
     const load = async () => {
       try {
-        const response = await fetch(`/api/quotes/${encodeURIComponent(params.id)}`);
-        const result = await response.json();
-        if (!response.ok || !result.success) throw new Error(result.error || '加载失败');
+        const result = await apiFetch<QuoteSummary>(`/api/quotes/${encodeURIComponent(params.id)}`);
+        if (!result.success || !result.data) throw new Error(result.error || '加载失败');
         setQuote(result.data);
       } catch (loadError) {
         setError(loadError instanceof Error ? loadError.message : '加载失败');

@@ -92,7 +92,7 @@ export async function POST(request: NextRequest) {
       { 
         success: false, 
         error: '获取模型列表失败',
-        detail: error.message
+        detail: process.env.NODE_ENV === 'development' ? error.message : undefined
       },
       { status: 500 }
     );

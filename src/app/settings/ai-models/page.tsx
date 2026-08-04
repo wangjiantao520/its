@@ -25,7 +25,9 @@ import {
 } from '@/components/ui/select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Switch } from '@/components/ui/switch';
+import { apiFetch } from '@/lib/api-fetch';
 import { toast } from 'sonner';
+import { useConfirm } from '@/hooks/use-confirm';
 import {
   Brain,
   Plus,
@@ -95,6 +97,7 @@ const PROVIDER_LABELS: Record<string, string> = {
 };
 
 export default function AIModelsPage() {
+  const { confirm, ConfirmDialog } = useConfirm();
   const [configs, setConfigs] = useState<AIModelConfig[]>([]);
   const [presets, setPresets] = useState<Record<string, ProviderPreset>>({});
   const [loading, setLoading] = useState(true);
@@ -111,16 +114,17 @@ export default function AIModelsPage() {
   const loadConfigs = async () => {
     setLoading(true);
     try {
+      // raw fetch: non-standard response shape (uses json.presets)
       const res = await fetch('/api/ai-models');
       const json = await res.json();
       if (json.success) {
         setConfigs(json.data || []);
         setPresets(json.presets || {});
       } else {
-        alert('加载失败: ' + json.error);
+        toast.error('加载失败: ' + json.error);
       }
     } catch (e) {
-      alert('加载失败: ' + (e as Error).message);
+      toast.error('加载失败: ' + (e as Error).message);
     } finally {
       setLoading(false);
     }
@@ -129,10 +133,9 @@ export default function AIModelsPage() {
   // 加载当前激活的配置
   const loadActive = async () => {
     try {
-      const res = await fetch('/api/ai-models/active');
-      const json = await res.json();
+      const json = await apiFetch<AIModelConfig>('/api/ai-models/active');
       if (json.success) {
-        setActiveInfo(json.data);
+        setActiveInfo(json.data ?? null);
       }
     } catch (e) {
       // 忽略
@@ -174,60 +177,60 @@ export default function AIModelsPage() {
     const method = editing ? 'PUT' : 'POST';
 
     try {
-      const res = await fetch(url, {
+      const json = await apiFetch(url, {
         method,
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...formData,
           temperature: Number(formData.temperature) || 0.3,
           max_tokens: Number(formData.max_tokens) || 3000,
         }),
       });
-      const json = await res.json();
       if (json.success) {
-        alert(editing ? '配置已更新' : '配置已创建');
+        toast.success(editing ? '配置已更新' : '配置已创建');
         setEditing(null);
         setCreating(false);
         loadConfigs();
       } else {
-        alert('保存失败: ' + json.error);
+        toast.error('保存失败: ' + json.error);
       }
     } catch (e) {
-      alert('保存失败: ' + (e as Error).message);
+      toast.error('保存失败: ' + (e as Error).message);
     }
   };
 
   // 处理删除
   const handleDelete = async (id: number) => {
-    if (!confirm('确认删除该配置？')) return;
+    if (!await confirm({
+      title: '删除配置',
+      description: '确认删除该配置？',
+      confirmText: '删除',
+    })) return;
     try {
-      const res = await fetch(`/api/ai-models?id=${id}`, { method: 'DELETE' });
-      const json = await res.json();
+      const json = await apiFetch(`/api/ai-models?id=${id}`, { method: 'DELETE' });
       if (json.success) {
-        alert('已删除');
+        toast.success('已删除');
         loadConfigs();
       } else {
-        alert('删除失败: ' + json.error);
+        toast.error('删除失败: ' + json.error);
       }
     } catch (e) {
-      alert('删除失败: ' + (e as Error).message);
+      toast.error('删除失败: ' + (e as Error).message);
     }
   };
 
   // 激活配置
   const handleActivate = async (id: number) => {
     try {
-      const res = await fetch(`/api/ai-models/active?id=${id}`, { method: 'POST' });
-      const json = await res.json();
+      const json = await apiFetch(`/api/ai-models/active?id=${id}`, { method: 'POST' });
       if (json.success) {
-        alert('已激活：该模型配置已设为当前使用');
+        toast.success('已激活：该模型配置已设为当前使用');
         loadConfigs();
         loadActive();
       } else {
-        alert('激活失败: ' + json.error);
+        toast.error('激活失败: ' + json.error);
       }
     } catch (e) {
-      alert('激活失败: ' + (e as Error).message);
+      toast.error('激活失败: ' + (e as Error).message);
     }
   };
 
@@ -236,31 +239,29 @@ export default function AIModelsPage() {
     setTesting(config.id);
     setTestResult(null);
     try {
-      const res = await fetch(`/api/ai-models/test?id=${config.id}`, {
+      const json = await apiFetch<{ duration: number; reply: string }>(`/api/ai-models/test?id=${config.id}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt: '请用一句话介绍你自己' }),
       });
-      const json = await res.json();
       if (json.success) {
         setTestResult({
           success: true,
-          message: `连接成功！耗时 ${json.data.duration}ms`,
-          duration: json.data.duration,
-          reply: json.data.reply,
+          message: `连接成功！耗时 ${json.data!.duration}ms`,
+          duration: json.data!.duration,
+          reply: json.data!.reply,
         });
-        alert(`测试成功：响应耗时 ${json.data.duration}ms`);
+        toast.success(`测试成功：响应耗时 ${json.data!.duration}ms`);
       } else {
         setTestResult({
           success: false,
           message: json.error || '测试失败',
         });
-        alert('测试失败: ' + json.error);
+        toast.error('测试失败: ' + json.error);
       }
       loadConfigs();
     } catch (e) {
       setTestResult({ success: false, message: (e as Error).message });
-      alert('测试失败: ' + (e as Error).message);
+      toast.error('测试失败: ' + (e as Error).message);
     } finally {
       setTesting(null);
     }
@@ -710,6 +711,7 @@ export default function AIModelsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {ConfirmDialog}
     </div>
   );
 }

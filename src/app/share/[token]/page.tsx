@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import type { QuoteSummary } from '@/lib/quote-summary';
+import { apiFetch } from '@/lib/api-fetch';
 
 export default function SharedQuotePage() {
   const params = useParams<{ token: string }>();
@@ -16,9 +17,9 @@ export default function SharedQuotePage() {
   useEffect(() => {
     const load = async () => {
       try {
-        const response = await fetch(`/api/share/${encodeURIComponent(params.token)}`);
-        const result = await response.json();
-        if (!response.ok || !result.success) throw new Error(result.error || '加载失败');
+        // 响应结构为 { success, data: { quote: QuoteSummary } }
+        const result = await apiFetch<{ quote: QuoteSummary }>(`/api/share/${encodeURIComponent(params.token)}`);
+        if (!result.success || !result.data) throw new Error(result.error || '加载失败');
         setQuote(result.data.quote);
       } catch (loadError) {
         setError(loadError instanceof Error ? loadError.message : '加载失败');

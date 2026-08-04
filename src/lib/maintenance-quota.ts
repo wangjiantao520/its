@@ -14,12 +14,15 @@ export type ServiceTimeType = '5×8' | '7×8' | '7×24';
 export type RegionType = '城区' | '市区县城郊区' | '乡镇' | '农村';
 
 // 维保档次配置
+// 注意：此为旧版配置，新版数据源为 device-quota-full.ts 的 FULL_MAINTENANCE_LEVEL_CONFIG
+// E级 baseFaultCount 已与 device-quota-full.ts 对齐（0.8），
+// 新版额外使用 faultCountMultiplier(2.0) 和 complexityFactor(2.0) 进行更精细的计算
 export const MAINTENANCE_LEVEL_CONFIG = {
   A: { name: '简易型', baseFaultCount: 1.0, description: '结构简单、即插即用' },
   B: { name: '基础型', baseFaultCount: 2.0, description: '标准办公通用设备' },
   C: { name: '中级型', baseFaultCount: 2.4, description: '结构较复杂' },
   D: { name: '高级型', baseFaultCount: 1.8, description: '集成精密机电' },
-  E: { name: '专家型', baseFaultCount: 1.2, description: '大型精密设备' },
+  E: { name: '专家型', baseFaultCount: 0.8, description: '大型精密设备' },
 };
 
 // 工程师等级单价（元/天）

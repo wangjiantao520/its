@@ -71,38 +71,9 @@ export const AI_QUOTE_EXAMPLES = [
   "有一批办公设备需要维保。"
 ];
 
-// 调用真实DeepSeek API的解析器（单次）
-export async function parseQuoteRequirement(text: string): Promise<AiQuoteDraft> {
-  try {
-    const response = await fetch('/api/ai-parse-quote', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ text }),
-    });
-
-    if (!response.ok) {
-      throw new Error('API调用失败');
-    }
-
-    const data = await response.json();
-    return data as AiQuoteDraft;
-  } catch (error) {
-    console.error('AI解析失败:', error);
-
-    return {
-      devices: [],
-      missingFields: ['服务暂不可用'],
-      suggestions: ['AI服务暂时不可用，请检查网络连接后重试'],
-      error: '网络错误，请重试'
-    };
-  }
-}
-
-// 调用真实DeepSeek API的解析器（支持多轮对话）
-export async function parseQuoteWithHistory(
-  userMessage: string,
+// 调用 AI 解析需求文本，可选传入对话历史实现多轮交互
+export async function parseQuoteRequirement(
+  text: string,
   history: ChatMessage[] = []
 ): Promise<AiQuoteDraft> {
   try {
@@ -111,7 +82,7 @@ export async function parseQuoteWithHistory(
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ text: userMessage, history }),
+      body: JSON.stringify({ text, history }),
     });
 
     if (!response.ok) {
@@ -131,6 +102,9 @@ export async function parseQuoteWithHistory(
     };
   }
 }
+
+// 向后兼容别名：保留旧 API 名以便调用方渐进迁移
+export const parseQuoteWithHistory = parseQuoteRequirement;
 
 // 格式化价格
 export function formatPrice(price: number): string {

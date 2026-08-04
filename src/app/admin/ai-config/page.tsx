@@ -15,6 +15,8 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Plus, Edit, Trash2, Bot, MessageSquare, Settings, Brain, Key, TestTube, Loader2, CheckCircle2, XCircle, RefreshCw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { apiFetch } from '@/lib/api-fetch';
+import { useConfirm } from '@/hooks/use-confirm';
 
 // 智能体接口
 interface Agent {
@@ -177,6 +179,7 @@ const PROVIDER_PRESETS: Record<string, { endpoint: string; models: string[] }> =
 
 export default function AIConfigPage() {
   const { toast } = useToast();
+  const { confirm, ConfirmDialog } = useConfirm();
   
   // 标签页状态
   const [activeTab, setActiveTab] = useState('agents');
@@ -203,10 +206,9 @@ export default function AIConfigPage() {
   // 加载智能体列表
   const loadAgents = async () => {
     try {
-      const res = await fetch('/api/agents');
-      if (res.ok) {
-        const data = await res.json();
-        setAgents(data.data || []);
+      const result = await apiFetch<Agent[]>('/api/agents');
+      if (result.success) {
+        setAgents(result.data || []);
       }
     } catch (error) {
       console.error('加载智能体列表失败:', error);
@@ -216,11 +218,9 @@ export default function AIConfigPage() {
   // 加载AI模型列表
   const loadModels = async () => {
     try {
-      const res = await fetch('/api/ai-models');
-      if (res.ok) {
-        const data = await res.json();
-        // API返回的是 {success, data, presets} 格式
-        setModels(data.data || []);
+      const result = await apiFetch<AIModelConfig[]>('/api/ai-models');
+      if (result.success) {
+        setModels(result.data || []);
       }
     } catch (error) {
       console.error('加载AI模型列表失败:', error);
@@ -230,10 +230,9 @@ export default function AIConfigPage() {
   // 加载技能列表
   const loadSkills = async (agentId: number) => {
     try {
-      const res = await fetch(`/api/agents/${agentId}/skills`);
-      if (res.ok) {
-        const data = await res.json();
-        setSkills(data.data || []);
+      const result = await apiFetch<AgentSkill[]>(`/api/agents/${agentId}/skills`);
+      if (result.success) {
+        setSkills(result.data || []);
       }
     } catch (error) {
       console.error('加载技能列表失败:', error);
@@ -256,14 +255,13 @@ export default function AIConfigPage() {
     try {
       const method = editingAgent.id ? 'PUT' : 'POST';
       const url = editingAgent.id ? `/api/agents/${editingAgent.id}` : '/api/agents';
-      
-      const res = await fetch(url, {
+
+      const result = await apiFetch(url, {
         method,
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(editingAgent),
       });
-      
-      if (res.ok) {
+
+      if (result.success) {
         toast({ title: '成功', description: `智能体已${editingAgent.id ? '更新' : '创建'}` });
         setIsAgentDialogOpen(false);
         setEditingAgent({});
@@ -276,11 +274,15 @@ export default function AIConfigPage() {
 
   // 删除智能体
   const handleDeleteAgent = async (id: number) => {
-    if (!confirm('确定要删除这个智能体吗？')) return;
-    
+    if (!await confirm({
+      title: '删除智能体',
+      description: '确定要删除这个智能体吗？',
+      confirmText: '删除',
+    })) return;
+
     try {
-      const res = await fetch(`/api/agents/${id}`, { method: 'DELETE' });
-      if (res.ok) {
+      const result = await apiFetch(`/api/agents/${id}`, { method: 'DELETE' });
+      if (result.success) {
         toast({ title: '成功', description: '智能体已删除' });
         loadAgents();
         if (selectedAgent?.id === id) {
@@ -303,6 +305,7 @@ export default function AIConfigPage() {
     setFetchedModels([]);
     
     try {
+      // 保留原生 fetch：响应中包含非标准字段 models（apiFetch 仅提取 data/error）
       const res = await fetch('/api/ai-models/list-models', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -344,14 +347,13 @@ export default function AIConfigPage() {
     try {
       const method = editingModel.id ? 'PUT' : 'POST';
       const url = editingModel.id ? `/api/ai-models?id=${editingModel.id}` : '/api/ai-models';
-      
-      const res = await fetch(url, {
+
+      const result = await apiFetch(url, {
         method,
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(editingModel),
       });
-      
-      if (res.ok) {
+
+      if (result.success) {
         toast({ title: '成功', description: `AI模型已${editingModel.id ? '更新' : '创建'}` });
         setIsModelDialogOpen(false);
         setEditingModel({});
@@ -364,11 +366,15 @@ export default function AIConfigPage() {
 
   // 删除AI模型
   const handleDeleteModel = async (id: number) => {
-    if (!confirm('确定要删除这个AI模型吗？')) return;
-    
+    if (!await confirm({
+      title: '删除AI模型',
+      description: '确定要删除这个AI模型吗？',
+      confirmText: '删除',
+    })) return;
+
     try {
-      const res = await fetch(`/api/ai-models?id=${id}`, { method: 'DELETE' });
-      if (res.ok) {
+      const result = await apiFetch(`/api/ai-models?id=${id}`, { method: 'DELETE' });
+      if (result.success) {
         toast({ title: '成功', description: 'AI模型已删除' });
         loadModels();
       }
@@ -381,8 +387,9 @@ export default function AIConfigPage() {
   const handleTestModel = async (model: AIModelConfig) => {
     setTestingModel(model.id);
     setTestResult(null);
-    
+
     try {
+      // 保留原生 fetch：响应中包含非标准字段 message（apiFetch 仅提取 data/error）
       const res = await fetch(`/api/ai-models/test?id=${model.id}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -390,7 +397,7 @@ export default function AIConfigPage() {
           prompt: '你好，请简单介绍一下自己',
         }),
       });
-      
+
       const data = await res.json();
       setTestResult({ success: res.ok, message: data.message || data.error || '测试完成' });
     } catch (error) {
@@ -403,8 +410,8 @@ export default function AIConfigPage() {
   // 设置默认模型
   const handleSetDefault = async (id: number) => {
     try {
-      const res = await fetch(`/api/ai-models/${id}/default`, { method: 'POST' });
-      if (res.ok) {
+      const result = await apiFetch(`/api/ai-models/${id}/default`, { method: 'POST' });
+      if (result.success) {
         toast({ title: '成功', description: '已设为默认模型' });
         loadModels();
       }
@@ -784,18 +791,17 @@ export default function AIConfigPage() {
               try {
                 const method = editingSkill.id ? 'PUT' : 'POST';
                 const url = `/api/agents/${editingSkill.agent_id}/skills`;
-                
-                const body = editingSkill.id 
+
+                const body = editingSkill.id
                   ? { ...editingSkill, skill_id: editingSkill.id }
                   : editingSkill;
-                
-                const res = await fetch(url, {
+
+                const result = await apiFetch(url, {
                   method,
-                  headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify(body),
                 });
-                
-                if (res.ok) {
+
+                if (result.success) {
                   toast({ title: '成功', description: '技能已保存' });
                   setIsSkillDialogOpen(false);
                   if (selectedAgent) loadSkills(selectedAgent.id);
@@ -958,6 +964,7 @@ export default function AIConfigPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {ConfirmDialog}
     </div>
   );
 }

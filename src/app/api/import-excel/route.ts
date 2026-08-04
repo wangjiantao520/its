@@ -9,9 +9,20 @@ export async function POST(request: NextRequest) {
 
   try {
     const { url } = await request.json();
-    
-    if (!url) {
+
+    if (!url || typeof url !== 'string') {
       return NextResponse.json({ success: false, error: '请提供文件URL' }, { status: 400 });
+    }
+
+    // 防止 SSRF：仅允许 http/https 协议
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(url);
+    } catch {
+      return NextResponse.json({ success: false, error: '无效的URL格式' }, { status: 400 });
+    }
+    if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+      return NextResponse.json({ success: false, error: '仅支持 http/https 协议' }, { status: 400 });
     }
 
     const customHeaders = HeaderUtils.extractForwardHeaders(request.headers);

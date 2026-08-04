@@ -197,26 +197,14 @@ export function calculateFullDeviceQuote(
   const consumableFee = quota.consumableFee;
   const sparePartReserve = quota.sparePartReserve;
   
-  // 按照Excel公式明确计算基础价格
-  // 如果不需要备件（needSparePart=false）：AE + AJ + AO + AW + AY
-  // 如果需要备件（needSparePart=true）：AE + AJ + AO + AW + AD + BA
-  // 验证：台式品牌电脑数据（不需要备件）：
-  // inspectionLaborFee(33.67) + onSiteFeeAnnual(56.32) + faultHandlingFeeTotal(75.75) + toolAmortization(2.04) + consumableFee(5) = 172.7766666666667
-  // 正好等于 cityPrice = 172.776666666667
-  
-  let baseCityPrice: number;
-  if (needSparePart) {
-    // 需要备件：AE + AJ + AO + AW + AD + BA
-    // 由于Excel中已经预计算好了不同设备的价格，我们使用Excel预计算值
-    // Excel公式：AE+AJ+AO+AW+AD+BA (需要备件时)
-    baseCityPrice = quota.cityPrice;
-  } else {
-    // 不需要备件：AE + AJ + AO + AW + AY
-    // Excel公式：AE+AJ+AO+AW+AY (不需要备件时)
-    // 验证过正好等于Excel预计算值
-    baseCityPrice = quota.cityPrice;
-  }
-  
+  // Excel 公式中 needSparePart 决定是否包含备件准备金（BA）或耗材费（AY），
+  // 但 quota.cityPrice 已由 Excel 预计算好两种场景的值，直接使用即可。
+  // - 不需要备件（needSparePart=false）：AE + AJ + AO + AW + AY
+  // - 需要备件（needSparePart=true）：AE + AJ + AO + AW + AD + BA
+  // 验证：台式品牌电脑（不需要备件）：
+  //   33.67 + 56.32 + 75.75 + 2.04 + 5 = 172.78 ≈ cityPrice
+  let baseCityPrice = quota.cityPrice;
+
   // 对于云数据中心设备，如果cityPrice为0，使用originalPrice（中标单价）
   if (baseCityPrice === 0 && quota.originalPrice && quota.originalPrice > 0) {
     baseCityPrice = quota.originalPrice;

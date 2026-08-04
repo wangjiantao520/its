@@ -18,7 +18,8 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useUser } from '@/contexts/user-context';
-import { getDeviceImports, updateDeviceImportStatus, DeviceImportItem, ImportStatus } from '@/lib/roles';
+import { getDeviceImports, updateDeviceImportStatus, DeviceImportItem, ImportStatus } from '@/lib/device-imports';
+import { apiFetch } from '@/lib/api-fetch';
 
 // 设备定额类型
 interface DeviceQuota {
@@ -194,17 +195,24 @@ export default function DatabaseManagementPage() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const response = await fetch('/api/device-params');
-      const result = await response.json();
-      
+      const result = await apiFetch<{
+        device_quotas: DeviceQuota[];
+        self_construction_quotas: SelfConstructionQuota[];
+        intelligent_project_quotas: IntelligentProjectQuota[];
+        labor_price_config: LaborPriceConfig[];
+        maintenance_device_quotas: MaintenanceDeviceQuota[];
+        maintenance_rate_config: MaintenanceRateConfig[];
+        sla_config: SlaConfig[];
+      }>('/api/device-params');
+
       if (result.success) {
-        setDeviceQuotas(result.data.device_quotas || []);
-        setSelfConstructionQuotas(result.data.self_construction_quotas || []);
-        setIntelligentProjectQuotas(result.data.intelligent_project_quotas || []);
-        setLaborPriceConfigs(result.data.labor_price_config || []);
-        setMaintenanceDeviceQuotas(result.data.maintenance_device_quotas || []);
-        setMaintenanceRateConfigs(result.data.maintenance_rate_config || []);
-        setSlaConfigs(result.data.sla_config || []);
+        setDeviceQuotas(result.data?.device_quotas || []);
+        setSelfConstructionQuotas(result.data?.self_construction_quotas || []);
+        setIntelligentProjectQuotas(result.data?.intelligent_project_quotas || []);
+        setLaborPriceConfigs(result.data?.labor_price_config || []);
+        setMaintenanceDeviceQuotas(result.data?.maintenance_device_quotas || []);
+        setMaintenanceRateConfigs(result.data?.maintenance_rate_config || []);
+        setSlaConfigs(result.data?.sla_config || []);
       }
     } catch (error) {
       showMessage('error', '加载数据失败: ' + String(error));
@@ -271,6 +279,7 @@ export default function DatabaseManagementPage() {
         ? { type: activeTab, data: editingItem }
         : { type: activeTab, id: editingItem.id, data: editingItem };
 
+      // raw fetch: non-standard response shape
       const response = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
@@ -297,6 +306,7 @@ export default function DatabaseManagementPage() {
 
   const doDelete = async (id: string | number) => {
     try {
+      // raw fetch: non-standard response shape
       const response = await fetch(`/api/device-params/${id}?type=${activeTab}`, {
         method: 'DELETE'
       });
@@ -1342,12 +1352,14 @@ export default function DatabaseManagementPage() {
         // 文件上传模式
         const formData = new FormData();
         formData.append('file', selectedFile);
+        // raw fetch: non-standard response shape
         response = await fetch('/api/import-file', {
           method: 'POST',
           body: formData
         });
       } else {
         // URL模式
+        // raw fetch: non-standard response shape
         response = await fetch('/api/import-excel', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1420,6 +1432,7 @@ export default function DatabaseManagementPage() {
     try {
       setMessage(null);
       setLoading(true);
+      // raw fetch: non-standard response shape
       const response = await fetch('/api/seed-all-data', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }

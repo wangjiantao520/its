@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback, useRef, useEffect } from 'react';
+import { apiFetch, apiFetchOrThrow } from '@/lib/api-fetch';
 
 // ============ 类型定义 ============
 export interface AIDevice {
@@ -197,9 +198,9 @@ export function useAIParseQuote() {
     setError(null);
 
     try {
-      const response = await fetch('/api/ai-parse-quote', {
+      // 调用 /api/ai-parse-quote，返回 {success, data: AIParseResult}
+      const result = await apiFetchOrThrow<AIParseResult>('/api/ai-parse-quote', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           text,
           history: options.history,
@@ -207,13 +208,6 @@ export function useAIParseQuote() {
           clientId: options.clientId,
         }),
       });
-
-      if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.error || 'AI解析失败');
-      }
-
-      const result = await response.json();
       return result;
     } catch (e) {
       const err = e instanceof Error ? e : new Error(String(e));
@@ -247,12 +241,10 @@ export function useSimilarQuotes() {
       if (params.deviceName) query.set('deviceName', params.deviceName);
       if (params.limit) query.set('limit', params.limit.toString());
 
-      const response: Response = await fetch(`/api/ai-recommend?${query}`);
-      const data: { success: boolean; data?: SimilarQuote[] } = await response.json();
-      if (data.success) {
-        const items = data.data || [];
-        setRecommendations(items);
-        return items;
+      const result = await apiFetch<SimilarQuote[]>(`/api/ai-recommend?${query}`);
+      if (result.success && result.data) {
+        setRecommendations(result.data);
+        return result.data;
       }
       return [];
     } catch (e) {
@@ -273,13 +265,11 @@ export function useAIFeedback() {
   const submit = useCallback(async (feedback: FeedbackData): Promise<boolean> => {
     setSubmitting(true);
     try {
-      const response = await fetch('/api/ai-feedback', {
+      const result = await apiFetch('/api/ai-feedback', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(feedback),
       });
-      const data = await response.json();
-      return data.success;
+      return result.success;
     } catch (e) {
       console.error('[useAIFeedback] 失败:', e);
       return false;
@@ -307,6 +297,7 @@ export function usePriceSync() {
   ): Promise<{ min: number; max: number; unit: string } | null> => {
     setSyncing(true);
     try {
+      // 保留原生 fetch：响应中 estimatedPriceRange 是顶层非标准字段，apiFetch 仅提取 data
       const response = await fetch('/api/price-sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

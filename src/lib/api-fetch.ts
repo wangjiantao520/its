@@ -107,8 +107,7 @@ export async function apiFetch<T = unknown>(
     const data = await safeJsonResponse(response);
 
     if (data === null) {
-      // 非 JSON 响应
-      const text = await response.text().catch(() => '');
+      // 非 JSON 响应（safeJsonResponse 已消费 body，不可再次读取）
       return {
         success: false,
         error: `服务器返回了非JSON响应 (${response.status})`,

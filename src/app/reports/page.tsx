@@ -6,6 +6,7 @@ import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer,
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { apiFetch } from '@/lib/api-fetch';
 
 interface ReportStats {
   overview: {
@@ -33,9 +34,8 @@ export default function ReportsPage() {
   useEffect(() => {
     const load = async () => {
       try {
-        const response = await fetch('/api/dashboard/stats');
-        const result = await response.json();
-        if (!response.ok || !result.success) throw new Error(result.error || '加载报表失败');
+        const result = await apiFetch<ReportStats>('/api/dashboard/stats');
+        if (!result.success || !result.data) throw new Error(result.error || '加载报表失败');
         setStats(result.data);
       } catch (loadError) {
         setError(loadError instanceof Error ? loadError.message : '加载报表失败');

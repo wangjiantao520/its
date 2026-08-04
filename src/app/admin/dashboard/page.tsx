@@ -22,7 +22,8 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { TiltCard } from '@/components/ui/tilt-card';
 import { TiltIcon } from '@/components/ui/tilt-icon';
-import { 
+import { apiFetch } from '@/lib/api-fetch';
+import {
   BarChart3, Users, FileText, DollarSign, TrendingUp, Building2, Wrench, Clock, Eye } from 'lucide-react';
 
 interface DashboardStats {
@@ -119,13 +120,10 @@ export default function DashboardPage() {
       if (timeRange !== 'all') {
         params.set('time_range', timeRange);
       }
-      
-      const response = await fetch(`/api/dashboard/stats?${params.toString()}`);
-      if (response.ok) {
-        const data = await response.json();
-        if (data.success) {
-          setStats(data.data);
-        }
+
+      const result = await apiFetch<DashboardStats>(`/api/dashboard/stats?${params.toString()}`);
+      if (result.success && result.data) {
+        setStats(result.data);
       }
     } catch (error) {
       console.error('获取统计数据失败:', error);

@@ -11,6 +11,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { apiFetch } from '@/lib/api-fetch';
+import { useConfirm } from '@/hooks/use-confirm';
 
 interface QuoteRecord {
   id: string;
@@ -32,6 +34,7 @@ const TYPE_LABELS: Record<string, string> = {
 
 export default function HistoryPage() {
   const router = useRouter();
+  const { confirm, ConfirmDialog } = useConfirm();
   const [records, setRecords] = useState<QuoteRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -41,10 +44,9 @@ export default function HistoryPage() {
   const loadRecords = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await fetch('/api/quotes?page_size=100');
-      const result = await response.json();
-      if (!response.ok || !result.success) throw new Error(result.error || '加载失败');
-      setRecords(result.data);
+      const result = await apiFetch<QuoteRecord[]>('/api/quotes?page_size=100');
+      if (!result.success) throw new Error(result.error || '加载失败');
+      if (result.data) setRecords(result.data);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '加载历史记录失败');
     } finally {
@@ -84,10 +86,13 @@ export default function HistoryPage() {
   };
 
   const deleteRecord = async (record: QuoteRecord) => {
-    if (!window.confirm(`确定删除报价 ${record.quote_number}？此操作不可恢复。`)) return;
-    const response = await fetch(`/api/quotes/${encodeURIComponent(record.id)}`, { method: 'DELETE' });
-    const result = await response.json();
-    if (!response.ok || !result.success) {
+    if (!await confirm({
+      title: '删除报价',
+      description: `确定删除报价 ${record.quote_number}？此操作不可恢复。`,
+      confirmText: '删除',
+    })) return;
+    const result = await apiFetch(`/api/quotes/${encodeURIComponent(record.id)}`, { method: 'DELETE' });
+    if (!result.success) {
       toast.error(result.error || '删除失败');
       return;
     }
@@ -127,6 +132,7 @@ export default function HistoryPage() {
           )}
         </CardContent>
       </Card>
+      {ConfirmDialog}
     </div>
   );
 }

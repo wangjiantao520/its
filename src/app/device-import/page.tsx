@@ -10,10 +10,11 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useUser } from '@/contexts/user-context';
-import { DeviceImportItem, getDeviceImports, addDeviceImport, type MaintenanceLevel, type EngineerLevel, type DepreciationLevel } from '@/lib/roles';
+import { DeviceImportItem, getDeviceImports, addDeviceImport, type MaintenanceLevel, type EngineerLevel, type DepreciationLevel } from '@/lib/device-imports';
 import { FULL_DEVICE_QUOTAS } from '@/lib/complete-device-data';
 import { DEVICE_GRADE_OPTIONS, DEPRECIATION_GRADE_OPTIONS, type DeviceGrade, type DepreciationGrade } from '@/lib/device-grade';
 import { Upload, Trash2, CheckCircle2, XCircle, Clock } from 'lucide-react';
+import { toast } from 'sonner';
 
 const DEVICE_CATEGORIES = [
   '计算机终端类',
@@ -77,7 +78,7 @@ export default function DeviceImportPage() {
         !currentDevice.level || !currentDevice.engineerLevel || 
         currentDevice.deviceCount === undefined || currentDevice.deviceCount <= 0 ||
         !currentDevice.deviceGrade || !currentDevice.depreciationGrade) {
-      alert('请填写所有必填字段（带*号），包括设备分档和成新率等级');
+      toast.error('请填写所有必填字段（带*号），包括设备分档和成新率等级');
       return;
     }
 
@@ -104,7 +105,7 @@ export default function DeviceImportPage() {
 
   const handleSubmitImport = () => {
     if (devices.length === 0) {
-      alert('请先添加设备');
+      toast.error('请先添加设备');
       return;
     }
 

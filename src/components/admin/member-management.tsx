@@ -11,6 +11,8 @@ import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { Plus, Pencil, Trash2, Users, UserCheck, UserX } from 'lucide-react';
 import { useUser } from '@/contexts/user-context';
+import { apiFetch } from '@/lib/api-fetch';
+import { useConfirm } from '@/hooks/use-confirm';
 
 interface User {
   id: number;
@@ -23,6 +25,7 @@ interface User {
 
 export default function MemberManagement() {
   const { token, isLoggedIn, user } = useUser();
+  const { confirm, ConfirmDialog } = useConfirm();
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddDialog, setShowAddDialog] = useState(false);
@@ -46,17 +49,11 @@ export default function MemberManagement() {
     if (!token) return;
 
     try {
-      const response = await fetch('/api/users', {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      const data = await response.json();
-
-      if (data.success) {
-        setUsers(data.data);
+      const result = await apiFetch<User[]>('/api/users');
+      if (result.success && result.data) {
+        setUsers(result.data);
       } else {
-        setError(data.error || '加载失败');
+        setError(result.error || '加载失败');
       }
     } catch (err) {
       setError('加载用户列表失败');
@@ -80,29 +77,23 @@ export default function MemberManagement() {
     setError('');
 
     try {
-      const response = await fetch('/api/users', {
+      const result = await apiFetch('/api/users', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
         body: JSON.stringify({
           username: newUsername,
           password: newPassword,
           name: newName || newUsername
-        })
+        }),
       });
 
-      const data = await response.json();
-
-      if (data.success) {
+      if (result.success) {
         setShowAddDialog(false);
         setNewUsername('');
         setNewPassword('');
         setNewName('');
         loadUsers();
       } else {
-        setError(data.error || '创建失败');
+        setError(result.error || '创建失败');
       }
     } catch (err) {
       setError('创建用户失败');
@@ -141,23 +132,17 @@ export default function MemberManagement() {
     }
 
     try {
-      const response = await fetch(`/api/users/${editingUser.id}`, {
+      const result = await apiFetch(`/api/users/${editingUser.id}`, {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(updateData)
+        body: JSON.stringify(updateData),
       });
 
-      const data = await response.json();
-
-      if (data.success) {
+      if (result.success) {
         setShowEditDialog(false);
         setEditingUser(null);
         loadUsers();
       } else {
-        setError(data.error || '更新失败');
+        setError(result.error || '更新失败');
       }
     } catch (err) {
       setError('更新用户失败');
@@ -168,25 +153,24 @@ export default function MemberManagement() {
 
   // 删除用户
   const handleDeleteUser = async (userId: number) => {
-    if (!confirm('确定要删除这个用户吗？')) return;
+    if (!await confirm({
+      title: '删除用户',
+      description: '确定要删除这个用户吗？此操作不可恢复。',
+      confirmText: '删除',
+    })) return;
 
     setActionLoading(true);
     setError('');
 
     try {
-      const response = await fetch(`/api/users/${userId}`, {
+      const result = await apiFetch(`/api/users/${userId}`, {
         method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
       });
 
-      const data = await response.json();
-
-      if (data.success) {
+      if (result.success) {
         loadUsers();
       } else {
-        setError(data.error || '删除失败');
+        setError(result.error || '删除失败');
       }
     } catch (err) {
       setError('删除用户失败');
@@ -412,6 +396,7 @@ export default function MemberManagement() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {ConfirmDialog}
     </div>
   );
 }
