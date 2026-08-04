@@ -424,7 +424,6 @@ CREATE TABLE IF NOT EXISTS ai_model_configs (
   created_by text,
   display_name text,
   base_url text,
-  enabled boolean NOT NULL DEFAULT true,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );

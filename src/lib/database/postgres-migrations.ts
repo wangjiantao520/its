@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import type { DatabaseClient } from './client';
+import { DatabaseUnavailableError } from './errors';
 
 export interface PostgresMigration {
   version: number;
@@ -15,6 +16,28 @@ export interface PostgresMigrationResult {
 
 export interface RunPostgresMigrationOptions {
   migrations?: readonly PostgresMigration[];
+}
+
+export type PostgresMigrationStage =
+  | 'load-assets'
+  | 'begin-transaction'
+  | 'acquire-lock'
+  | 'ensure-history'
+  | 'read-status'
+  | 'apply-migration'
+  | 'record-migration';
+
+export class PostgresMigrationError extends Error {
+  readonly stage: PostgresMigrationStage;
+  readonly version?: number;
+
+  constructor(stage: PostgresMigrationStage, version?: number) {
+    const versionDescription = version === undefined ? '' : ` ${version}`;
+    super(`PostgreSQL migration${versionDescription} failed during ${stage}.`);
+    this.name = 'PostgresMigrationError';
+    this.stage = stage;
+    this.version = version;
+  }
 }
 
 const MIGRATION_FILES = [
@@ -58,20 +81,37 @@ export function loadPostgresMigrations(): PostgresMigration[] {
   }).sort((left, right) => left.version - right.version);
 }
 
-function safeMigrationError(): Error {
-  return new Error('PostgreSQL migration failed. Check database connectivity and migration status.');
+function classifyMigrationError(
+  error: unknown,
+  stage: PostgresMigrationStage,
+  version?: number,
+): Error {
+  if (error instanceof DatabaseUnavailableError || error instanceof PostgresMigrationError) {
+    return error;
+  }
+
+  return new PostgresMigrationError(stage, version);
 }
 
 export async function runPostgresMigrations(
   client: DatabaseClient,
   options: RunPostgresMigrationOptions = {},
 ): Promise<PostgresMigrationResult> {
+  let migrations: PostgresMigration[];
   try {
-    const migrations = [...(options.migrations ?? loadPostgresMigrations())]
+    migrations = [...(options.migrations ?? loadPostgresMigrations())]
       .sort((left, right) => left.version - right.version);
+  } catch (error) {
+    throw classifyMigrationError(error, 'load-assets');
+  }
 
+  let stage: PostgresMigrationStage = 'begin-transaction';
+  let activeVersion: number | undefined;
+  try {
     return await client.transaction(async (transactionClient) => {
+      stage = 'acquire-lock';
       await transactionClient.query('SELECT pg_advisory_xact_lock(49375483)');
+      stage = 'ensure-history';
       await transactionClient.query(`
         CREATE TABLE IF NOT EXISTS schema_migrations (
           version integer PRIMARY KEY,
@@ -80,6 +120,7 @@ export async function runPostgresMigrations(
         )
       `);
 
+      stage = 'read-status';
       const status = await transactionClient.query<{ version: number }>(
         'SELECT version FROM schema_migrations ORDER BY version',
       );
@@ -88,7 +129,10 @@ export async function runPostgresMigrations(
 
       for (const migration of migrations) {
         if (applied.has(migration.version)) continue;
+        activeVersion = migration.version;
+        stage = 'apply-migration';
         await transactionClient.query(migration.sql);
+        stage = 'record-migration';
         await transactionClient.query(
           'INSERT INTO schema_migrations (version, name) VALUES ($1, $2)',
           [migration.version, migration.name],
@@ -98,7 +142,7 @@ export async function runPostgresMigrations(
 
       return { appliedVersions };
     });
-  } catch {
-    throw safeMigrationError();
+  } catch (error) {
+    throw classifyMigrationError(error, stage, activeVersion);
   }
 }
