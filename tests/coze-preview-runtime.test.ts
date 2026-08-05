@@ -12,5 +12,6 @@ test('Coze preview uses the production build without development HMR', async () 
 
   assert.match(devSection, /build\s*=\s*\[\s*"bash",\s*"\.\/scripts\/build\.sh"\s*\]/);
   assert.match(devSection, /run\s*=\s*\[\s*"bash",\s*"\.\/scripts\/start\.sh"\s*\]/);
-  assert.match(startScript, /COZE_PROJECT_ENV="\$\{COZE_PROJECT_ENV:-PROD\}"/);
+  assert.match(startScript, /ITS_PROJECT_ENV="\$\{ITS_PROJECT_ENV:-PROD\}"/);
+  assert.doesNotMatch(startScript, /COZE_PROJECT_ENV/);
 });

@@ -33,7 +33,7 @@ test('production startup rejects a missing DATABASE_URL before creating a client
 
   await assert.rejects(
     preparePostgresStartup({
-      env: { COZE_PROJECT_ENV: 'PROD' },
+      env: { ITS_PROJECT_ENV: 'PROD' },
       createClient: () => {
         created = true;
         return new StartupDatabase();
@@ -50,7 +50,7 @@ test('production startup rejects migration failure and closes before health', as
 
   await assert.rejects(
     preparePostgresStartup({
-      env: { COZE_PROJECT_ENV: 'PROD', DATABASE_URL: 'postgres://safe-placeholder' },
+      env: { ITS_PROJECT_ENV: 'PROD', DATABASE_URL: 'postgres://safe-placeholder' },
       createClient: () => database,
       runMigrations: async () => {
         database.events.push('migrate');
@@ -66,7 +66,7 @@ test('production startup migrates and health-checks before returning a ready cli
   const database = new StartupDatabase();
 
   const readyDatabase = await preparePostgresStartup({
-    env: { COZE_PROJECT_ENV: 'PROD', DATABASE_URL: 'postgres://safe-placeholder' },
+    env: { ITS_PROJECT_ENV: 'PROD', DATABASE_URL: 'postgres://safe-placeholder' },
     createClient: () => database,
     runMigrations: async () => {
       database.events.push('migrate');
@@ -90,6 +90,8 @@ test('Coze starts migrations before the HTTP process and defaults to deploy port
 test('server exposes health only after PostgreSQL startup and never logs database URLs', () => {
   const server = fs.readFileSync(path.join(root, 'src/server.ts'), 'utf8');
 
+  assert.match(server, /process\.env\.ITS_PROJECT_ENV/);
+  assert.doesNotMatch(server, /COZE_PROJECT_ENV/);
   assert.match(server, /await preparePostgresStartup/);
   assert.match(server, /pathname === ['"]\/healthz['"]/);
   assert.match(server, /statusCode = databaseReady \? 200 : 503/);

@@ -38,7 +38,7 @@
 | `DATABASE_URL` | 是 | 上一步复制的 Transaction pooler URI |
 | `ADMIN_PASSWORD` | 是 | 管理员登录密码，由你自己设置 |
 | `ITS_PASSWORD` | 是 | ITS 成员登录密码，由你自己设置 |
-| `COZE_PROJECT_ENV` | 建议 | `PROD` |
+| `ITS_PROJECT_ENV` | 建议 | `PROD` |
 | `DEEPSEEK_API_KEY` | AI 功能需要 | DeepSeek API Key |
 | `DEEPSEEK_API_URL` | 可选 | 不填则使用代码默认地址 |
 | `DEEPSEEK_MODEL` | 可选 | 不填则使用代码默认模型 |
@@ -47,7 +47,7 @@
 
 ### 3. 重新拉取并部署
 
-1. 确认 Coze 连接的仓库是 `wangjiantao520/its-new`。
+1. 确认 Coze 连接的仓库是 `wangjiantao520/its`。
 2. 确认分支是 `main`，并且提交历史中包含 `616b8b6` 或更新提交。
 3. 点击 **Pull/同步代码**。
 4. 清理旧构建缓存（如果 Coze 提供该选项）。

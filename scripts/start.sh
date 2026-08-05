@@ -6,8 +6,8 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_DIR"
 
 PORT="${DEPLOY_RUN_PORT:-5000}"
-COZE_PROJECT_ENV="${COZE_PROJECT_ENV:-PROD}"
-export COZE_PROJECT_ENV
+ITS_PROJECT_ENV="${ITS_PROJECT_ENV:-PROD}"
+export ITS_PROJECT_ENV
 
 if [ -z "${DATABASE_URL:-}" ]; then
     echo "DATABASE_URL is required for PostgreSQL startup." >&2

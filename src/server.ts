@@ -52,7 +52,7 @@ export async function preparePostgresStartup(
 }
 
 async function startServer(): Promise<void> {
-  const dev = process.env.COZE_PROJECT_ENV !== 'PROD';
+  const dev = process.env.ITS_PROJECT_ENV !== 'PROD';
   const hostname = process.env.HOSTNAME || 'localhost';
   const port = Number.parseInt(
     process.env.PORT || process.env.DEPLOY_RUN_PORT || '5000',
@@ -102,7 +102,7 @@ async function startServer(): Promise<void> {
   server.listen(port, () => {
     console.log(
       `> Server listening at http://${hostname}:${port} as ${
-        dev ? 'development' : process.env.COZE_PROJECT_ENV
+        dev ? 'development' : process.env.ITS_PROJECT_ENV
       }`,
     );
   });
