@@ -21,6 +21,7 @@ import {
   Copy,
   UserCheck,
   PanelLeftClose,
+  Library,
   PanelLeft,
   Sparkles,
 } from 'lucide-react';
@@ -71,6 +72,11 @@ const itsMemberNavItems = [
     url: '/assistant',
     icon: Bot,
   },
+  {
+    title: '报价资料库',
+    url: '/quote-library',
+    icon: Library,
+  },
 ];
 
 // 管理员的导航项
@@ -99,6 +105,11 @@ const adminNavItems = [
     title: '报价管理',
     url: '/quotes',
     icon: ListFilter,
+  },
+  {
+    title: '报价资料库',
+    url: '/admin/quote-library',
+    icon: Library,
   },
   {
     title: '报表统计',
