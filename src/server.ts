@@ -14,6 +14,7 @@ import {
   runPostgresMigrations,
   type PostgresMigrationResult,
 } from './lib/database/postgres-migrations';
+import { ensureSecondaryPassword } from './lib/secondary-password';
 
 export interface PostgresStartupDependencies {
   env?: Readonly<Record<string, string | undefined>>;
@@ -37,6 +38,7 @@ export async function preparePostgresStartup(
   try {
     database = createClient({ url, prepare: false });
     await runMigrations(database);
+    await ensureSecondaryPassword(database);
   } catch {
     await database?.close().catch(() => undefined);
     throw new Error('PostgreSQL startup migration failed.');

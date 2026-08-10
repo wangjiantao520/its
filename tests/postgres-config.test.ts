@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import bcrypt from 'bcryptjs';
 
 import { NextRequest } from 'next/server';
 
@@ -662,6 +663,9 @@ test('device parameter aggregate route uses PostgreSQL for list/create/update/de
   assert.equal(typeof (textIdList.data as Row[])[0].price, 'number');
 
   const database = new FakeConfigDatabase('admin', (text, params) => {
+    if (text.includes('SELECT value FROM system_settings')) {
+      return result([{ value: bcrypt.hashSync('admin', 4) }]);
+    }
     if (text.includes('SELECT * FROM labor_price_config')) {
       return result([{ id: '1', level: '中级', unit_price: '600.00', is_active: true }]);
     }
@@ -680,9 +684,9 @@ test('device parameter aggregate route uses PostgreSQL for list/create/update/de
   assert.equal(typeof (listed.data as Row[])[0].unit_price, 'number');
   assert.equal((listed.data as Row[])[0].is_active, 1);
   const data = { level: '高级', unit_price: 900, unit: '人天', description: '', sort_order: 0, is_active: 1 };
-  assert.equal((await deviceParams.POST(apiRequest('/api/device-params', 'POST', { type: 'labor_price_config', data }))).status, 200);
+  assert.equal((await deviceParams.POST(apiRequest('/api/device-params', 'POST', { type: 'labor_price_config', data, secondaryPassword: 'admin' }))).status, 200);
   assert.equal((await deviceParamById.PUT(apiRequest('/api/device-params/2', 'PUT', { type: 'labor_price_config', id: '2', data }))).status, 200);
-  assert.equal((await deviceParamById.DELETE(apiRequest('/api/device-params/2?type=labor_price_config', 'DELETE'))).status, 200);
+  assert.equal((await deviceParamById.DELETE(apiRequest('/api/device-params/2?type=labor_price_config&secondaryPassword=admin', 'DELETE'))).status, 200);
 
   installDatabase(new FakeConfigDatabase('admin', (text) => {
     if (text.startsWith('UPDATE labor_price_config')) return result();

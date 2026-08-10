@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireApiAuth } from '@/lib/api-auth-server';
 import { validateBody } from '@/lib/api-validate';
 import { getDatabase } from '@/lib/database/client';
+import { verifySecondaryPassword } from '@/lib/secondary-password';
 import { deviceParamsUpdateSchema } from '../schema';
 
 interface IdRow extends Record<string, unknown> {
@@ -92,6 +93,12 @@ export async function PUT(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   const auth = await requireApiAuth(request, ['admin']);
   if (!auth.ok) return auth.response;
+
+  const secondaryPassword = request.nextUrl.searchParams.get('secondaryPassword') ?? '';
+  const ok = await verifySecondaryPassword(getDatabase(), secondaryPassword);
+  if (!ok) {
+    return NextResponse.json({ success: false, error: '二级密码错误' }, { status: 403 });
+  }
 
   const type = request.nextUrl.searchParams.get('type');
   const id = request.nextUrl.searchParams.get('id')

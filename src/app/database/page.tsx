@@ -11,10 +11,10 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
-import { 
+import {
   Plus, Edit, Trash2, Save, X, Search, Download, Upload,
   Cpu, Wrench, Building2, Users, AlertCircle, CheckCircle2, Loader2,
-  ChevronDown, ChevronRight, CheckSquare, Settings, FileText, Database
+  ChevronDown, ChevronRight, CheckSquare, Settings, FileText, Database, Key
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useUser } from '@/contexts/user-context';
@@ -155,6 +155,17 @@ export default function DatabaseManagementPage() {
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<any>(null);
   const [isAdding, setIsAdding] = useState(false);
+
+  // 二级密码
+  const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
+  const [passwordInput, setPasswordInput] = useState('');
+  const [pendingAction, setPendingAction] = useState<{ kind: 'save' | 'delete'; payload?: any } | null>(null);
+  const [passwordError, setPasswordError] = useState('');
+  const [passwordLoading, setPasswordLoading] = useState(false);
+  const [settingPasswordDialogOpen, setSettingPasswordDialogOpen] = useState(false);
+  const [settingPasswordForm, setSettingPasswordForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
+  const [settingPasswordError, setSettingPasswordError] = useState('');
+  const [settingPasswordLoading, setSettingPasswordLoading] = useState(false);
   
   // 操作反馈
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -254,7 +265,12 @@ export default function DatabaseManagementPage() {
           category: '', name: '', brand: '', model: '', specification: '',
           maintenance_tier: 'C档', annual_fault_count: 0, a_gear_fault_count: 0,
           b_gear_fault_count: 0, c_gear_fault_count: 0, d_gear_fault_count: 0,
-          e_gear_fault_count: 0, fault_processing_days: 0, inspection_days: 0, on_site_count: 0
+          e_gear_fault_count: 0, fault_processing_days: 0, inspection_days: 0, on_site_count: 0,
+          inspection_labor_fee: 0, visit_service_fee: 0, traffic_fee: 0,
+          fault_handling_fee: 0, tool_amortization: 0, consumable_fee: 0,
+          spare_part_reserve: 0, spare_part_fee: 0, year1_total_price: 0,
+          year2_total_price: 0, year3_total_price: 0, urban_price: 0,
+          town_price: 0, rural_price: 0, unit: '台', note: ''
         };
       case 'self_construction_quotas':
         return { id: '', category: '', name: '', unit: '', quantity: 1, price: 0, remark: '', sort_order: 0 };
@@ -262,12 +278,25 @@ export default function DatabaseManagementPage() {
         return { id: '', serial_number: 0, category: '', name: '', brand_model: '', description: '', deductible_tax_rate: 0, unit: '', price: 0, remark: '', sort_order: 0 };
       case 'labor_price_config':
         return { level: '', unit_price: 0, unit: '人天', description: '', sort_order: 0, is_active: 1 };
+      case 'maintenance_device_quotas':
+        return { category: '', name: '', brand: '', model: '', specification: '', unit: '台', quantity: 1, original_price: 0, maintenance_rate: 0, annual_fee: 0, network_type: '内网', remark: '', sort_order: 0, is_active: 1 };
+      case 'maintenance_rate_config':
+        return { device_type: '', rate: 0, description: '', sort_order: 0 };
+      case 'sla_config':
+        return { sla_level: '', response_time: 0, resolution_time: 0, penalty_rate: 0, description: '', sort_order: 0 };
       default:
         return {};
     }
   };
 
   const handleSave = async () => {
+    if (isAdding) {
+      setPasswordInput('');
+      setPasswordError('');
+      setPendingAction({ kind: 'save' });
+      setPasswordDialogOpen(true);
+      return;
+    }
     await doSave();
   };
 
@@ -275,9 +304,9 @@ export default function DatabaseManagementPage() {
     try {
       const url = isAdding ? '/api/device-params' : `/api/device-params/${editingItem.id}`;
       const method = isAdding ? 'POST' : 'PUT';
-      
-      const body = isAdding 
-        ? { type: activeTab, data: editingItem }
+
+      const body = isAdding
+        ? { type: activeTab, data: editingItem, secondaryPassword: passwordInput }
         : { type: activeTab, id: editingItem.id, data: editingItem };
 
       // raw fetch: non-standard response shape
@@ -288,13 +317,21 @@ export default function DatabaseManagementPage() {
       });
 
       const result = await response.json();
-      
+
       if (result.success) {
         showMessage('success', isAdding ? '添加成功' : '更新成功');
         setEditDialogOpen(false);
+        setPasswordDialogOpen(false);
+        setPendingAction(null);
+        setPasswordInput('');
         loadData();
       } else {
-        showMessage('error', result.message || '操作失败');
+        if (result.error === '二级密码错误') {
+          setPasswordError('二级密码错误，请重试');
+          setPasswordDialogOpen(true);
+          return;
+        }
+        showMessage('error', result.message || result.error || '操作失败');
       }
     } catch (error) {
       showMessage('error', '操作失败: ' + String(error));
@@ -302,26 +339,90 @@ export default function DatabaseManagementPage() {
   };
 
   const handleDelete = (id: string | number) => {
-    void doDelete(id);
+    setPasswordInput('');
+    setPasswordError('');
+    setPendingAction({ kind: 'delete', payload: id });
+    setPasswordDialogOpen(true);
   };
 
   const doDelete = async (id: string | number) => {
     try {
       // raw fetch: non-standard response shape
-      const response = await fetch(`/api/device-params/${id}?type=${activeTab}`, {
+      const response = await fetch(`/api/device-params/${id}?type=${activeTab}&secondaryPassword=${encodeURIComponent(passwordInput)}`, {
         method: 'DELETE'
       });
 
       const result = await response.json();
-      
+
       if (result.success) {
         showMessage('success', '删除成功');
+        setPasswordDialogOpen(false);
+        setPendingAction(null);
+        setPasswordInput('');
         loadData();
       } else {
-        showMessage('error', result.message || '删除失败');
+        if (result.error === '二级密码错误') {
+          setPasswordError('二级密码错误，请重试');
+          setPasswordDialogOpen(true);
+          return;
+        }
+        showMessage('error', result.message || result.error || '删除失败');
       }
     } catch (error) {
       showMessage('error', '删除失败: ' + String(error));
+    }
+  };
+
+  // 执行待处理操作（密码已输入并验证）
+  const handleConfirmPasswordAction = async () => {
+    if (!pendingAction) return;
+    setPasswordLoading(true);
+    setPasswordError('');
+    const action = pendingAction;
+    try {
+      if (action.kind === 'save') {
+        await doSave();
+      } else if (action.kind === 'delete') {
+        await doDelete(action.payload);
+      }
+    } finally {
+      setPasswordLoading(false);
+    }
+  };
+
+  // 设置二级密码
+  const handleSettingPassword = async () => {
+    if (!settingPasswordForm.newPassword) {
+      setSettingPasswordError('新密码不能为空');
+      return;
+    }
+    if (settingPasswordForm.newPassword !== settingPasswordForm.confirmPassword) {
+      setSettingPasswordError('两次输入的新密码不一致');
+      return;
+    }
+    setSettingPasswordLoading(true);
+    setSettingPasswordError('');
+    try {
+      const response = await fetch('/api/system-settings/password', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          currentPassword: settingPasswordForm.currentPassword,
+          newPassword: settingPasswordForm.newPassword,
+        }),
+      });
+      const result = await response.json();
+      if (result.success) {
+        showMessage('success', '二级密码已更新');
+        setSettingPasswordDialogOpen(false);
+        setSettingPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+      } else {
+        setSettingPasswordError(result.error || '设置失败');
+      }
+    } catch (error) {
+      setSettingPasswordError('设置失败: ' + String(error));
+    } finally {
+      setSettingPasswordLoading(false);
     }
   };
 
@@ -1388,7 +1489,8 @@ export default function DatabaseManagementPage() {
 
   // 下载导入模板
   const handleDownloadTemplate = () => {
-    window.open('/api/import-template', '_blank');
+    const templateType = activeTab === 'maintenance_device_quotas' ? 'maintenance_device_quotas' : 'device_quotas';
+    window.open(`/api/import-template?type=${templateType}`, '_blank');
   };
 
   // 处理文件选择
@@ -1474,6 +1576,10 @@ export default function DatabaseManagementPage() {
           <Button onClick={handleSeedData} variant="outline" className="border-slate-200 hover:bg-slate-50 text-slate-700">
             <Download className="w-4 h-4 mr-2" />
             初始化数据
+          </Button>
+          <Button onClick={() => setSettingPasswordDialogOpen(true)} variant="outline" className="border-slate-200 hover:bg-slate-50 text-slate-700">
+            <Key className="w-4 h-4 mr-2" />
+            二级密码设置
           </Button>
           <Button onClick={handleAdd} className="bg-blue-600 hover:bg-blue-700 text-white shadow-sm">
             <Plus className="w-4 h-4 mr-2" />
@@ -1617,6 +1723,110 @@ export default function DatabaseManagementPage() {
             </Button>
             <Button onClick={handleSave} className="bg-blue-600 hover:bg-blue-700">
               <Save className="w-4 h-4 mr-2" />
+              保存
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 二级密码确认对话框 */}
+      <Dialog open={passwordDialogOpen} onOpenChange={setPasswordDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>二级密码确认</DialogTitle>
+            <DialogDescription>
+              {pendingAction?.kind === 'delete' ? '删除操作需要二级密码确认，此操作不可恢复。' : '新增操作需要二级密码确认。'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            {passwordError && (
+              <div className="text-sm text-red-500">{passwordError}</div>
+            )}
+            <div className="space-y-2">
+              <Label htmlFor="secondaryPasswordInput">二级密码</Label>
+              <Input
+                id="secondaryPasswordInput"
+                type="password"
+                value={passwordInput}
+                onChange={(e) => setPasswordInput(e.target.value)}
+                placeholder="请输入二级密码"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') void handleConfirmPasswordAction();
+                }}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setPasswordDialogOpen(false); setPendingAction(null); }}>
+              取消
+            </Button>
+            <Button onClick={() => void handleConfirmPasswordAction()} disabled={passwordLoading} className="bg-blue-600 hover:bg-blue-700">
+              {passwordLoading ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <CheckCircle2 className="w-4 h-4 mr-2" />
+              )}
+              确认
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 二级密码设置对话框 */}
+      <Dialog open={settingPasswordDialogOpen} onOpenChange={setSettingPasswordDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>设置二级密码</DialogTitle>
+            <DialogDescription>
+              新增和删除基础数据时需要二级密码确认，默认密码为 admin，可在此修改。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            {settingPasswordError && (
+              <div className="text-sm text-red-500">{settingPasswordError}</div>
+            )}
+            <div className="space-y-2">
+              <Label htmlFor="currentPasswordInput">当前二级密码</Label>
+              <Input
+                id="currentPasswordInput"
+                type="password"
+                value={settingPasswordForm.currentPassword}
+                onChange={(e) => setSettingPasswordForm({ ...settingPasswordForm, currentPassword: e.target.value })}
+                placeholder="请输入当前二级密码"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="newPasswordInput">新二级密码</Label>
+              <Input
+                id="newPasswordInput"
+                type="password"
+                value={settingPasswordForm.newPassword}
+                onChange={(e) => setSettingPasswordForm({ ...settingPasswordForm, newPassword: e.target.value })}
+                placeholder="请输入新二级密码"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="confirmPasswordInput">确认新二级密码</Label>
+              <Input
+                id="confirmPasswordInput"
+                type="password"
+                value={settingPasswordForm.confirmPassword}
+                onChange={(e) => setSettingPasswordForm({ ...settingPasswordForm, confirmPassword: e.target.value })}
+                placeholder="请再次输入新二级密码"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSettingPasswordDialogOpen(false)}>
+              取消
+            </Button>
+            <Button onClick={() => void handleSettingPassword()} disabled={settingPasswordLoading} className="bg-blue-600 hover:bg-blue-700">
+              {settingPasswordLoading ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <Save className="w-4 h-4 mr-2" />
+              )}
               保存
             </Button>
           </DialogFooter>

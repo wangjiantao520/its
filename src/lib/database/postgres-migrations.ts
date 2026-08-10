@@ -45,6 +45,7 @@ const MIGRATION_FILES = [
   '002_indexes_and_constraints.sql',
   '003_sqlite_import_runs.sql',
   '004_quote_library.sql',
+  '005_secondary_password.sql',
 ] as const;
 
 function migrationDirectories(): string[] {

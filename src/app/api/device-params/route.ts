@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireApiAuth } from '@/lib/api-auth-server';
-import { validateBody } from '@/lib/api-validate';
 import { getDatabase } from '@/lib/database/client';
+import { verifySecondaryPassword } from '@/lib/secondary-password';
 import { deviceParamsSchema } from './schema';
 
 interface IdRow extends Record<string, unknown> {
@@ -117,8 +117,35 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const auth = await requireApiAuth(request, ['admin']);
   if (!auth.ok) return auth.response;
-  const parsed = await validateBody(request, deviceParamsSchema);
-  if (!parsed.ok) return parsed.response;
+
+  const rawText = await request.text();
+  let rawBody: Record<string, unknown> = {};
+  try {
+    const parsed = JSON.parse(rawText) as unknown;
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) rawBody = parsed as Record<string, unknown>;
+  } catch {
+    return NextResponse.json({ success: false, error: '请求体不是有效的 JSON' }, { status: 400 });
+  }
+  const secondaryPassword = typeof rawBody.secondaryPassword === 'string' ? rawBody.secondaryPassword : '';
+  const ok = await verifySecondaryPassword(getDatabase(), secondaryPassword);
+  if (!ok) {
+    return NextResponse.json({ success: false, error: '二级密码错误' }, { status: 403 });
+  }
+
+  const parsed = deviceParamsSchema.safeParse(rawBody);
+  if (!parsed.success) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: '输入参数校验失败',
+        details: parsed.error.issues.map((issue) => ({
+          path: issue.path.join('.'),
+          message: issue.message,
+        })),
+      },
+      { status: 400 },
+    );
+  }
 
   try {
     const { type, data } = parsed.data;
