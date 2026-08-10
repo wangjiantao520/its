@@ -169,3 +169,6 @@ Desktop.ini
 .preview
 .codegraph
 .worktrees/
+
+# User content (do not commit)
+trae-agent/

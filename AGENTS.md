@@ -11,7 +11,7 @@
 - **Language**: TypeScript 5
 - **UI 组件**: shadcn/ui (基于 Radix UI)
 - **Styling**: Tailwind CSS 4
-- **数据库**: SQLite (better-sqlite3)
+- **数据库**: Supabase PostgreSQL（生产运行使用 `postgres` 客户端；SQLite 仅用于一次性历史数据迁移工具）
 - **运行时入口**: `src/server.ts`（自定义 HTTP server 包装 Next.js）
 - **包管理器**: pnpm
 
@@ -104,7 +104,7 @@
 - `/api/audit-logs` — 审计日志
 
 ### 核心业务逻辑
-- `src/lib/db.ts` — 数据库连接
+- `src/lib/database/client.ts` — PostgreSQL 数据库连接
 - `src/lib/database/` — Schema 与迁移
 - `src/lib/auth.ts` / `api-auth*.ts` — 认证与鉴权
 - `src/lib/ai-*.ts` — AI 能力集成
@@ -130,5 +130,6 @@
 
 - Next.js 启动时可能出现 `url.parse()` 弃用警告（来自 server.ts），不影响功能
 - 多 lockfile 警告（pnpm-workspace.yaml）：项目使用 workspace 模式，可忽略
-- better-sqlite3 需要原生二进制，构建时通过 `scripts/ensure-better-sqlite3-prebuild.mjs` 处理
+- 生产运行不得重新引入 `better-sqlite3`；Coze 通过 `DATABASE_URL` 连接 Supabase PostgreSQL
+- Coze 自定义环境变量使用 `ITS_PROJECT_ENV=PROD`，禁止使用平台保留的 `COZE_` 前缀
 - 环境变量通过 `.env` 文件管理（DB 配置、认证密码等），参见 `.env.example`
