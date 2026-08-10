@@ -2,6 +2,34 @@
 export function detectIntent(message: string): { skill: string; params: Record<string, unknown> } | null {
   const lowerMsg = message.toLowerCase();
 
+  // 设备清单识别（优先级最高，避免被定额查询/报价计算拦截）
+  if (lowerMsg.includes('识别设备') || lowerMsg.includes('识别一下') || lowerMsg.includes('提取设备')
+    || lowerMsg.includes('设备清单') || lowerMsg.includes('解析设备') || lowerMsg.includes('清单里有哪些')
+    || (lowerMsg.includes('识别') && (lowerMsg.includes('设备') || lowerMsg.includes('清单')))) {
+    return { skill: 'device_recognition', params: { text: message } };
+  }
+
+  // 报告生成（在报价历史之前，避免"生成报价报告"被历史查询拦截）
+  if (lowerMsg.includes('生成报告') || lowerMsg.includes('报价报告') || lowerMsg.includes('汇总报告')
+    || (lowerMsg.includes('报告') && (lowerMsg.includes('生成') || lowerMsg.includes('汇总') || lowerMsg.includes('统计')))) {
+    const keyword = message.replace(/.*?(报告|汇总|统计).*?/, '').trim() || '';
+    return { skill: 'report_generation', params: { keyword } };
+  }
+
+  // 公式解释（在报价计算之前，避免"怎么算"被报价计算拦截）
+  if (lowerMsg.includes('公式') || lowerMsg.includes('怎么算') || lowerMsg.includes('如何计算')
+    || lowerMsg.includes('取费') || lowerMsg.includes('计算规则') || lowerMsg.includes('费率说明')
+    || lowerMsg.includes('收费依据') || lowerMsg.includes('为什么这么算')) {
+    return { skill: 'formula_explanation', params: {} };
+  }
+
+  // 问题诊断
+  if (lowerMsg.includes('报错') || lowerMsg.includes('故障') || lowerMsg.includes('排查')
+    || lowerMsg.includes('诊断') || lowerMsg.includes('不工作') || lowerMsg.includes('登录不了')
+    || lowerMsg.includes('加载不出来') || lowerMsg.includes('有问题') || lowerMsg.includes('怎么解决')) {
+    return { skill: 'problem_diagnosis', params: {} };
+  }
+
   // 报价计算（优先级最高，避免被定额查询拦截）
   if (lowerMsg.includes('计算') && (lowerMsg.includes('报价') || lowerMsg.includes('维保'))) {
     const params: Record<string, unknown> = {};
@@ -50,7 +78,8 @@ export function detectIntent(message: string): { skill: string; params: Record<s
   }
 
   // 系统介绍
-  if (lowerMsg.includes('功能') || lowerMsg.includes('介绍') || lowerMsg.includes('帮助') || lowerMsg.includes('怎么用') || lowerMsg.includes('使用')) {
+  if (lowerMsg.includes('功能') || lowerMsg.includes('介绍') || lowerMsg.includes('帮助') || lowerMsg.includes('怎么用')
+    || lowerMsg.includes('使用') || lowerMsg.includes('如何用') || lowerMsg.includes('怎么使用') || lowerMsg.includes('操作')) {
     return { skill: 'system_guide', params: {} };
   }
 

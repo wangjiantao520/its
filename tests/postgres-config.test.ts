@@ -191,6 +191,54 @@ test('AI config and agent skill repositories await DatabaseClient queries', asyn
   assert.ok(skillDatabase.queries.every(({ text }) => !text.includes('?')));
 });
 
+test('agent skill executors cover recognition, formula, report and diagnosis', async () => {
+  const { skillExecutors } = await import('../src/lib/agent-skills');
+  const { detectIntent } = await import('../src/lib/agent-intent');
+
+  // 新意图触发词
+  assert.equal(detectIntent('帮我识别一下设备清单')?.skill, 'device_recognition');
+  assert.equal(detectIntent('生成报价报告')?.skill, 'report_generation');
+  assert.equal(detectIntent('报价是怎么算的')?.skill, 'formula_explanation');
+  assert.equal(detectIntent('系统登录不了怎么办')?.skill, 'problem_diagnosis');
+  // 原有意图仍工作
+  assert.equal(detectIntent('帮我查交换机的定额')?.skill, 'quota_query');
+  assert.equal(detectIntent('计算一台服务器的维保报价')?.skill, 'quote_calculation');
+  assert.equal(detectIntent('如何用这个系统')?.skill, 'system_guide');
+
+  // 设备清单识别（规则提取，无需数据库）
+  const recognition = await skillExecutors.device_recognition({ text: '2台服务器、5台台式电脑、1台打印机' });
+  assert.match(recognition, /服务器/);
+  assert.match(recognition, /台式电脑/);
+  assert.match(recognition, /打印机/);
+  const emptyRecognition = await skillExecutors.device_recognition({ text: '没有任何设备描述' });
+  assert.match(emptyRecognition, /未能从描述中识别出设备/);
+
+  // 公式解释（纯静态）
+  const formula = await skillExecutors.formula_explanation({});
+  assert.match(formula, /维保成本/);
+  assert.match(formula, /65%/);
+  assert.match(formula, /35%/);
+
+  // 问题诊断（纯静态）
+  const diagnosis = await skillExecutors.problem_diagnosis({});
+  assert.match(diagnosis, /无法登录/);
+  assert.match(diagnosis, /加载中/);
+
+  // 报告生成（走数据库，mock 报价记录）
+  const reportDatabase = new FakeConfigDatabase('admin', (text, params) => {
+    assert.match(text, /FROM quotation_records/);
+    return result([
+      { id: '1', client_name: '测试客户', project_name: '测试项目', total_amount: '1000.00', status: 'draft', created_at: '2026-08-01T00:00:00.000Z' },
+      { id: '2', client_name: '测试客户', project_name: '测试项目2', total_amount: '2000.00', status: 'approved', created_at: '2026-08-02T00:00:00.000Z' },
+    ]);
+  });
+  installDatabase(reportDatabase);
+  const report = await skillExecutors.report_generation({ keyword: '测试客户' });
+  assert.match(report, /报价汇总报告/);
+  assert.match(report, /2/);
+  assert.match(report, /3,000/);
+});
+
 test('configuration reads require a session while every mutation requires an administrator', async () => {
   const routes = await loadRoutes();
   const mutations = [

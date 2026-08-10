@@ -152,7 +152,7 @@ export default function AIModelsPage() {
     setFormData({
       name: '',
       provider: 'deepseek',
-      model_name: 'deepseek-v4-pro',
+      model_name: 'deepseek-v4-flash',
       api_endpoint: 'https://api.deepseek.com/v1/chat/completions',
       api_key: '',
       temperature: 0.3,
@@ -582,30 +582,20 @@ export default function AIModelsPage() {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="model_name">模型名称 *</Label>
-                {formData.provider && presets[formData.provider] && presets[formData.provider].models.length > 0 ? (
-                  <Select
-                    value={formData.model_name}
-                    onValueChange={(v) => setFormData({ ...formData, model_name: v })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {presets[formData.provider].models.map((m) => (
-                        <SelectItem key={m} value={m}>
-                          {m}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <Input
-                    id="model_name"
-                    value={formData.model_name || ''}
-                    onChange={(e) => setFormData({ ...formData, model_name: e.target.value })}
-                    placeholder="如：deepseek-v4-pro"
-                  />
-                )}
+                <Input
+                  id="model_name"
+                  value={formData.model_name || ''}
+                  onChange={(e) => setFormData({ ...formData, model_name: e.target.value })}
+                  placeholder="如：deepseek-v4-flash"
+                  list="model-preset-options"
+                />
+                <datalist id="model-preset-options">
+                  {formData.provider && presets[formData.provider]
+                    ? presets[formData.provider].models.map((m) => (
+                        <option key={m} value={m} />
+                      ))
+                    : null}
+                </datalist>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="temperature">温度 (0-2)</Label>

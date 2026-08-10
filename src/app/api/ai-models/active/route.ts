@@ -102,7 +102,7 @@ export async function GET(request: NextRequest) {
         id: 0,
         name: '环境变量默认配置',
         provider: 'deepseek',
-        model_name: process.env.DEEPSEEK_MODEL || 'deepseek-v4-pro',
+        model_name: process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash',
         api_endpoint: process.env.DEEPSEEK_API_URL || 'https://api.deepseek.com/v1/chat/completions',
         api_key_masked: envKey ? maskApiKey(envKey) : '',
         is_active: 1,

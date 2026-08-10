@@ -22,6 +22,7 @@ import {
   UserCheck,
   PanelLeftClose,
   PanelLeft,
+  Sparkles,
 } from 'lucide-react';
 import { usePathname, useRouter } from 'next/navigation';
 import {
@@ -113,6 +114,11 @@ const adminNavItems = [
     title: 'AI配置中心',
     url: '/admin/ai-config',
     icon: Bot,
+  },
+  {
+    title: '智能体管理',
+    url: '/admin/agents',
+    icon: Sparkles,
   },
   {
     title: '基础数据管理',

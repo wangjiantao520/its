@@ -38,12 +38,28 @@ function mapAIModelConfigRow(config: AIModelConfigRow): AIModelConfig {
 
 /**
  * 获取当前激活的AI模型配置
- * 如果数据库没有配置或没有激活配置，则使用环境变量回退
+ * 优先使用环境变量 DEEPSEEK_API_KEY（避免数据库中的旧 key 覆盖新配置），
+ * 未配置时才回退数据库 ai_model_configs 的激活配置。
  */
 export async function getActiveAIModelConfig(
   database: DatabaseClient = getDatabase(),
 ): Promise<AIModelConfig | null> {
-  // 1. 优先从数据库读取激活的配置
+  // 1. 优先使用环境变量
+  const apiKey = process.env.DEEPSEEK_API_KEY;
+  if (apiKey && apiKey.trim() !== '' && apiKey !== 'your-deepseek-api-key-here') {
+    return {
+      id: 0,
+      name: '环境变量配置',
+      provider: process.env.DEEPSEEK_PROVIDER || 'deepseek',
+      model_name: process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash',
+      api_endpoint: process.env.DEEPSEEK_API_URL || 'https://api.deepseek.com/v1/chat/completions',
+      api_key: apiKey,
+      temperature: 0.3,
+      max_tokens: 3000,
+    };
+  }
+
+  // 2. 回退到数据库激活配置
   try {
     const result = await database.query<AIModelConfigRow>(
       'SELECT * FROM ai_model_configs WHERE is_active = true ORDER BY is_default DESC, sort_order ASC, id DESC LIMIT 1',
@@ -53,22 +69,7 @@ export async function getActiveAIModelConfig(
       return mapAIModelConfigRow(config);
     }
   } catch (error) {
-    console.warn('[AI Config] 数据库读取失败，使用环境变量回退:', (error as Error).message);
-  }
-
-  // 2. 回退到环境变量
-  const apiKey = process.env.DEEPSEEK_API_KEY;
-  if (apiKey && apiKey !== 'your-deepseek-api-key-here') {
-    return {
-      id: 0,
-      name: '环境变量配置',
-      provider: 'deepseek',
-      model_name: process.env.DEEPSEEK_MODEL || 'deepseek-v4-pro',
-      api_endpoint: process.env.DEEPSEEK_API_URL || 'https://api.deepseek.com/v1/chat/completions',
-      api_key: apiKey,
-      temperature: 0.3,
-      max_tokens: 3000,
-    };
+    console.warn('[AI Config] 数据库读取失败:', (error as Error).message);
   }
 
   return null;

@@ -13,8 +13,9 @@ export interface ProviderPreset {
 export const PROVIDER_PRESETS: Record<string, ProviderPreset> = {
   deepseek: {
     endpoint: 'https://api.deepseek.com/v1/chat/completions',
-    defaultModel: 'deepseek-v4-pro',
+    defaultModel: 'deepseek-v4-flash',
     models: [
+      'deepseek-v4-flash',
       'deepseek-chat',
       'deepseek-v3-2-251201',
       'deepseek-reasoner',

@@ -62,9 +62,12 @@ interface AgentSkill {
 
 // 可用技能列表
 const AVAILABLE_SKILLS = [
-  { value: 'device_recognition', label: '设备清单识别', type: 'recognition' },
-  { value: 'quote_calculation', label: '报价计算', type: 'calculation' },
   { value: 'quota_query', label: '定额查询', type: 'query' },
+  { value: 'maintenance_rate_query', label: '维保费率查询', type: 'database' },
+  { value: 'quote_calculation', label: '报价计算', type: 'calculation' },
+  { value: 'quote_history', label: '报价历史查询', type: 'database' },
+  { value: 'system_guide', label: '系统介绍', type: 'info' },
+  { value: 'device_recognition', label: '设备清单识别', type: 'recognition' },
   { value: 'formula_explanation', label: '公式解释', type: 'explanation' },
   { value: 'report_generation', label: '报告生成', type: 'generation' },
   { value: 'problem_diagnosis', label: '问题诊断', type: 'diagnosis' },
@@ -88,6 +91,7 @@ const PROVIDER_PRESETS: Record<string, { endpoint: string; models: string[] }> =
   deepseek: {
     endpoint: 'https://api.deepseek.com/v1',
     models: [
+      'deepseek-v4-flash',
       'deepseek-chat',
       'deepseek-v3-2-251201',
       'deepseek-reasoner',
@@ -420,6 +424,32 @@ export default function AIConfigPage() {
     }
   };
 
+  // 切换技能启用状态
+  const handleToggleSkill = async (skill: AgentSkill, enabled: boolean) => {
+    const skillInfo = AVAILABLE_SKILLS.find((s) => s.value === skill.skill_name);
+    try {
+      const result = await apiFetch(`/api/agents/${skill.agent_id}/skills`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          skill_id: skill.id,
+          skill_name: skill.skill_name,
+          skill_type: skillInfo?.type || skill.skill_type || 'general',
+          config_json: typeof skill.config_json === 'string' ? skill.config_json : '{}',
+          enabled: enabled ? 1 : 0,
+          priority: skill.priority || 0,
+        }),
+      });
+      if (result.success) {
+        toast({ title: '成功', description: enabled ? '技能已启用' : '技能已禁用' });
+        if (selectedAgent) loadSkills(selectedAgent.id);
+      } else {
+        toast({ title: '错误', description: result.error, variant: 'destructive' });
+      }
+    } catch (error) {
+      toast({ title: '错误', description: '操作失败', variant: 'destructive' });
+    }
+  };
+
   // 提供商选择变化
   const handleProviderChange = (provider: string) => {
     setSelectedProvider(provider);
@@ -551,9 +581,10 @@ export default function AIConfigPage() {
                               <Badge variant="outline" className="ml-2">{skill.skill_type}</Badge>
                             </div>
                             <div className="flex items-center gap-2">
-                              <Badge variant={skill.enabled ? 'default' : 'secondary'}>
-                                {skill.enabled ? '启用' : '禁用'}
-                              </Badge>
+                              <Switch
+                                checked={skill.enabled === 1}
+                                onCheckedChange={(checked) => handleToggleSkill(skill, checked)}
+                              />
                               <Button variant="ghost" size="sm" onClick={() => {
                                 setEditingSkill(skill);
                                 setIsSkillDialogOpen(true);
@@ -791,10 +822,21 @@ export default function AIConfigPage() {
               try {
                 const method = editingSkill.id ? 'PUT' : 'POST';
                 const url = `/api/agents/${editingSkill.agent_id}/skills`;
+                const skillInfo = AVAILABLE_SKILLS.find(s => s.value === editingSkill.skill_name);
 
                 const body = editingSkill.id
-                  ? { ...editingSkill, skill_id: editingSkill.id }
-                  : editingSkill;
+                  ? {
+                      ...editingSkill,
+                      skill_id: editingSkill.id,
+                      skill_type: skillInfo?.type || editingSkill.skill_type || 'general',
+                      config_json: typeof editingSkill.config_json === 'string' ? editingSkill.config_json : JSON.stringify(editingSkill.config_json || {}),
+                      enabled: editingSkill.enabled === 1 ? 1 : 0,
+                      priority: editingSkill.priority || 0,
+                    }
+                  : {
+                      ...editingSkill,
+                      skill_type: skillInfo?.type || editingSkill.skill_type || 'general',
+                    };
 
                 const result = await apiFetch(url, {
                   method,
@@ -804,7 +846,10 @@ export default function AIConfigPage() {
                 if (result.success) {
                   toast({ title: '成功', description: '技能已保存' });
                   setIsSkillDialogOpen(false);
+                  setEditingSkill({});
                   if (selectedAgent) loadSkills(selectedAgent.id);
+                } else {
+                  toast({ title: '错误', description: result.error, variant: 'destructive' });
                 }
               } catch (error) {
                 toast({ title: '错误', description: '保存失败', variant: 'destructive' });
