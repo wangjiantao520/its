@@ -94,6 +94,9 @@ class AssistantRouteDatabase implements DatabaseClient {
     }
     if (sql.startsWith('UPDATE auth_sessions SET last_seen_at')) return this.result([], 1);
     if (sql.startsWith('SELECT is_active FROM users')) return this.result([{ is_active: true }]);
+    if (sql.startsWith('SELECT id, name FROM users WHERE username')) {
+      return this.result([{ id: '42', name: '演示用户' }]);
+    }
     if (sql.startsWith('SELECT * FROM agent_configs ORDER BY')) return this.result([...this.agents].reverse());
     if (sql.startsWith('SELECT * FROM agent_configs WHERE id')) return this.result(this.agents.filter((agent) => String(agent.id) === String(params[0])));
     if (sql.startsWith('SELECT id FROM agent_configs WHERE id')) {

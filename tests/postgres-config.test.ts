@@ -76,6 +76,9 @@ class FakeConfigDatabase implements DatabaseClient {
     if (text.includes('UPDATE auth_sessions SET last_seen_at')) {
       return result([], 1) as QueryResult<ResultRow>;
     }
+    if (text.includes('SELECT id, name FROM users WHERE username')) {
+      return result([{ id: '42', name: '演示用户' }]) as QueryResult<ResultRow>;
+    }
 
     return await this.handler(text, params) as QueryResult<ResultRow>;
   }

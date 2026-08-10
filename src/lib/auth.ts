@@ -15,11 +15,47 @@ const PASSWORDS: Record<string, string | undefined> = {
   admin: process.env.ADMIN_PASSWORD || 'admin123',
 };
 
-const DEFAULT_ITS_USERS: Record<string, { password: string; name: string; userId: number }> = {
-  demo: { password: 'demo123', name: '演示用户', userId: -101 },
-  test: { password: 'test123', name: '测试账号', userId: -102 },
-  its: { password: process.env.ITS_PASSWORD || 'its123', name: 'ITS成员', userId: -103 },
+interface BuiltinMember {
+  password?: string;
+  passwordEnv?: string;
+  fallback?: string;
+  name: string;
+}
+
+const BUILTIN_MEMBERS: Record<string, BuiltinMember> = {
+  demo: { password: 'demo123', name: '演示用户' },
+  test: { password: 'test123', name: '测试账号' },
+  its: { passwordEnv: 'ITS_PASSWORD', fallback: 'its123', name: 'ITS成员' },
 };
+
+function builtinPassword(member: BuiltinMember): string {
+  if (member.passwordEnv && process.env[member.passwordEnv]) return process.env[member.passwordEnv] as string;
+  return member.password ?? member.fallback ?? '';
+}
+
+async function resolveOrCreateUser(
+  username: string,
+  password: string,
+  name: string,
+  role: string,
+  database: DatabaseClient,
+): Promise<number> {
+  const existing = await database.query<UserIdRow>(
+    'SELECT id FROM users WHERE username = $1',
+    [username],
+  );
+  if (existing.rows[0]) return toSafeInteger(existing.rows[0].id, 'users.id');
+
+  const passwordHash = await bcrypt.hash(password, 10);
+  const inserted = await database.query<UserIdRow>(
+    `INSERT INTO users (username, password_hash, name, role, created_by)
+     VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+    [username, passwordHash, name, role, 'auth'],
+  );
+  const row = inserted.rows[0];
+  if (!row) throw new Error(`创建用户失败: ${username}`);
+  return toSafeInteger(row.id, 'users.id');
+}
 
 interface SessionUser {
   role: string;
@@ -118,8 +154,20 @@ export async function verifySession(
     }
   }
 
-  const defaultUser = session.username ? DEFAULT_ITS_USERS[session.username] : undefined;
-  const userId = session.userId ?? defaultUser?.userId;
+  let userId = session.userId;
+  if (userId === undefined || userId <= 0) {
+    if (session.username) {
+      const user = await database.query<UserIdRow & { name: string | null }>(
+        'SELECT id, name FROM users WHERE username = $1',
+        [session.username],
+      );
+      if (!user.rows[0]) {
+        await deleteSession(database, token);
+        return null;
+      }
+      userId = toSafeInteger(user.rows[0].id, 'users.id');
+    }
+  }
 
   return {
     role: session.role,
@@ -141,11 +189,12 @@ async function validateUserCredentials(
   password: string,
   database: DatabaseClient,
 ): Promise<{ valid: boolean; userId?: number; name?: string }> {
-  const defaultUser = DEFAULT_ITS_USERS[username];
-  if (defaultUser) {
-    return defaultUser.password === password
-      ? { valid: true, userId: defaultUser.userId, name: defaultUser.name }
-      : { valid: false };
+  const builtin = BUILTIN_MEMBERS[username];
+  if (builtin) {
+    const expectedPassword = builtinPassword(builtin);
+    if (expectedPassword !== password) return { valid: false };
+    const userId = await resolveOrCreateUser(username, expectedPassword, builtin.name, 'its_member', database);
+    return { valid: true, userId, name: builtin.name };
   }
 
   const result = await database.query<CredentialRow>(
@@ -302,8 +351,9 @@ export async function handleLogin(
 
       const token = generateToken();
       const expiresAt = Date.now() + expiresIn;
-      await saveSession(database, token, { role: 'admin', expiresAt });
-      return { success: true, data: { token, role: 'admin', expiresAt } };
+      const adminUser = await resolveOrCreateUser('admin', PASSWORDS.admin as string, '管理员', 'admin', database);
+      await saveSession(database, token, { role: 'admin', userId: adminUser, expiresAt });
+      return { success: true, data: { token, role: 'admin', userId: adminUser, expiresAt } };
     }
 
     if (username) {

@@ -60,6 +60,7 @@ function bearerRequest(token: string): NextRequest {
 test('administrator and built-in member login persist hashed PostgreSQL sessions', async () => {
   const database = new FakeDatabase((text, params) => {
     if (text.includes('DELETE FROM auth_sessions WHERE expires_at')) return result();
+    if (text.includes('SELECT id FROM users WHERE username')) return result([{ id: '42' }]);
     if (text.includes('INSERT INTO auth_sessions')) {
       if (Number(params[2]) < 0) {
         throw Object.assign(new Error('foreign key violation'), { code: '23503' });
@@ -77,13 +78,13 @@ test('administrator and built-in member login persist hashed PostgreSQL sessions
   assert.equal(member.success, true);
   assert.deepEqual(
     { role: member.data?.role, userId: member.data?.userId, username: member.data?.username },
-    { role: 'its_member', userId: -101, username: 'demo' },
+    { role: 'its_member', userId: 42, username: 'demo' },
   );
   const inserts = database.queries.filter(({ text }) => text.includes('INSERT INTO auth_sessions'));
   assert.equal(inserts.length, 2);
   assert.equal(inserts[0].params[0], hashAuthToken(admin.data?.token ?? ''));
   assert.equal(inserts[1].params[0], hashAuthToken(member.data?.token ?? ''));
-  assert.equal(inserts[1].params[2], null);
+  assert.equal(inserts[1].params[2], 42);
   assert.ok(inserts.every(({ text }) => text.includes('$1') && !text.includes('?')));
 });
 
@@ -126,6 +127,9 @@ test('missing, expired, disabled, and deleted users have no valid session', asyn
       return result(row ? [row] : []);
     }
     if (text.includes('UPDATE auth_sessions SET last_seen_at')) return result([], 1);
+    if (text.includes('SELECT id, name FROM users WHERE username')) {
+      return result([{ id: '42', name: '演示用户' }]);
+    }
     if (text.includes('SELECT is_active FROM users')) {
       return result(userActive === null ? [] : [{ is_active: userActive }]);
     }
@@ -156,7 +160,7 @@ test('missing, expired, disabled, and deleted users have no valid session', asyn
   await saveSession(database, 'built-in', {
     role: 'its_member', username: 'demo', name: '演示用户', expiresAt: Date.now() + 60_000,
   });
-  assert.equal((await verifySession(bearerRequest('built-in'), database))?.userId, -101);
+  assert.equal((await verifySession(bearerRequest('built-in'), database))?.userId, 42);
 });
 
 test('logout revokes the bearer session and missing logout is rejected', async () => {
