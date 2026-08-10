@@ -44,7 +44,7 @@ export function parseSummarySheet(rows: unknown[][]): QuoteSummary {
   const dataRows = rows.filter((r) => Array.isArray(r) && r.some((c) => toText(c) !== ''));
   const title = dataRows[0]?.[0] ? toText(dataRows[0][0]) : '报价汇总';
 
-  let items: QuoteItem[] = [];
+  const items: QuoteItem[] = [];
   let totals = {
     taxable_total: 0,
     tiejiang_taxable_total: 0,
