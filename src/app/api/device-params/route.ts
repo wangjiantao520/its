@@ -180,12 +180,14 @@ export async function POST(request: NextRequest) {
         ];
         break;
       }
-      case 'maintenance_rate_config':
+      case 'maintenance_rate_config': {
+        const rate = data.rate ?? data.maintenance_rate ?? 0;
         query = `INSERT INTO maintenance_rate_config
-          (device_type, maintenance_rate, description)
-          VALUES ($1, $2, $3) RETURNING id`;
-        params = [data.device_type, data.maintenance_rate, data.description];
+          (device_type, rate, maintenance_rate, description)
+          VALUES ($1, $2, $3, $4) RETURNING id`;
+        params = [data.device_type, rate, rate, data.description];
         break;
+      }
       case 'sla_config':
         query = `INSERT INTO sla_config
           (sla_level, response_time, resolution_time, penalty_rate, description)

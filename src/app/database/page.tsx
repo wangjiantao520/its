@@ -118,6 +118,7 @@ interface MaintenanceRateConfig {
   id: number;
   device_type: string;
   rate: number;
+  maintenance_rate?: number;
   description: string;
   sort_order: number;
 }
@@ -686,7 +687,7 @@ export default function DatabaseManagementPage() {
             </div>
             <div className="space-y-2">
               <Label>维保率</Label>
-              <Input type="number" step="0.01" value={editingItem.maintenance_rate || 0} onChange={(e) => updateEditingItem('maintenance_rate', parseFloat(e.target.value))} />
+              <Input type="number" step="0.01" value={editingItem.rate ?? editingItem.maintenance_rate ?? 0} onChange={(e) => updateEditingItem('rate', parseFloat(e.target.value))} />
             </div>
             <div className="space-y-2 col-span-2">
               <Label>描述</Label>

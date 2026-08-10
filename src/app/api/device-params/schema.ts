@@ -79,8 +79,8 @@ export const deviceParamsSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('maintenance_rate_config'),
     data: z.object({
-      device_type: z.string().trim().min(1), maintenance_rate: optionalNonNegative,
-      description: optionalString,
+      device_type: z.string().trim().min(1), rate: optionalNonNegative,
+      maintenance_rate: optionalNonNegative, description: optionalString,
     }),
   }),
   z.object({
