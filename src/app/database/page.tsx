@@ -166,6 +166,20 @@ export default function DatabaseManagementPage() {
   const [settingPasswordForm, setSettingPasswordForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
   const [settingPasswordError, setSettingPasswordError] = useState('');
   const [settingPasswordLoading, setSettingPasswordLoading] = useState(false);
+
+  // 系统参数
+  const [systemParams, setSystemParams] = useState<Record<string, string>>({
+    management_rate: '10',
+    profit_rate: '8',
+    tax_rate: '6',
+    risk_factor: '5',
+    response_time: '4',
+    arrival_time: '24',
+    inspection_cycle: '3',
+    warranty_years: '1',
+  });
+  const [systemParamsLoading, setSystemParamsLoading] = useState(false);
+  const [systemParamsSaving, setSystemParamsSaving] = useState(false);
   
   // 操作反馈
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -201,9 +215,43 @@ export default function DatabaseManagementPage() {
     }
   };
 
+  const loadSystemParams = async () => {
+    setSystemParamsLoading(true);
+    try {
+      const result = await apiFetch<Record<string, string>>('/api/system-parameters');
+      if (result.success) {
+        setSystemParams((prev) => ({ ...prev, ...result.data }));
+      }
+    } catch (error) {
+      console.error('加载系统参数失败:', error);
+    } finally {
+      setSystemParamsLoading(false);
+    }
+  };
+
+  const handleSaveSystemParams = async () => {
+    setSystemParamsSaving(true);
+    try {
+      const result = await apiFetch('/api/system-parameters', {
+        method: 'PUT',
+        body: JSON.stringify(systemParams),
+      });
+      if (result.success) {
+        toast.success('系统参数已保存');
+      } else {
+        toast.error(result.error || '保存失败');
+      }
+    } catch (error) {
+      toast.error('保存失败: ' + String(error));
+    } finally {
+      setSystemParamsSaving(false);
+    }
+  };
+
   // 加载设备清单审核数据
   useEffect(() => {
     void loadImports();
+    void loadSystemParams();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 切换标签页时重置分类筛选和分页
@@ -1973,24 +2021,27 @@ export default function DatabaseManagementPage() {
               <CardDescription>配置系统全局参数</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
+              {systemParamsLoading && (
+                <div className="text-sm text-slate-500">加载中...</div>
+              )}
               <div className="space-y-4">
                 <h3 className="text-lg font-medium">报价参数</h3>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>管理费率 (%)</Label>
-                    <Input type="number" defaultValue="10" />
+                    <Input type="number" value={systemParams.management_rate} onChange={(e) => setSystemParams({ ...systemParams, management_rate: e.target.value })} />
                   </div>
                   <div className="space-y-2">
                     <Label>利润率 (%)</Label>
-                    <Input type="number" defaultValue="8" />
+                    <Input type="number" value={systemParams.profit_rate} onChange={(e) => setSystemParams({ ...systemParams, profit_rate: e.target.value })} />
                   </div>
                   <div className="space-y-2">
                     <Label>税率 (%)</Label>
-                    <Input type="number" defaultValue="6" />
+                    <Input type="number" value={systemParams.tax_rate} onChange={(e) => setSystemParams({ ...systemParams, tax_rate: e.target.value })} />
                   </div>
                   <div className="space-y-2">
                     <Label>风险系数 (%)</Label>
-                    <Input type="number" defaultValue="5" />
+                    <Input type="number" value={systemParams.risk_factor} onChange={(e) => setSystemParams({ ...systemParams, risk_factor: e.target.value })} />
                   </div>
                 </div>
               </div>
@@ -2000,26 +2051,26 @@ export default function DatabaseManagementPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>响应时间 (小时)</Label>
-                    <Input type="number" defaultValue="4" />
+                    <Input type="number" value={systemParams.response_time} onChange={(e) => setSystemParams({ ...systemParams, response_time: e.target.value })} />
                   </div>
                   <div className="space-y-2">
                     <Label>到场时间 (小时)</Label>
-                    <Input type="number" defaultValue="24" />
+                    <Input type="number" value={systemParams.arrival_time} onChange={(e) => setSystemParams({ ...systemParams, arrival_time: e.target.value })} />
                   </div>
                   <div className="space-y-2">
                     <Label>巡检周期 (月)</Label>
-                    <Input type="number" defaultValue="3" />
+                    <Input type="number" value={systemParams.inspection_cycle} onChange={(e) => setSystemParams({ ...systemParams, inspection_cycle: e.target.value })} />
                   </div>
                   <div className="space-y-2">
                     <Label>质保期 (年)</Label>
-                    <Input type="number" defaultValue="1" />
+                    <Input type="number" value={systemParams.warranty_years} onChange={(e) => setSystemParams({ ...systemParams, warranty_years: e.target.value })} />
                   </div>
                 </div>
               </div>
 
               <div className="flex justify-end">
-                <Button onClick={() => toast.success('系统参数已保存')}>
-                  <Save className="w-4 h-4 mr-2" />
+                <Button onClick={() => void handleSaveSystemParams()} disabled={systemParamsSaving}>
+                  {systemParamsSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
                   保存设置
                 </Button>
               </div>

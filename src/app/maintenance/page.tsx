@@ -83,10 +83,7 @@ import {
 } from '@/lib/maintenance-quota';
 // 新完整数据结构
 import {
-  FULL_DEVICE_QUOTAS,
   getDeviceCategories,
-  getDevicesByCategory,
-  updateDeviceQuota,
 } from '@/lib/complete-device-data';
 import {
   calculateFullMaintenanceQuote,
@@ -119,15 +116,6 @@ import {
   type FullDeviceQuota,
 } from '@/lib/device-quota-full';
 import { getDepreciationFactor, DEVICE_GRADE_DATA, type DeviceGrade, type DepreciationGrade } from '@/lib/device-grade';
-import { 
-  getTeamExperienceFactor, 
-  getSecurityLevelFactor, 
-  getSupportModeFactor, 
-  getFaultRecoveryTimeFactor, 
-  getArrivalTimeFactor, 
-  getResponseTimeFactor, 
-  getServiceTimeFactor,
-} from '@/lib/sla-config';
 import { ValueAddedServicesSelector } from '@/components/value-added-services-selector';
 import { SurveyQuestionnaire } from '@/components/survey-questionnaire';
 import type { SurveyAnswer } from '@/lib/survey-questions';
@@ -154,6 +142,79 @@ export default function MaintenanceQuotePage() {
   // 动态设备数据（从数据库加载）
   const [dbDeviceQuotas, setDbDeviceQuotas] = useState<any[]>([]);
   const [dbDataLoading, setDbDataLoading] = useState(true);
+
+  // 从数据库加载设备定额数据（政企设备定额 + 云数据中心设备）
+  const loadDeviceData = async () => {
+    try {
+      setDbDataLoading(true);
+      const [result1, result2] = await Promise.all([
+        apiFetch<unknown[]>('/api/device-params?type=device_quotas'),
+        apiFetch<unknown[]>('/api/device-params?type=maintenance_device_quotas')
+      ]);
+
+      const allData: any[] = [];
+
+      if (result1.success && Array.isArray(result1.data)) {
+        allData.push(...result1.data);
+      }
+
+      if (result2.success && Array.isArray(result2.data)) {
+        allData.push(...result2.data);
+      }
+
+      if (allData.length > 0) {
+        const convertedData = allData.map((item: any) => ({
+          id: item.id || item.item_id,
+          category: item.category || '',
+          name: item.name || '',
+          brand: item.brand || '',
+          model: item.model || '',
+          specification: item.specification || '',
+          maintenanceTier: item.maintenance_tier || 'C档',
+          annualFaultCount: item.annual_fault_count || 0,
+          aGearFaultCount: item.a_gear_fault_count || 0,
+          bGearFaultCount: item.b_gear_fault_count || 0,
+          cGearFaultCount: item.c_gear_fault_count || 0,
+          dGearFaultCount: item.d_gear_fault_count || 0,
+          eGearFaultCount: item.e_gear_fault_count || 0,
+          faultProcessingDays: item.fault_processing_days || 0,
+          inspectionDays: item.inspection_days || 0,
+          onSiteCount: item.on_site_count || 0,
+          inspectionFee: item.inspection_labor_fee || item.inspection_fee || 0,
+          inspectionLaborFee: item.inspection_labor_fee || item.inspection_fee || 0,
+          arrivalFee: item.arrival_fee || 0,
+          onSiteFee: item.visit_service_fee || item.on_site_fee || 0,
+          onSiteFeeAnnual: item.visit_service_fee || item.on_site_fee || 0,
+          visitServiceFee: item.visit_service_fee || 0,
+          trafficFee: item.traffic_fee || 0,
+          faultHandlingFee: item.fault_handling_fee_total || item.fault_handling_fee || 0,
+          faultHandlingFeeTotal: item.fault_handling_fee_total || item.fault_handling_fee || 0,
+          toolAmortization: item.tool_amortization || 0,
+          consumableFee: item.consumable_fee || 0,
+          sparePartReserve: item.spare_part_reserve || 0,
+          sparePartFee: item.spare_part_fee || 0,
+          year1TotalPrice: item.year1_total_price || 0,
+          year2TotalPrice: item.year2_total_price || 0,
+          year3TotalPrice: item.year3_total_price || 0,
+          cityPrice: item.city_price || item.original_price || 0,
+          urbanPrice: item.urban_price || item.original_price || 0,
+          townPrice: item.town_price || item.original_price || 0,
+          ruralPrice: item.rural_price || item.original_price || 0,
+          originalPrice: item.original_price || 0,
+          quantity: item.quantity || 1,
+          annualFee: item.annual_fee || 0,
+          maintenanceRate: item.maintenance_rate || 0,
+          unit: item.unit || '台',
+          networkType: item.network_type || '',
+        }));
+        setDbDeviceQuotas(convertedData);
+      }
+    } catch (error) {
+      console.error('加载设备数据失败:', error);
+    } finally {
+      setDbDataLoading(false);
+    }
+  };
 
   // AI辅助报价状态与处理器（抽取到 ./use-ai-quote）
   const {
@@ -414,86 +475,10 @@ export default function MaintenanceQuotePage() {
     setQuoteDate(new Date().toISOString().split('T')[0]);
   }, []);
 
-  // 从数据库加载设备定额数据
+  // 从数据库加载设备定额数据（挂载时）
   useEffect(() => {
-    const loadDeviceData = async () => {
-      try {
-        setDbDataLoading(true);
-        // 加载两种设备数据：政企设备定额 + 云数据中心设备
-        const [result1, result2] = await Promise.all([
-          apiFetch<unknown[]>('/api/device-params?type=device_quotas'),
-          apiFetch<unknown[]>('/api/device-params?type=maintenance_device_quotas')
-        ]);
-
-        const allData = [];
-
-        // 添加政企设备定额
-        if (result1.success && Array.isArray(result1.data)) {
-          allData.push(...result1.data);
-        }
-
-        // 添加云数据中心设备
-        if (result2.success && Array.isArray(result2.data)) {
-          allData.push(...result2.data);
-        }
-        
-        if (allData.length > 0) {
-          // 将数据库数据转换为 FullDeviceQuota 格式
-          const convertedData = allData.map((item: any) => ({
-            id: item.id || item.item_id,
-            category: item.category || '',
-            name: item.name || '',
-            brand: item.brand || '',
-            model: item.model || '',
-            specification: item.specification || '',
-            maintenanceTier: item.maintenance_tier || 'C档',
-            annualFaultCount: item.annual_fault_count || 0,
-            aGearFaultCount: item.a_gear_fault_count || 0,
-            bGearFaultCount: item.b_gear_fault_count || 0,
-            cGearFaultCount: item.c_gear_fault_count || 0,
-            dGearFaultCount: item.d_gear_fault_count || 0,
-            eGearFaultCount: item.e_gear_fault_count || 0,
-            faultProcessingDays: item.fault_processing_days || 0,
-            inspectionDays: item.inspection_days || 0,
-            onSiteCount: item.on_site_count || 0,
-            // 费用字段映射 - 同时支持计算函数需要的字段名
-            inspectionFee: item.inspection_labor_fee || item.inspection_fee || 0,
-            inspectionLaborFee: item.inspection_labor_fee || item.inspection_fee || 0,
-            arrivalFee: item.arrival_fee || 0,
-            onSiteFee: item.visit_service_fee || item.on_site_fee || 0,
-            onSiteFeeAnnual: item.visit_service_fee || item.on_site_fee || 0,
-            visitServiceFee: item.visit_service_fee || 0,
-            trafficFee: item.traffic_fee || 0,
-            faultHandlingFee: item.fault_handling_fee_total || item.fault_handling_fee || 0,
-            faultHandlingFeeTotal: item.fault_handling_fee_total || item.fault_handling_fee || 0,
-            toolAmortization: item.tool_amortization || 0,
-            consumableFee: item.consumable_fee || 0,
-            sparePartReserve: item.spare_part_reserve || 0,
-            sparePartFee: item.spare_part_fee || 0,
-            year1TotalPrice: item.year1_total_price || 0,
-            year2TotalPrice: item.year2_total_price || 0,
-            year3TotalPrice: item.year3_total_price || 0,
-            cityPrice: item.city_price || item.original_price || 0,
-            urbanPrice: item.urban_price || item.original_price || 0,
-            townPrice: item.town_price || item.original_price || 0,
-            ruralPrice: item.rural_price || item.original_price || 0,
-            // 云数据中心设备字段
-            originalPrice: item.original_price || 0,
-            quantity: item.quantity || 1,
-            annualFee: item.annual_fee || 0,
-            maintenanceRate: item.maintenance_rate || 0,
-            unit: item.unit || '台',
-            networkType: item.network_type || '',
-          }));
-          setDbDeviceQuotas(convertedData);
-        }
-      } catch (error) {
-        console.error('加载设备数据失败:', error);
-      } finally {
-        setDbDataLoading(false);
-      }
-    };
-    loadDeviceData();
+    void loadDeviceData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   
   // 使用新的完整数据结构的标志
@@ -922,6 +907,44 @@ export default function MaintenanceQuotePage() {
       setSlaConfigDevice(newDevice);
       setIsNewSlaDevice(true);
       setIsSlaDialogOpen(true);
+    }
+  };
+
+  // 保存设备定额编辑到数据库
+  const handleSaveDeviceQuota = async () => {
+    if (!editingQuota) return;
+    try {
+      const quota = editingQuota as any;
+      const result = await apiFetch(`/api/device-params/${editingQuota.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          type: 'device_quotas',
+          id: editingQuota.id,
+          data: {
+            category: quota.category,
+            name: quota.name,
+            brand: quota.brand || '',
+            model: quota.model || '',
+            specification: quota.specification || '',
+            level: quota.level,
+            engineerLevel: quota.engineerLevel,
+            cityPrice: quota.cityPrice || 0,
+            urbanPrice: quota.urbanPrice || 0,
+            townPrice: quota.townPrice || 0,
+            ruralPrice: quota.ruralPrice || 0,
+            coreMaintenanceContent: quota.coreMaintenanceContent || '',
+          },
+        }),
+      });
+      if (result.success) {
+        toast.success('设备定额更新成功！');
+        setIsEditDialogOpen(false);
+        await loadDeviceData();
+      } else {
+        toast.error(result.error || '更新失败');
+      }
+    } catch (error) {
+      toast.error('更新失败: ' + String(error));
     }
   };
 
@@ -3090,10 +3113,11 @@ export default function MaintenanceQuotePage() {
             </CardHeader>
             <CardContent>
               {(() => {
-                // 获取要显示的数据
-                const displayData = useFullData 
-                  ? FULL_DEVICE_QUOTAS 
-                  : FULL_DEVICE_QUOTAS.filter(d => selectedCategories.includes(d.category));
+                // 获取要显示的数据（使用数据库中的设备定额，保证编辑落库、刷新不丢）
+                const baseData = dbDeviceQuotas.length > 0 ? dbDeviceQuotas : [];
+                const displayData = useFullData
+                  ? baseData
+                  : baseData.filter(d => selectedCategories.includes(d.category));
                 
                 // 计算分页
                 const totalPages = Math.ceil(displayData.length / ITEMS_PER_PAGE);
@@ -3185,7 +3209,7 @@ export default function MaintenanceQuotePage() {
                               <TableCell className="text-slate-500">{quota.model}</TableCell>
                               <TableCell>
                                 <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
-                                  {quota.level}档 - {MAINTENANCE_LEVEL_CONFIG[quota.level].name}
+                                  {quota.level}档 - {(MAINTENANCE_LEVEL_CONFIG as Record<string, { name: string }>)[String(quota.level)]?.name || ''}
                                 </Badge>
                               </TableCell>
                               <TableCell>{quota.engineerLevel}</TableCell>
@@ -3690,17 +3714,7 @@ export default function MaintenanceQuotePage() {
             </Button>
             <Button 
               className="bg-blue-700 hover:bg-blue-800"
-              onClick={() => {
-                if (editingQuota) {
-                  const updated = updateDeviceQuota(editingQuota.id, editingQuota);
-                  if (updated) {
-                    toast.success('设备定额更新成功！');
-                    setIsEditDialogOpen(false);
-                  } else {
-                    toast.error('更新失败：未找到设备');
-                  }
-                }
-              }}
+              onClick={() => void handleSaveDeviceQuota()}
             >
               <Save className="h-4 w-4 mr-2" />
               保存

@@ -120,60 +120,7 @@ export const DEFAULT_SLA_CONFIG: SLAConfig = {
   }
 };
 
-// 当前SLA配置（允许动态调整）
-let currentSLAConfig: SLAConfig = { ...DEFAULT_SLA_CONFIG };
-
-// 获取当前SLA配置
-export function getSLAConfig(): SLAConfig {
-  return currentSLAConfig;
-}
-
-// 更新SLA配置
-export function updateSLAConfig(config: Partial<SLAConfig>): void {
-  currentSLAConfig = { ...currentSLAConfig, ...config };
-}
-
-// 重置SLA配置为默认值
-export function resetSLAConfig(): void {
-  currentSLAConfig = { ...DEFAULT_SLA_CONFIG };
-}
-
-// 获取运维团队经验系数
-export function getTeamExperienceFactor(type: TeamExperienceType): number {
-  return currentSLAConfig.teamExperience[type]?.factor || 1.0;
-}
-
-// 获取安全等级系数
-export function getSecurityLevelFactor(level: SecurityLevelType): number {
-  return currentSLAConfig.securityLevel[level]?.factor || 1.0;
-}
-
-// 获取支持方式系数
-export function getSupportModeFactor(mode: SupportModeType): number {
-  return currentSLAConfig.supportMode[mode]?.factor || 1.0;
-}
-
-// 获取故障恢复时间系数
-export function getFaultRecoveryTimeFactor(time: FaultRecoveryTimeType): number {
-  return currentSLAConfig.faultRecoveryTime[time]?.factor || 1.0;
-}
-
-// 获取到场时间系数
-export function getArrivalTimeFactor(time: ArrivalTimeType): number {
-  return currentSLAConfig.arrivalTime[time]?.factor || 1.0;
-}
-
-// 获取响应时间系数
-export function getResponseTimeFactor(time: ResponseTimeType): number {
-  return currentSLAConfig.responseTime[time]?.factor || 1.0;
-}
-
-// 获取服务时间系数
-export function getServiceTimeFactor(time: ServiceTimeType): number {
-  return currentSLAConfig.serviceTime[time]?.factor || 1.0;
-}
-
-// 计算SLA总系数
+// 计算SLA总系数（基于默认配置）
 export function calculateSLATotalFactor(
   teamExperience: TeamExperienceType,
   securityLevel: SecurityLevelType,
@@ -183,16 +130,13 @@ export function calculateSLATotalFactor(
   responseTime: ResponseTimeType,
   serviceTime: ServiceTimeType
 ): number {
-  const teamExpFactor = getTeamExperienceFactor(teamExperience);
-  const securityFactor = getSecurityLevelFactor(securityLevel);
-  const supportFactor = getSupportModeFactor(supportMode);
-  const faultRecoveryFactor = getFaultRecoveryTimeFactor(faultRecoveryTime);
-  const arrivalFactor = getArrivalTimeFactor(arrivalTime);
-  const responseFactor = getResponseTimeFactor(responseTime);
-  const serviceFactor = getServiceTimeFactor(serviceTime);
-  
-  return teamExpFactor * securityFactor * supportFactor * 
-         faultRecoveryFactor * arrivalFactor * responseFactor * serviceFactor;
+  return DEFAULT_SLA_CONFIG.teamExperience[teamExperience]?.factor
+    * DEFAULT_SLA_CONFIG.securityLevel[securityLevel]?.factor
+    * DEFAULT_SLA_CONFIG.supportMode[supportMode]?.factor
+    * DEFAULT_SLA_CONFIG.faultRecoveryTime[faultRecoveryTime]?.factor
+    * DEFAULT_SLA_CONFIG.arrivalTime[arrivalTime]?.factor
+    * DEFAULT_SLA_CONFIG.responseTime[responseTime]?.factor
+    * DEFAULT_SLA_CONFIG.serviceTime[serviceTime]?.factor;
 }
 
 // SLA配置选项

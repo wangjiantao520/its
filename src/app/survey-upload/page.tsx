@@ -1,15 +1,24 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Upload, FileSpreadsheet, Download, Trash2, CheckCircle2, Calculator } from 'lucide-react';
+import { Upload, FileSpreadsheet, Download, Trash2, CheckCircle2, Calculator, Save, History } from 'lucide-react';
 import { parseSurveyExcel, generateQuoteFromSurvey, type SurveyFormData, type QuoteResult } from '@/lib/survey-parser';
 import type { FullDeviceQuota } from '@/lib/device-quota-full';
+import { apiFetch } from '@/lib/api-fetch';
 import { toast } from 'sonner';
+
+interface SurveyRecord {
+  id: string;
+  survey_data: SurveyFormData;
+  quote_result: QuoteResult | null;
+  contract_years: number;
+  created_at: string;
+}
 
 const SurveyUploadPage = () => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -19,6 +28,49 @@ const SurveyUploadPage = () => {
   const [quoteResult, setQuoteResult] = useState<QuoteResult | null>(null);
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [contractYears, setContractYears] = useState<1 | 2 | 3>(1);
+  const [saving, setSaving] = useState(false);
+  const [records, setRecords] = useState<SurveyRecord[]>([]);
+
+  const loadRecords = async () => {
+    try {
+      const result = await apiFetch<SurveyRecord[]>('/api/survey-records');
+      if (result.success) setRecords(result.data || []);
+    } catch (error) {
+      console.error('加载查勘记录失败:', error);
+    }
+  };
+
+  useEffect(() => {
+    void loadRecords();
+  }, []);
+
+  const handleSaveRecord = async () => {
+    if (!formData) {
+      toast.error('没有可保存的查勘数据');
+      return;
+    }
+    setSaving(true);
+    try {
+      const result = await apiFetch('/api/survey-records', {
+        method: 'POST',
+        body: JSON.stringify({
+          survey_data: formData,
+          quote_result: quoteResult,
+          contract_years: contractYears,
+        }),
+      });
+      if (result.success) {
+        toast.success('查勘记录已保存');
+        await loadRecords();
+      } else {
+        toast.error(result.error || '保存失败');
+      }
+    } catch (error) {
+      toast.error('保存失败: ' + String(error));
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -73,9 +125,10 @@ const SurveyUploadPage = () => {
         </div>
 
         <Tabs defaultValue="upload" className="w-full">
-          <TabsList className="grid w-full grid-cols-2">
+          <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="upload">文件上传</TabsTrigger>
             <TabsTrigger value="data">数据预览</TabsTrigger>
+            <TabsTrigger value="history">历史记录</TabsTrigger>
           </TabsList>
           
           <TabsContent value="upload">
@@ -357,13 +410,25 @@ const SurveyUploadPage = () => {
               {quoteResult && (
                 <Card className="border-green-500">
                   <CardHeader className="bg-green-50">
-                    <CardTitle className="text-green-800 flex items-center space-x-2">
-                      <CheckCircle2 className="w-6 h-6" />
-                      <span>报价结果</span>
-                    </CardTitle>
-                    <CardDescription className="text-green-600">
-                      根据记录表生成的维保报价单
-                    </CardDescription>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <CardTitle className="text-green-800 flex items-center space-x-2">
+                          <CheckCircle2 className="w-6 h-6" />
+                          <span>报价结果</span>
+                        </CardTitle>
+                        <CardDescription className="text-green-600">
+                          根据记录表生成的维保报价单
+                        </CardDescription>
+                      </div>
+                      <Button onClick={() => void handleSaveRecord()} disabled={saving} className="bg-green-600 hover:bg-green-700">
+                        {saving ? '保存中...' : (
+                          <>
+                            <Save className="w-4 h-4 mr-2" />
+                            保存查勘记录
+                          </>
+                        )}
+                      </Button>
+                    </div>
                   </CardHeader>
                   <CardContent className="space-y-6 pt-6">
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -430,6 +495,56 @@ const SurveyUploadPage = () => {
                 </Card>
               )}
             </div>
+          </TabsContent>
+
+          <TabsContent value="history">
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle>历史记录</CardTitle>
+                    <CardDescription>已保存的查勘记录</CardDescription>
+                  </div>
+                  <Button variant="outline" onClick={() => void loadRecords()}>
+                    <History className="w-4 h-4 mr-2" />
+                    刷新
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {records.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-12 text-gray-500">
+                    <History className="w-16 h-16 mb-4 opacity-50" />
+                    <p>暂无已保存的查勘记录</p>
+                  </div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>客户名称</TableHead>
+                        <TableHead>联系人</TableHead>
+                        <TableHead>合同年限</TableHead>
+                        <TableHead>设备数量</TableHead>
+                        <TableHead>总报价</TableHead>
+                        <TableHead>保存时间</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {records.map((record) => (
+                        <TableRow key={record.id}>
+                          <TableCell>{record.survey_data?.basicInfo?.companyName || '-'}</TableCell>
+                          <TableCell>{record.survey_data?.basicInfo?.contactPerson || '-'}</TableCell>
+                          <TableCell>{record.contract_years}年</TableCell>
+                          <TableCell>{record.quote_result?.deviceCount ?? '-'} 台</TableCell>
+                          <TableCell>{record.quote_result ? `¥${record.quote_result.totalPrice.toFixed(2)}` : '-'}</TableCell>
+                          <TableCell>{new Date(record.created_at).toLocaleString('zh-CN')}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </CardContent>
+            </Card>
           </TabsContent>
         </Tabs>
       </div>

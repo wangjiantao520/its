@@ -37,6 +37,8 @@ export const TABLE_COLUMNS = {
   quote_library_attachments: ['id', 'library_id', 'category', 'original_name', 'stored_path', 'mime_type', 'file_size', 'uploaded_by', 'created_at'],
   sqlite_import_runs: ['import_id', 'source_fingerprint', 'status', 'source_integrity', 'backup_integrity', 'backup_path', 'target_migration_versions', 'imported_counts', 'report_json', 'started_at', 'completed_at'],
   system_settings: ['key', 'value', 'updated_at'],
+  system_parameters: ['key', 'value', 'updated_at'],
+  survey_records: ['id', 'user_id', 'survey_data', 'quote_result', 'contract_years', 'created_at'],
   device_imports: ['id', 'category', 'name', 'model', 'level', 'engineer_level', 'device_count', 'need_spare_part', 'contract_years', 'device_data', 'status', 'submitted_by', 'submitted_at', 'reviewed_by', 'reviewed_at', 'review_comment'],
 } as const satisfies Readonly<Record<string, readonly string[]>>;
 

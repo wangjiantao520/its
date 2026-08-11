@@ -47,6 +47,7 @@ const MIGRATION_FILES = [
   '004_quote_library.sql',
   '005_secondary_password.sql',
   '006_device_imports.sql',
+  '007_system_parameters.sql',
 ] as const;
 
 function migrationDirectories(): string[] {

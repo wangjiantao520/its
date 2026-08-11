@@ -22,13 +22,15 @@ const deleteTables = {
 
 const updateColumns: Record<keyof typeof deleteTables, ReadonlySet<string>> = {
   device_quotas: new Set([
-    'category', 'name', 'brand', 'model', 'specification', 'maintenance_tier',
+    'category', 'name', 'brand', 'model', 'specification', 'maintenance_tier', 'level', 'engineer_level',
     'annual_fault_count', 'a_gear_fault_count', 'b_gear_fault_count',
     'c_gear_fault_count', 'd_gear_fault_count', 'e_gear_fault_count',
     'fault_processing_days', 'inspection_days', 'on_site_count',
     'inspection_labor_fee', 'visit_service_fee', 'traffic_fee',
     'fault_handling_fee', 'tool_amortization', 'consumable_fee',
-    'spare_part_reserve', 'spare_part_fee',
+    'spare_part_reserve', 'spare_part_fee', 'city_price', 'urban_price',
+    'town_price', 'rural_price', 'year1_total_price', 'year2_total_price',
+    'year3_total_price', 'core_maintenance_content', 'sort_order', 'is_active',
   ]),
   self_construction_quotas: new Set([
     'category', 'name', 'unit', 'quantity', 'price', 'remark', 'sort_order',
