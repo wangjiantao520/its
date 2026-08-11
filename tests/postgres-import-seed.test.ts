@@ -8,7 +8,6 @@ import * as XLSX from 'xlsx';
 import type { DatabaseClient, QueryResult } from '../src/lib/database/client';
 import { runPostgresMigrations } from '../src/lib/database/postgres-migrations';
 import { saveSession } from '../src/lib/auth-session-store';
-import { FULL_DEVICE_QUOTAS } from '../src/lib/complete-device-data';
 import { parseDeviceRows } from '../src/app/api/import-file/import-devices';
 import {
   createPostgresTestHarness,
@@ -22,7 +21,6 @@ const scopedRoutes = [
   'src/app/api/import-file/route.ts',
   'src/app/api/init-db/route.ts',
   'src/app/api/quotas-seed/route.ts',
-  'src/app/api/seed-all-data/route.ts',
   'src/app/api/seed-config/route.ts',
   'src/app/api/seed-maintenance-devices/route.ts',
 ] as const;
@@ -296,12 +294,11 @@ test('all mutation and status endpoints reject a non-administrator', async () =>
   const database = new ImportDatabase();
   database.role = 'its_member';
   installDatabase(database);
-  const [importFile, importExcel, initDb, quotas, allData, config, maintenance] = await Promise.all([
+  const [importFile, importExcel, initDb, quotas, config, maintenance] = await Promise.all([
     import('../src/app/api/import-file/route'),
     import('../src/app/api/import-excel/route'),
     import('../src/app/api/init-db/route'),
     import('../src/app/api/quotas-seed/route'),
-    import('../src/app/api/seed-all-data/route'),
     import('../src/app/api/seed-config/route'),
     import('../src/app/api/seed-maintenance-devices/route'),
   ]);
@@ -311,11 +308,10 @@ test('all mutation and status endpoints reject a non-administrator', async () =>
     importExcel.POST(request('/api/import-excel', 'POST', JSON.stringify({ url: 'https://example.com/a.xlsx' }))),
     initDb.GET(request('/api/init-db', 'GET')),
     quotas.POST(request('/api/quotas-seed', 'POST')),
-    allData.POST(request('/api/seed-all-data', 'POST')),
     config.GET(request('/api/seed-config', 'GET')),
     maintenance.GET(request('/api/seed-maintenance-devices', 'GET')),
   ]);
-  assert.deepEqual(responses.map(({ status }) => status), [403, 403, 403, 403, 403, 403, 403]);
+  assert.deepEqual(responses.map(({ status }) => status), [403, 403, 403, 403, 403, 403]);
 });
 
 test('init-db reports health and migration status without mutating schema', async () => {
@@ -337,15 +333,13 @@ test('init-db reports health and migration status without mutating schema', asyn
 test('fake PostgreSQL keeps every seed endpoint idempotent across repeated calls', async () => {
   const database = new SeedDatabase();
   installDatabase(database);
-  const [quotas, allData, config, maintenance] = await Promise.all([
+  const [quotas, config, maintenance] = await Promise.all([
     import('../src/app/api/quotas-seed/route'),
-    import('../src/app/api/seed-all-data/route'),
     import('../src/app/api/seed-config/route'),
     import('../src/app/api/seed-maintenance-devices/route'),
   ]);
   const calls = [
     () => quotas.POST(request('/api/quotas-seed', 'POST')),
-    () => allData.POST(request('/api/seed-all-data', 'POST')),
     () => config.GET(request('/api/seed-config', 'GET')),
     () => maintenance.GET(request('/api/seed-maintenance-devices', 'GET')),
   ];
@@ -357,17 +351,6 @@ test('fake PostgreSQL keeps every seed endpoint idempotent across repeated calls
   }
   assert.ok(database.countAll() > 0);
   assert.equal(database.transactionCount, calls.length * 2);
-});
-
-test('seed-all-data retains every distinct model in the complete device seed', async () => {
-  const database = new SeedDatabase();
-  installDatabase(database);
-  const route = await import('../src/app/api/seed-all-data/route');
-  const response = await route.POST(request('/api/seed-all-data', 'POST'));
-  const payload = await json(response);
-  const data = payload.data as Record<string, unknown>;
-  assert.equal(response.status, 200);
-  assert.equal(data.deviceInserted, FULL_DEVICE_QUOTAS.length);
 });
 
 test('config seed does not duplicate defaults already migrated under positive IDs', async () => {
@@ -388,10 +371,9 @@ test('live PostgreSQL import and repeated seeds are idempotent', {
   const token = 'postgres-import-seed-admin';
   await saveSession(harness.client, token, { role: 'admin', expiresAt: Date.now() + 60_000 });
   installDatabase(harness.client);
-  const [importFile, quotas, allData, config, maintenance] = await Promise.all([
+  const [importFile, quotas, config, maintenance] = await Promise.all([
     import('../src/app/api/import-file/route'),
     import('../src/app/api/quotas-seed/route'),
-    import('../src/app/api/seed-all-data/route'),
     import('../src/app/api/seed-config/route'),
     import('../src/app/api/seed-maintenance-devices/route'),
   ]);
@@ -406,7 +388,6 @@ test('live PostgreSQL import and repeated seeds are idempotent', {
 
   const seedCalls = [
     () => quotas.POST(request('/api/quotas-seed', 'POST', undefined, token)),
-    () => allData.POST(request('/api/seed-all-data', 'POST', undefined, token)),
     () => config.GET(request('/api/seed-config', 'GET', undefined, token)),
     () => maintenance.GET(request('/api/seed-maintenance-devices', 'GET', undefined, token)),
   ];

@@ -1587,31 +1587,6 @@ export default function DatabaseManagementPage() {
     }
   };
 
-  // 导入数据
-  const handleSeedData = async () => {
-    try {
-      setMessage(null);
-      setLoading(true);
-      // raw fetch: non-standard response shape
-      const response = await fetch('/api/seed-all-data', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-      });
-      const result = await response.json();
-      if (result.success) {
-        showMessage('success', result.message);
-        await loadData();
-      } else {
-        showMessage('error', result.error || '导入失败');
-      }
-    } catch (error) {
-      console.error('导入数据失败:', error);
-      showMessage('error', '导入数据失败');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   return (
     <div className="p-6 space-y-6">
       {/* 页面头部 */}
@@ -1629,10 +1604,6 @@ export default function DatabaseManagementPage() {
           <Button onClick={() => setImportDialogOpen(true)} variant="outline" className="border-slate-200 hover:bg-slate-50 text-slate-700">
             <Upload className="w-4 h-4 mr-2" />
             Excel导入
-          </Button>
-          <Button onClick={handleSeedData} variant="outline" className="border-slate-200 hover:bg-slate-50 text-slate-700">
-            <Download className="w-4 h-4 mr-2" />
-            初始化数据
           </Button>
           <Button onClick={() => setSettingPasswordDialogOpen(true)} variant="outline" className="border-slate-200 hover:bg-slate-50 text-slate-700">
             <Key className="w-4 h-4 mr-2" />
