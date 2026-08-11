@@ -18,7 +18,7 @@ interface UserContextType {
   user: User | null;
   isLoggedIn: boolean;
   token: string | null;
-  login: (role: UserRole, password: string) => Promise<{ success: boolean; error?: string }>;
+  login: (role: UserRole, password: string, username?: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
   setUserRole: (role: UserRole) => void;
   isLoading: boolean;
@@ -104,7 +104,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const login = useCallback(async (role: UserRole, password: string): Promise<{ success: boolean; error?: string }> => {
+  const login = useCallback(async (role: UserRole, password: string, username?: string): Promise<{ success: boolean; error?: string }> => {
     try {
       // 保留原生 fetch：登录失败时需读取服务端返回的具体 error 文案
       // （apiFetch 在 401 时只返回固定文案"未登录或登录已过期"，会丢失"用户名或密码错误"等业务错误）
@@ -113,7 +113,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ role, password })
+        body: JSON.stringify({ role, password, ...(username ? { username } : {}) })
       });
 
       const data = await readApiResponse<AuthResponse>(response);

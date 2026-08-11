@@ -12,6 +12,7 @@ const updateUserSchema = z.object({
   name: z.string().trim().min(1, '姓名不能为空').max(100).optional(),
   password: z.string().min(6, '密码至少6位').max(128).optional(),
   is_active: z.union([z.literal(0), z.literal(1)]).optional(),
+  role: z.enum(['admin', 'its_member']).optional(),
 }).strict();
 
 function validationError(error: z.ZodError) {

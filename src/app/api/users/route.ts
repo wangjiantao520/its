@@ -7,6 +7,7 @@ const createUserSchema = z.object({
   username: z.string().trim().min(2, '用户名至少2位').max(50),
   password: z.string().min(6, '密码至少6位').max(128),
   name: z.string().trim().min(1, '姓名不能为空').max(100),
+  role: z.enum(['admin', 'its_member']).optional(),
 });
 
 const updateUserSchema = z.object({
@@ -47,6 +48,7 @@ export async function POST(request: NextRequest) {
     parsed.data.password,
     parsed.data.name,
     auth.session.username || 'admin',
+    parsed.data.role,
   );
   if (!result.success) {
     return NextResponse.json(result, { status: 400 });

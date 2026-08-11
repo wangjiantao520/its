@@ -60,6 +60,9 @@ function bearerRequest(token: string): NextRequest {
 test('administrator and built-in member login persist hashed PostgreSQL sessions', async () => {
   const database = new FakeDatabase((text, params) => {
     if (text.includes('DELETE FROM auth_sessions WHERE expires_at')) return result();
+    if (text.includes('SELECT id, password_hash, name, is_active, role FROM users WHERE username')) {
+      return result([{ id: '12', password_hash: bcrypt.hashSync('admin123', 4), name: '管理员', is_active: true, role: 'admin' }]);
+    }
     if (text.includes('SELECT id FROM users WHERE username')) return result([{ id: '42' }]);
     if (text.includes('INSERT INTO auth_sessions')) {
       if (Number(params[2]) < 0) {
@@ -75,6 +78,7 @@ test('administrator and built-in member login persist hashed PostgreSQL sessions
 
   assert.equal(admin.success, true);
   assert.equal(admin.data?.role, 'admin');
+  assert.equal(admin.data?.username, 'admin');
   assert.equal(member.success, true);
   assert.deepEqual(
     { role: member.data?.role, userId: member.data?.userId, username: member.data?.username },
@@ -186,20 +190,22 @@ test('user CRUD uses parameterized PostgreSQL and never exposes password hashes'
       insertedHash = String(params[1]);
       return result([{ id: '900719' }], 1);
     }
-    if (text.includes('SELECT id, username, name, is_active, created_at, created_by FROM users')) {
+    if (text.includes('SELECT id, username, name, role, is_active, created_at, created_by FROM users')) {
       return result([{
-        id: '900719', username: 'new-user', name: null, is_active: true,
+        id: '900719', username: 'new-user', name: null, role: 'its_member', is_active: true,
         created_at: new Date('2026-08-04T00:00:00.000Z'), created_by: null,
         password_hash: passwordHash,
       }]);
     }
+    if (text.includes('SELECT role, is_active FROM users WHERE id')) return result([{ role: 'its_member', is_active: true }]);
+    if (text.includes('SELECT role FROM users WHERE id')) return result([{ role: 'its_member' }]);
     if (text.startsWith('UPDATE users SET')) return result([{ id: '900719' }], 1);
     if (text.includes('DELETE FROM auth_sessions WHERE user_id')) return result([], 2);
     if (text.startsWith('DELETE FROM users')) return result([{ id: '900719' }], 1);
     throw new Error(`Unexpected SQL: ${text}`);
   });
 
-  const created = await createUser('new-user', 'password1', '新用户', 'admin', database);
+  const created = await createUser('new-user', 'password1', '新用户', 'admin', 'its_member', database);
   assert.deepEqual(created, { success: true, userId: 900719 });
   assert.equal(await bcrypt.compare('password1', insertedHash), true);
 
@@ -208,6 +214,7 @@ test('user CRUD uses parameterized PostgreSQL and never exposes password hashes'
     id: 900719,
     username: 'new-user',
     name: null,
+    role: 'its_member',
     is_active: 1,
     created_at: '2026-08-04T00:00:00.000Z',
     created_by: null,
@@ -222,6 +229,8 @@ test('user CRUD uses parameterized PostgreSQL and never exposes password hashes'
 test('user CRUD reports duplicate and missing users explicitly', async () => {
   const database = new FakeDatabase((text) => {
     if (text.startsWith('SELECT id FROM users WHERE username')) return result([{ id: '3' }]);
+    if (text.includes('SELECT role, is_active FROM users WHERE id')) return result();
+    if (text.includes('SELECT role FROM users WHERE id')) return result();
     if (text.startsWith('UPDATE users SET')) return result();
     if (text.startsWith('DELETE FROM users')) return result();
     if (text.includes('DELETE FROM auth_sessions WHERE user_id')) return result();
@@ -229,7 +238,7 @@ test('user CRUD reports duplicate and missing users explicitly', async () => {
   });
 
   assert.deepEqual(
-    await createUser('duplicate', 'password1', '重复', 'admin', database),
+    await createUser('duplicate', 'password1', '重复', 'admin', 'its_member', database),
     { success: false, error: '用户名已存在' },
   );
   assert.deepEqual(
@@ -249,7 +258,7 @@ test('live PostgreSQL authentication and user persistence', {
   const harness = await createPostgresTestHarness(t);
   await runPostgresMigrations(harness.client);
 
-  const created = await createUser('live-member', 'live-password', '集成测试成员', 'admin', harness.client);
+  const created = await createUser('live-member', 'live-password', '集成测试成员', 'admin', 'its_member', harness.client);
   assert.equal(created.success, true);
   assert.ok(created.userId);
 

@@ -84,6 +84,7 @@ interface UserListRow extends Record<string, unknown> {
   id: string | number | bigint;
   username: string;
   name: string | null;
+  role: string;
   is_active: boolean;
   created_at: Date | string;
   created_by: string | null;
@@ -93,6 +94,7 @@ export interface PublicUser {
   id: number;
   username: string;
   name: string | null;
+  role: string;
   is_active: 0 | 1;
   created_at: string;
   created_by: string | null;
@@ -217,6 +219,7 @@ export async function createUser(
   password: string,
   name: string,
   createdBy: string,
+  role: 'admin' | 'its_member' = 'its_member',
   database: DatabaseClient = getDatabase(),
 ): Promise<{ success: boolean; error?: string; userId?: number }> {
   try {
@@ -229,8 +232,8 @@ export async function createUser(
     const passwordHash = await bcrypt.hash(password, 10);
     const inserted = await database.query<UserIdRow>(
       `INSERT INTO users (username, password_hash, name, role, created_by)
-       VALUES ($1, $2, $3, 'its_member', $4) RETURNING id`,
-      [username, passwordHash, name, createdBy],
+       VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+      [username, passwordHash, name, role, createdBy],
     );
     const row = inserted.rows[0];
     if (!row) return { success: false, error: '创建用户失败' };
@@ -247,22 +250,34 @@ export async function getUsers(
   database: DatabaseClient = getDatabase(),
 ): Promise<PublicUser[]> {
   const result = await database.query<UserListRow>(
-    `SELECT id, username, name, is_active, created_at, created_by FROM users
+    `SELECT id, username, name, role, is_active, created_at, created_by FROM users
      ORDER BY created_at DESC`,
   );
   return result.rows.map((user) => ({
     id: toSafeInteger(user.id, 'users.id'),
     username: user.username,
     name: user.name,
+    role: user.role,
     is_active: user.is_active ? 1 : 0,
     created_at: toIsoString(user.created_at),
     created_by: user.created_by,
   }));
 }
 
+interface ActiveAdminRow extends Record<string, unknown> {
+  cnt: string | number;
+}
+
+async function countActiveAdmins(database: DatabaseClient): Promise<number> {
+  const result = await database.query<ActiveAdminRow>(
+    "SELECT COUNT(*)::text AS cnt FROM users WHERE role = 'admin' AND is_active = true",
+  );
+  return Number(result.rows[0]?.cnt ?? 0);
+}
+
 export async function updateUser(
   userId: number,
-  data: { name?: string; password?: string; is_active?: number },
+  data: { name?: string; password?: string; is_active?: number; role?: 'admin' | 'its_member' },
   database: DatabaseClient = getDatabase(),
 ): Promise<{ success: boolean; error?: string }> {
   try {
@@ -280,6 +295,10 @@ export async function updateUser(
       values.push(data.is_active === 1);
       updates.push(`is_active = $${values.length}`);
     }
+    if (data.role !== undefined) {
+      values.push(data.role);
+      updates.push(`role = $${values.length}`);
+    }
 
     if (updates.length === 0) {
       const existing = await database.query<UserIdRow>('SELECT id FROM users WHERE id = $1', [userId]);
@@ -289,6 +308,22 @@ export async function updateUser(
     }
 
     return await database.transaction(async (client) => {
+      // 防呆：若禁用/降级最后一个启用管理员，拒绝操作
+      const target = await client.query<{ role: string; is_active: boolean }>(
+        'SELECT role, is_active FROM users WHERE id = $1 FOR UPDATE',
+        [userId],
+      );
+      if (!target.rows[0]) return { success: false, error: '用户不存在' };
+      const currentRole = target.rows[0].role;
+      const willDisable = data.is_active === 0;
+      const willDemote = data.role === 'its_member' && currentRole === 'admin';
+      if (currentRole === 'admin' && (willDisable || willDemote)) {
+        const activeAdmins = await countActiveAdmins(client);
+        if (activeAdmins <= 1) {
+          return { success: false, error: '不能禁用或降级最后一个管理员账号' };
+        }
+      }
+
       values.push(userId);
       const updated = await client.query<UserIdRow>(
         `UPDATE users SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP `
@@ -312,6 +347,17 @@ export async function deleteUser(
 ): Promise<{ success: boolean; error?: string }> {
   try {
     return await database.transaction(async (client) => {
+      const target = await client.query<{ role: string }>(
+        'SELECT role FROM users WHERE id = $1 FOR UPDATE',
+        [userId],
+      );
+      if (!target.rows[0]) return { success: false, error: '用户不存在' };
+      if (target.rows[0].role === 'admin') {
+        const activeAdmins = await countActiveAdmins(client);
+        if (activeAdmins <= 1) {
+          return { success: false, error: '不能删除最后一个管理员账号' };
+        }
+      }
       await deleteSessionsForUser(client, userId);
       const deleted = await client.query<UserIdRow>(
         'DELETE FROM users WHERE id = $1 RETURNING id',
@@ -347,13 +393,44 @@ export async function handleLogin(
     const expiresIn = remember ? 7 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
 
     if (role === 'admin') {
-      if (!validateAdminPassword(password)) return { success: false, error: '密码错误' };
+      // 管理员登录优先查数据库（支持多个管理员账号），无匹配时回退环境变量
+      const adminUsername = username || 'admin';
+      const dbUser = await database.query<CredentialRow>(
+        'SELECT id, password_hash, name, is_active, role FROM users WHERE username = $1',
+        [adminUsername],
+      );
+      const row = dbUser.rows[0];
+
+      let adminUserId: number;
+      let adminName = '管理员';
+
+      if (row) {
+        if (row.role !== 'admin') return { success: false, error: '该账号不是管理员' };
+        if (!row.is_active) return { success: false, error: '账号已禁用' };
+        if (await bcrypt.compare(password, row.password_hash)) {
+          adminUserId = toSafeInteger(row.id, 'users.id');
+          if (row.name) adminName = row.name;
+        } else if (validateAdminPassword(password)) {
+          // 数据库管理员密码哈希失配：回退环境变量密码，并重置该账号哈希
+          adminUserId = toSafeInteger(row.id, 'users.id');
+          if (row.name) adminName = row.name;
+          await database.query(
+            'UPDATE users SET password_hash = $1, updated_at = now() WHERE id = $2',
+            [await bcrypt.hash(PASSWORDS.admin as string, 10), adminUserId],
+          );
+        } else {
+          return { success: false, error: '密码错误' };
+        }
+      } else {
+        // 数据库无此用户：回退环境变量 ADMIN_PASSWORD，并落库为 admin（迁移旧账号）
+        if (!validateAdminPassword(password)) return { success: false, error: '密码错误' };
+        adminUserId = await resolveOrCreateUser(adminUsername, PASSWORDS.admin as string, adminName, 'admin', database);
+      }
 
       const token = generateToken();
       const expiresAt = Date.now() + expiresIn;
-      const adminUser = await resolveOrCreateUser('admin', PASSWORDS.admin as string, '管理员', 'admin', database);
-      await saveSession(database, token, { role: 'admin', userId: adminUser, expiresAt });
-      return { success: true, data: { token, role: 'admin', userId: adminUser, expiresAt } };
+      await saveSession(database, token, { role: 'admin', userId: adminUserId, username: adminUsername, name: adminName, expiresAt });
+      return { success: true, data: { token, role: 'admin', userId: adminUserId, username: adminUsername, name: adminName, expiresAt } };
     }
 
     if (username) {

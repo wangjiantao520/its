@@ -117,7 +117,7 @@ const adminNavItems = [
     icon: BarChart3,
   },
   {
-    title: 'ITS成员管理',
+    title: '账号管理',
     url: '/admin/members',
     icon: UserCheck,
   },

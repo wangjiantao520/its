@@ -31,6 +31,7 @@ function LoginContent() {
   );
 
   // 管理员登录状态
+  const [adminUsername, setAdminUsername] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
   const [adminError, setAdminError] = useState('');
   const [adminLoading, setAdminLoading] = useState(false);
@@ -66,7 +67,7 @@ function LoginContent() {
     setAdminLoading(true);
 
     try {
-      const result = await login('admin', adminPassword);
+      const result = await login('admin', adminPassword, adminUsername || undefined);
 
       if (!result.success) {
         setAdminError(result.error || '登录失败');
@@ -250,6 +251,21 @@ function LoginContent() {
                     <AlertDescription className="text-sm">{adminError}</AlertDescription>
                   </Alert>
                 )}
+
+                <div className="space-y-2">
+                  <Label htmlFor="adminUsername" className="text-sm font-medium">
+                    用户名
+                  </Label>
+                  <Input
+                    id="adminUsername"
+                    type="text"
+                    placeholder="请输入管理员用户名（默认为 admin）"
+                    value={adminUsername}
+                    onChange={(e) => setAdminUsername(e.target.value)}
+                    autoComplete="username"
+                    className="h-11"
+                  />
+                </div>
 
                 <div className="space-y-2">
                   <Label htmlFor="adminPassword" className="text-sm font-medium">

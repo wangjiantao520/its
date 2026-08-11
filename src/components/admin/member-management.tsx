@@ -18,6 +18,7 @@ interface User {
   id: number;
   username: string;
   name: string | null;
+  role: string;
   is_active: number;
   created_at: string;
   created_by: string;
@@ -38,11 +39,13 @@ export default function MemberManagement() {
   const [newUsername, setNewUsername] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [newName, setNewName] = useState('');
+  const [newRole, setNewRole] = useState<'admin' | 'its_member'>('its_member');
 
   // 编辑用户表单
   const [editName, setEditName] = useState('');
   const [editPassword, setEditPassword] = useState('');
   const [editActive, setEditActive] = useState(true);
+  const [editRole, setEditRole] = useState<'admin' | 'its_member'>('its_member');
 
   // 加载用户列表
   const loadUsers = async () => {
@@ -82,7 +85,8 @@ export default function MemberManagement() {
         body: JSON.stringify({
           username: newUsername,
           password: newPassword,
-          name: newName || newUsername
+          name: newName || newUsername,
+          role: newRole,
         }),
       });
 
@@ -91,6 +95,7 @@ export default function MemberManagement() {
         setNewUsername('');
         setNewPassword('');
         setNewName('');
+        setNewRole('its_member');
         loadUsers();
       } else {
         setError(result.error || '创建失败');
@@ -108,6 +113,7 @@ export default function MemberManagement() {
     setEditName(user.name || user.username);
     setEditPassword('');
     setEditActive(!!user.is_active);
+    setEditRole(user.role === 'admin' ? 'admin' : 'its_member');
     setShowEditDialog(true);
     setError('');
   };
@@ -119,7 +125,7 @@ export default function MemberManagement() {
     setActionLoading(true);
     setError('');
 
-    const updateData: { name: string; password?: string; is_active?: 1 | 0 } = {
+    const updateData: { name: string; password?: string; is_active?: 1 | 0; role?: 'admin' | 'its_member' } = {
       name: editName
     };
 
@@ -129,6 +135,10 @@ export default function MemberManagement() {
 
     if (editActive !== !!editingUser.is_active) {
       updateData.is_active = editActive ? 1 : 0;
+    }
+
+    if (editRole !== editingUser.role) {
+      updateData.role = editRole;
     }
 
     try {
@@ -196,8 +206,8 @@ export default function MemberManagement() {
             <Users className="h-6 w-6 text-primary" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold">ITS成员管理</h1>
-            <p className="text-muted-foreground">管理ITS成员的账号和权限</p>
+            <h1 className="text-2xl font-bold">账号管理</h1>
+            <p className="text-muted-foreground">管理管理员和ITS成员的账号与权限</p>
           </div>
         </div>
 
@@ -210,8 +220,8 @@ export default function MemberManagement() {
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>新建ITS成员账号</DialogTitle>
-              <DialogDescription>创建一个新的ITS成员登录账号</DialogDescription>
+              <DialogTitle>新建账号</DialogTitle>
+              <DialogDescription>创建一个新的管理员或ITS成员登录账号</DialogDescription>
             </DialogHeader>
 
             <div className="space-y-4 py-4">
@@ -249,6 +259,19 @@ export default function MemberManagement() {
                   onChange={(e) => setNewName(e.target.value)}
                 />
               </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="newRole">角色</Label>
+                <select
+                  id="newRole"
+                  value={newRole}
+                  onChange={(e) => setNewRole(e.target.value as 'admin' | 'its_member')}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                >
+                  <option value="its_member">ITS成员</option>
+                  <option value="admin">管理员</option>
+                </select>
+              </div>
             </div>
 
             <DialogFooter>
@@ -280,6 +303,7 @@ export default function MemberManagement() {
               <TableRow>
                 <TableHead>用户名</TableHead>
                 <TableHead>显示名称</TableHead>
+                <TableHead>角色</TableHead>
                 <TableHead>状态</TableHead>
                 <TableHead>创建时间</TableHead>
                 <TableHead>创建人</TableHead>
@@ -289,7 +313,7 @@ export default function MemberManagement() {
             <TableBody>
               {users.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                  <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
                     暂无账号，点击上方按钮创建第一个账号
                   </TableCell>
                 </TableRow>
@@ -298,6 +322,11 @@ export default function MemberManagement() {
                   <TableRow key={user.id}>
                     <TableCell className="font-medium">{user.username}</TableCell>
                     <TableCell>{user.name || '-'}</TableCell>
+                    <TableCell>
+                      <Badge variant={user.role === 'admin' ? 'default' : 'secondary'}>
+                        {user.role === 'admin' ? '管理员' : 'ITS成员'}
+                      </Badge>
+                    </TableCell>
                     <TableCell>
                       <Badge variant={user.is_active ? 'default' : 'secondary'}>
                         {user.is_active ? (
@@ -374,6 +403,19 @@ export default function MemberManagement() {
                 value={editPassword}
                 onChange={(e) => setEditPassword(e.target.value)}
               />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="editRole">角色</Label>
+              <select
+                id="editRole"
+                value={editRole}
+                onChange={(e) => setEditRole(e.target.value as 'admin' | 'its_member')}
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              >
+                <option value="its_member">ITS成员</option>
+                <option value="admin">管理员</option>
+              </select>
             </div>
 
             <div className="flex items-center justify-between">
