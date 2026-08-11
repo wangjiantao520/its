@@ -249,6 +249,7 @@ export default function MaintenanceQuotePage() {
   const [showPriceSettings, setShowPriceSettings] = useState(false);
   const [priceSettings, setPriceSettings] = useState<Record<string, number>>({});
   const [saveType, setSaveType] = useState<'temp' | 'permanent'>('temp');
+  const [savedPriceSettings, setSavedPriceSettings] = useState<Record<string, number>>({});
 
   // 成本测算功能
   const [costRatio, setCostRatio] = useState(65);
@@ -296,11 +297,18 @@ export default function MaintenanceQuotePage() {
         initialPrices.inWarrantyFactor = 0.5; // 默认在保系数0.5
       }
     }
+    // 应用"永久保存"的系统默认值（仅覆盖有记录的费用项，设备单价按当前报价）
+    const saved = savedPriceSettings;
+    if (Object.keys(saved).length > 0) {
+      for (const [key, value] of Object.entries(saved)) {
+        if (!key.startsWith('device_')) initialPrices[key] = value;
+      }
+    }
     setPriceSettings(initialPrices);
     setShowPriceSettings(true);
   };
   
-  const handleSavePriceSettings = () => {
+  const handleSavePriceSettings = async () => {
     if (saveType === 'permanent' && user?.role !== 'admin') {
       toast.error('永久保存仅限管理员操作');
       return;
@@ -450,7 +458,23 @@ export default function MaintenanceQuotePage() {
     }
     
     if (saveType === 'permanent') {
-      toast.success('价格已永久保存！');
+      // 持久化价格设置为系统默认值（仅管理员）
+      try {
+        const persistent: Record<string, number> = {};
+        for (const [key, value] of Object.entries(priceSettings)) {
+          if (typeof value === 'number' && Number.isFinite(value) && !key.startsWith('device_')) {
+            persistent[key] = value;
+          }
+        }
+        await apiFetch('/api/system-parameters', {
+          method: 'PUT',
+          body: JSON.stringify({ maintenance_price_settings: JSON.stringify(persistent) }),
+        });
+        setSavedPriceSettings({ ...savedPriceSettings, ...persistent });
+        toast.success('价格已永久保存！');
+      } catch {
+        toast.error('永久保存失败，请稍后重试');
+      }
     } else {
       toast.success('价格已暂时保存！');
     }
@@ -461,7 +485,6 @@ export default function MaintenanceQuotePage() {
 
   const [activeTab, setActiveTab] = useState('new');
   const [quoteDate, setQuoteDate] = useState<string>('');
-  const [customerName, setCustomerName] = useState('');
   const [clientName, setClientName] = useState('');
   const [projectName, setProjectName] = useState('');
   const [contractYears, setContractYears] = useState<string>('1');
@@ -478,6 +501,29 @@ export default function MaintenanceQuotePage() {
   // 从数据库加载设备定额数据（挂载时）
   useEffect(() => {
     void loadDeviceData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 挂载时加载已保存的价格设置（"永久保存"的系统默认值）
+  useEffect(() => {
+    void (async () => {
+      try {
+        const result = await apiFetch<Record<string, string>>('/api/system-parameters');
+        const raw = result.success ? result.data?.['maintenance_price_settings'] : undefined;
+        if (typeof raw === 'string' && raw) {
+          const parsed: unknown = JSON.parse(raw);
+          if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            const numeric: Record<string, number> = {};
+            for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+              if (typeof value === 'number' && Number.isFinite(value)) numeric[key] = value;
+            }
+            if (Object.keys(numeric).length > 0) setSavedPriceSettings(numeric);
+          }
+        }
+      } catch {
+        // 加载失败时静默忽略，仅不应用持久化默认值
+      }
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   
@@ -527,9 +573,9 @@ export default function MaintenanceQuotePage() {
     securityLevel: '一级' | '二级' | '三级' | '四级' | '五级';
     supportMode: '非现场支持为主' | '现场支持为主' | '纯现场支持';
     faultRecoveryTime: '≤4h' | '≤24h' | '≤48h' | '≤72h';
-    arrivalTime: '2小时内' | '8小时内' | '4小时' | '24小时';
-    responseTime: '10分钟内' | '30分钟内' | '1小时内' | '15分钟内';
-    serviceTime: '5x8' | '7x8' | '7x24';
+    arrivalTime: '2小时' | '8小时' | '4小时' | '24小时';
+    responseTime: '10分钟' | '30分钟' | '1小时内' | '15分钟内';
+    serviceTime: '5×8' | '7×8' | '7×24';
   };
   
   type SelectedDevice = {
@@ -859,9 +905,9 @@ export default function MaintenanceQuotePage() {
           securityLevel: '二级',
           supportMode: '现场支持为主',
           faultRecoveryTime: '≤24h',
-          arrivalTime: '8小时内',
-          responseTime: '30分钟内',
-          serviceTime: '5x8',
+          arrivalTime: '8小时',
+          responseTime: '30分钟',
+          serviceTime: '5×8',
         },
       };
       // 先打开对话框
@@ -898,9 +944,9 @@ export default function MaintenanceQuotePage() {
           securityLevel: '二级',
           supportMode: '现场支持为主',
           faultRecoveryTime: '≤24h',
-          arrivalTime: '8小时内',
-          responseTime: '30分钟内',
-          serviceTime: '5x8',
+          arrivalTime: '8小时',
+          responseTime: '30分钟',
+          serviceTime: '5×8',
         },
       };
       // 先打开对话框
@@ -1173,9 +1219,9 @@ export default function MaintenanceQuotePage() {
         securityLevel: selectedDevices[0]?.slaConfig?.securityLevel ?? '二级',
         supportMethod: selectedDevices[0]?.slaConfig?.supportMode ?? '远程+现场',
         recoveryTime: selectedDevices[0]?.slaConfig?.faultRecoveryTime ?? '24小时内',
-        arrivalTime: selectedDevices[0]?.slaConfig?.arrivalTime ?? '8小时内',
-        responseTime: selectedDevices[0]?.slaConfig?.responseTime ?? '30分钟内',
-        serviceTime: selectedDevices[0]?.slaConfig?.serviceTime ?? '5x8',
+        arrivalTime: selectedDevices[0]?.slaConfig?.arrivalTime ?? '8小时',
+        responseTime: selectedDevices[0]?.slaConfig?.responseTime ?? '30分钟',
+        serviceTime: selectedDevices[0]?.slaConfig?.serviceTime ?? '5×8',
       },
       totalSlaCoefficient: selectedDevices[0] ? (activeFullResult?.deviceItems[0]?.slaTotalFactor ?? 1.0) : 1.0,
       region,
@@ -1973,12 +2019,12 @@ export default function MaintenanceQuotePage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="customerName">客户名称</Label>
+                  <Label htmlFor="clientName">客户名称</Label>
                   <Input
-                    id="customerName"
+                    id="clientName"
                     placeholder="请输入客户名称"
-                    value={customerName}
-                    onChange={(e) => setCustomerName(e.target.value)}
+                    value={clientName}
+                    onChange={(e) => setClientName(e.target.value)}
                   />
                 </div>
                 <div className="space-y-2">
@@ -3424,7 +3470,7 @@ export default function MaintenanceQuotePage() {
                   <div className="space-y-2">
                     <Label>服务时间</Label>
                     <div className="grid grid-cols-3 gap-2">
-                      {(['5x8', '7x8', '7x24'] as unknown as ServiceTimeType[]).map((type) => (
+                      {(['5×8', '7×8', '7×24'] as ServiceTimeType[]).map((type) => (
                         <Button
                           key={type}
                           variant={slaConfig.serviceTime === type ? 'default' : 'outline'}
@@ -3443,7 +3489,7 @@ export default function MaintenanceQuotePage() {
                   <div className="space-y-2">
                     <Label>到场时间</Label>
                     <div className="grid grid-cols-2 gap-2">
-                      {(['2小时内', '8小时内'] as unknown as ArrivalTimeType[]).map((type) => (
+                      {(['2小时', '8小时'] as ArrivalTimeType[]).map((type) => (
                         <Button
                           key={type}
                           variant={slaConfig.arrivalTime === type ? 'default' : 'outline'}
@@ -3462,7 +3508,7 @@ export default function MaintenanceQuotePage() {
                   <div className="space-y-2">
                     <Label>响应时间</Label>
                     <div className="grid grid-cols-2 gap-2">
-                      {(['10分钟内', '30分钟内'] as unknown as ResponseTimeType[]).map((type) => (
+                      {(['10分钟', '30分钟'] as ResponseTimeType[]).map((type) => (
                         <Button
                           key={type}
                           variant={slaConfig.responseTime === type ? 'default' : 'outline'}
@@ -4281,14 +4327,14 @@ export default function MaintenanceQuotePage() {
               <div className="space-y-2">
                 <Label>到场时间</Label>
                 <Select 
-                  value={slaConfigDevice.slaConfig?.arrivalTime || '8小时内'}
+                  value={slaConfigDevice.slaConfig?.arrivalTime || '8小时'}
                   onValueChange={(value) => {
                     if (slaConfigDevice.slaConfig) {
                       setSlaConfigDevice({
                         ...slaConfigDevice,
                         slaConfig: {
                           ...slaConfigDevice.slaConfig,
-                          arrivalTime: value as '2小时内' | '8小时内',
+                          arrivalTime: value as '2小时' | '8小时',
                         }
                       });
                     }
@@ -4318,14 +4364,14 @@ export default function MaintenanceQuotePage() {
               <div className="space-y-2">
                 <Label>响应时间</Label>
                 <Select 
-                  value={slaConfigDevice.slaConfig?.responseTime || '30分钟内'}
+                  value={slaConfigDevice.slaConfig?.responseTime || '30分钟'}
                   onValueChange={(value) => {
                     if (slaConfigDevice.slaConfig) {
                       setSlaConfigDevice({
                         ...slaConfigDevice,
                         slaConfig: {
                           ...slaConfigDevice.slaConfig,
-                          responseTime: value as '10分钟内' | '30分钟内',
+                          responseTime: value as '10分钟' | '30分钟',
                         }
                       });
                     }
@@ -4355,14 +4401,14 @@ export default function MaintenanceQuotePage() {
               <div className="space-y-2">
                 <Label>服务时间</Label>
                 <Select 
-                  value={slaConfigDevice.slaConfig?.serviceTime || '5x8'}
+                  value={slaConfigDevice.slaConfig?.serviceTime || '5×8'}
                   onValueChange={(value) => {
                     if (slaConfigDevice.slaConfig) {
                       setSlaConfigDevice({
                         ...slaConfigDevice,
                         slaConfig: {
                           ...slaConfigDevice.slaConfig,
-                          serviceTime: value as '5x8' | '7x8' | '7x24',
+                          serviceTime: value as '5×8' | '7×8' | '7×24',
                         }
                       });
                     }
@@ -4418,9 +4464,9 @@ export default function MaintenanceQuotePage() {
                       securityLevel: '二级',
                       supportMode: '现场支持为主',
                       faultRecoveryTime: '≤24h',
-                      arrivalTime: '8小时内',
-                      responseTime: '30分钟内',
-                      serviceTime: '5x8',
+                      arrivalTime: '8小时',
+                      responseTime: '30分钟',
+                      serviceTime: '5×8',
                     },
                   });
                 }

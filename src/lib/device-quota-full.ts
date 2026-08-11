@@ -193,24 +193,37 @@ export const DEPRECIATION_FACTORS = {
   '老旧': 1.6,
 };
 
-// 服务时间系数
-export const SERVICE_TIME_FACTORS = {
+// 服务时间系数（兼容全角× 与半角x 两种写法）
+export const SERVICE_TIME_FACTORS: Record<string, number> = {
   '5×8': 1.0,
+  '5x8': 1.0,
   '7×8': 1.2,
+  '7x8': 1.2,
   '7×24': 1.6,
+  '7x24': 1.6,
 };
 
-// 到场时间系数
-export const ARRIVAL_TIME_FACTORS = {
+// 到场时间系数（兼容 "2小时" 与 "2小时内" 两种写法）
+export const ARRIVAL_TIME_FACTORS: Record<string, number> = {
   '2小时': 1.2,
+  '2小时内': 1.2,
   '8小时': 1.0,
+  '8小时内': 1.0,
 };
 
-// 响应时间系数
-export const RESPONSE_TIME_FACTORS = {
+// 响应时间系数（兼容 "10分钟" 与 "10分钟内" 两种写法）
+export const RESPONSE_TIME_FACTORS: Record<string, number> = {
   '10分钟': 1.1,
+  '10分钟内': 1.1,
   '30分钟': 1.0,
+  '30分钟内': 1.0,
 };
+
+// 归一化 SLA 键为规范写法，避免缺"内"/半角x 变体导致查表 undefined
+export function normalizeSlaKey(key: string): string {
+  const normalized = key.replace('内', '').replace(/x/gi, '×');
+  return normalized;
+}
 
 // 地区系数
 export const REGION_FACTORS = {
@@ -242,13 +255,13 @@ export const DEFAULT_SLA_CONFIG: SLAConfig = {
   serviceTime: '5×8',
 };
 
-// 计算SLA总系数
+// 计算SLA总系数（任意键写法均不会产生 undefined/NaN）
 export function calculateSLATotalFactor(config: SLAConfig): number {
-  const serviceTimeFactor = SERVICE_TIME_FACTORS[config.serviceTime];
-  const arrivalTimeFactor = ARRIVAL_TIME_FACTORS[config.arrivalTime];
-  const responseTimeFactor = RESPONSE_TIME_FACTORS[config.responseTime];
-  return config.teamExperience * config.securityLevel * config.supportMode * 
-         config.faultRecoveryTime * arrivalTimeFactor * responseTimeFactor * serviceTimeFactor;
+  const serviceTimeFactor = SERVICE_TIME_FACTORS[normalizeSlaKey(config.serviceTime)];
+  const arrivalTimeFactor = ARRIVAL_TIME_FACTORS[normalizeSlaKey(config.arrivalTime)];
+  const responseTimeFactor = RESPONSE_TIME_FACTORS[normalizeSlaKey(config.responseTime)];
+  return config.teamExperience * config.securityLevel * config.supportMode *
+         config.faultRecoveryTime * (arrivalTimeFactor ?? 1.0) * (responseTimeFactor ?? 1.0) * (serviceTimeFactor ?? 1.0);
 }
 
 // 批量折扣（≥50台）

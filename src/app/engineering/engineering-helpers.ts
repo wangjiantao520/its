@@ -5,6 +5,7 @@
  */
 
 import * as XLSX from 'xlsx';
+import { convertToChineseCurrency, type EngineeringQuoteExportData } from '@/lib/export-utils';
 
 export interface LaborPriceLevel {
   id: number;
@@ -21,6 +22,11 @@ export interface QuoteItem {
   itemType: 'selfConstruction' | 'intelligent' | 'custom' | 'labor';
   itemId: string;
   quantity: number;
+  // 归属位置（楼层）
+  location?: string;
+  // 采购价与加价率
+  purchasePrice?: number;
+  markupRate?: number;
   // 自定义明细字段
   customName?: string;
   customUnit?: string;
@@ -52,6 +58,10 @@ export interface EngineeringQuote {
   regulatory_fee: number;
   tax: number;
   total: number;
+  crcc_rate: number;
+  crcc_fee: number;
+  cmcc_rate: number;
+  cmcc_fee: number;
   status: string;
   items: Array<{
     itemType: string;
@@ -60,6 +70,9 @@ export interface EngineeringQuote {
     name: string;
     unit: string;
     price: number;
+    location?: string;
+    purchasePrice?: number;
+    markupRate?: number;
     customRemark?: string;
     laborLevelId?: number;
     laborLevelName?: string;
@@ -146,4 +159,90 @@ export function downloadQuotaTemplate(type: QuotaType): void {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, isSelf ? '自施工定额' : '智能化定额');
   XLSX.writeFile(wb, isSelf ? '自施工定额导入模板.xlsx' : '智能化定额导入模板.xlsx');
+}
+
+/** 从数据库行构造导出数据，统一填充三套取费与归属位置 */
+export function buildEngineeringExportDataFromQuote(quote: EngineeringQuote): EngineeringQuoteExportData {
+  const num = (v: unknown): number => Number(v) || 0;
+  const tierMode = num(quote.crcc_rate) > 0 || num(quote.cmcc_rate) > 0;
+  const taxRate = tierMode ? num(quote.tax_rate) || 6 : num(quote.tax_rate) || 13;
+  const crccRate = num(quote.crcc_rate);
+  const cmccRate = num(quote.cmcc_rate);
+  const taxFactor = 1 + taxRate / 100;
+  const crccFactor = 1 + crccRate / 100;
+  const cmccFactor = 1 + cmccRate / 100;
+
+  let rawItems: unknown = quote.items;
+  if (typeof rawItems === 'string') {
+    try { rawItems = JSON.parse(rawItems); } catch { rawItems = []; }
+  }
+  const items = Array.isArray(rawItems) ? rawItems as Array<Record<string, unknown>> : [];
+
+  let subtotal = 0;
+  let crccTotal = 0;
+  let cmccTotal = 0;
+  const mapped = items.filter((item) => item && typeof item === 'object').map((item) => {
+    const isLabor = item.itemType === 'labor';
+    const qty = isLabor ? num(item.laborDays) || num(item.quantity) : num(item.quantity);
+    const basePrice = num(item.price);
+    const unitPrice = basePrice * (1 + num(quote.management_rate) / 100 + num(quote.profit_rate) / 100 + num(quote.regulatory_rate) / 100);
+    const taxUnit = basePrice * taxFactor;
+    const crccUnit = basePrice * taxFactor * crccFactor;
+    const cmccUnit = basePrice * taxFactor * crccFactor * cmccFactor;
+    subtotal += basePrice * qty;
+    crccTotal += crccUnit * qty;
+    cmccTotal += cmccUnit * qty;
+    let displayName = String(item.name ?? '');
+    if (isLabor) {
+      const levelName = String(item.laborLevelName ?? '人工');
+      const desc = item.laborDescription ? `(${String(item.laborDescription)})` : '';
+      displayName = levelName + '人工' + desc;
+    }
+    return {
+      name: displayName,
+      unit: isLabor ? '人天' : String(item.unit ?? ''),
+      quantity: qty,
+      unitPrice,
+      amount: unitPrice * qty,
+      location: String(item.location ?? ''),
+      crccUnitPrice: crccUnit,
+      cmccUnitPrice: cmccUnit,
+      crccAmount: crccUnit * qty,
+      cmccAmount: cmccUnit * qty,
+    };
+  });
+
+  const grandTotal = tierMode ? subtotal * taxFactor : subtotal * (1 + num(quote.management_rate) / 100 + num(quote.profit_rate) / 100 + num(quote.regulatory_rate) / 100) * (1 + taxRate / 100);
+  const taxAmount = tierMode ? subtotal * (taxFactor - 1) : (subtotal * (1 + num(quote.management_rate) / 100 + num(quote.profit_rate) / 100 + num(quote.regulatory_rate) / 100)) * taxRate / 100;
+
+  return {
+    projectName: quote.project_name,
+    clientName: quote.client_name ?? '',
+    contactPerson: quote.contact_person ?? '',
+    contactPhone: quote.contact_phone ?? '',
+    quoteNumber: quote.quote_number,
+    quoteDate: new Date(quote.created_at).toISOString().split('T')[0],
+    items: mapped,
+    rates: {
+      managementRate: num(quote.management_rate),
+      profitRate: num(quote.profit_rate),
+      regulatoryRate: num(quote.regulatory_rate),
+      taxRate,
+      tierMode,
+      tierTaxRate: taxRate,
+      crccRate,
+      cmccRate,
+    },
+    summary: {
+      subtotal,
+      managementFee: num(quote.management_fee),
+      profit: num(quote.profit),
+      regulatoryFee: num(quote.regulatory_fee),
+      tax: taxAmount,
+      grandTotal,
+      grandTotalRMB: convertToChineseCurrency(grandTotal),
+      crccTotal,
+      cmccTotal,
+    },
+  };
 }

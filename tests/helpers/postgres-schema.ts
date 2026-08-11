@@ -119,6 +119,22 @@ export function parsePostgresColumnDefinitions(sql: string): PostgresColumnDefin
     }
     definitions.set(match[1], columns);
   }
+  // 识别 ALTER TABLE ... ADD COLUMN（增量迁移新增的列），按行解析
+  const alterTablePattern = /ALTER TABLE\s+(\w+)/g;
+  const alterTableMatches = [...sql.matchAll(alterTablePattern)];
+  for (const tableMatch of alterTableMatches) {
+    const table = tableMatch[1];
+    // 从 ALTER TABLE 语句起点到下一个分号
+    const stmtEnd = sql.indexOf(';', tableMatch.index);
+    const stmt = stmtEnd === -1 ? sql.slice(tableMatch.index) : sql.slice(tableMatch.index, stmtEnd);
+    const addColumnPattern = /ADD\s+COLUMN\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)\s+([a-zA-Z0-9_.()'"\s]+?)(?:,|$)/gi;
+    for (const addMatch of stmt.matchAll(addColumnPattern)) {
+      const column = addMatch[1];
+      const definition = addMatch[2].replace(/\s+/g, ' ').trim();
+      if (!definitions.has(table)) definitions.set(table, new Map());
+      definitions.get(table)?.set(column, definition);
+    }
+  }
   return definitions;
 }
 

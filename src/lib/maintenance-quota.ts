@@ -41,11 +41,14 @@ export const DEPRECIATION_FACTORS = {
   '老旧': 1.6,
 };
 
-// 服务时间系数
-export const SERVICE_TIME_FACTORS = {
+// 服务时间系数（兼容全角× 与半角x）
+export const SERVICE_TIME_FACTORS: Record<string, number> = {
   '5×8': 1.0,
+  '5x8': 1.0,
   '7×8': 1.2,
+  '7x8': 1.2,
   '7×24': 1.6,
+  '7x24': 1.6,
 };
 
 // 地区系数
@@ -91,8 +94,8 @@ export const DEFAULT_SLA_CONFIG: SLAConfig = {
 
 // 计算SLA总系数
 export function calculateSLATotalFactor(config: SLAConfig): number {
-  const serviceTimeFactor = SERVICE_TIME_FACTORS[config.serviceTime];
-  return config.teamExperience * config.securityLevel * config.supportMode * 
+  const serviceTimeFactor = SERVICE_TIME_FACTORS[config.serviceTime] ?? 1.0;
+  return config.teamExperience * config.securityLevel * config.supportMode *
          config.faultRecoveryTime * config.arrivalTime * config.responseTime * serviceTimeFactor;
 }
 

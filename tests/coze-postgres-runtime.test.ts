@@ -78,13 +78,17 @@ test('production startup migrates and health-checks before returning a ready cli
   assert.deepEqual(database.events, ['migrate', 'health']);
 });
 
-test('Coze starts migrations before the HTTP process and defaults to deploy port 5000', () => {
+test('Coze starts server.js which migrates on startup and defaults to deploy port 5000', () => {
   const startScript = fs.readFileSync(path.join(root, 'scripts/start.sh'), 'utf8');
+  const serverSource = fs.readFileSync(path.join(root, 'src/server.ts'), 'utf8');
 
   assert.match(startScript, /DATABASE_URL is required for PostgreSQL startup/);
-  assert.match(startScript, /pnpm db:migrate/);
   assert.match(startScript, /exec env PORT="\$\{PORT\}" node dist\/server\.js/);
   assert.match(startScript, /PORT="\$\{DEPLOY_RUN_PORT:-5000\}"/);
+  // start.sh no longer runs a separate migration process; server.ts does it on startup.
+  assert.doesNotMatch(startScript, /pnpm db:migrate/);
+  assert.match(serverSource, /runPostgresMigrations/);
+  assert.match(serverSource, /preparePostgresStartup/);
 });
 
 test('server exposes health only after PostgreSQL startup and never logs database URLs', () => {

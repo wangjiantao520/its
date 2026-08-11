@@ -78,12 +78,21 @@ export interface EngineeringQuoteExportData {
     quantity: number;
     unitPrice: number;
     amount: number;
+    location?: string;
+    crccUnitPrice?: number;
+    cmccUnitPrice?: number;
+    crccAmount?: number;
+    cmccAmount?: number;
   }>;
   rates: {
     managementRate: number;
     profitRate: number;
     regulatoryRate: number;
     taxRate: number;
+    tierMode?: boolean;
+    tierTaxRate?: number;
+    crccRate?: number;
+    cmccRate?: number;
   };
   summary: {
     subtotal: number;
@@ -93,6 +102,8 @@ export interface EngineeringQuoteExportData {
     tax: number;
     grandTotal: number;
     grandTotalRMB: string;
+    crccTotal?: number;
+    cmccTotal?: number;
   };
 }
 
@@ -327,16 +338,47 @@ export function generateMaintenanceQuoteHTML(data: MaintenanceQuoteExportData): 
  * 生成工程报价单HTML内容
  */
 export function generateEngineeringQuoteHTML(data: EngineeringQuoteExportData): string {
-  const itemsTableRows = data.items.map((item, index) => `
+  const tierMode = Boolean(data.rates.tierMode) && Number.isFinite(data.rates.crccRate);
+  const tierTaxRate = data.rates.tierTaxRate ?? data.rates.taxRate;
+  const crccRate = data.rates.crccRate ?? 0;
+  const cmccRate = data.rates.cmccRate ?? 0;
+  const taxFactor = 1 + tierTaxRate / 100;
+  const crccFactor = 1 + crccRate / 100;
+  const cmccFactor = 1 + cmccRate / 100;
+
+  // 明细行：当三套取费开启时，从行内价格推导三段链路；否则回退使用原字段
+  const hasLocation = data.items.some((i) => i.location);
+  const itemsTableRows = data.items.map((item, index) => {
+    const taxUnit = item.crccUnitPrice != null ? item.crccUnitPrice / crccFactor : item.unitPrice * taxFactor;
+    const crccUnit = item.crccUnitPrice != null ? item.crccUnitPrice : taxUnit * crccFactor;
+    const cmccUnit = item.cmccUnitPrice != null ? item.cmccUnitPrice : taxUnit * crccFactor * cmccFactor;
+    const qty = item.quantity;
+    const location = item.location ? `<td style="border: 1px solid #333; padding: 8px; text-align: center;">${item.location}</td>` : '';
+    const tierCells = tierMode
+      ? `<td style="border: 1px solid #333; padding: 8px; text-align: right;">¥${taxUnit.toFixed(2)}</td>
+      <td style="border: 1px solid #333; padding: 8px; text-align: right;">¥${crccUnit.toFixed(2)}</td>
+      <td style="border: 1px solid #333; padding: 8px; text-align: right;">¥${cmccUnit.toFixed(2)}</td>`
+      : '';
+    return `
     <tr>
       <td style="border: 1px solid #333; padding: 8px; text-align: center;">${index + 1}</td>
       <td style="border: 1px solid #333; padding: 8px;">${item.name}</td>
       <td style="border: 1px solid #333; padding: 8px; text-align: center;">${item.unit}</td>
-      <td style="border: 1px solid #333; padding: 8px; text-align: center;">${item.quantity}</td>
+      <td style="border: 1px solid #333; padding: 8px; text-align: center;">${qty}</td>
       <td style="border: 1px solid #333; padding: 8px; text-align: right;">¥${item.unitPrice.toFixed(2)}</td>
       <td style="border: 1px solid #333; padding: 8px; text-align: right;">¥${item.amount.toFixed(2)}</td>
+      ${tierCells}
+      ${location}
     </tr>
-  `).join('');
+  `;
+  }).join('');
+
+  const tierHeader = tierMode
+    ? '<th style="border: 1px solid #333; padding: 8px; background-color: #f0f0f0;">普通含税单价</th><th style="border: 1px solid #333; padding: 8px; background-color: #f0f0f0;">铁建单价</th><th style="border: 1px solid #333; padding: 8px; background-color: #f0f0f0;">移动单价</th>'
+    : '';
+  const locationHeader = hasLocation
+    ? '<th style="border: 1px solid #333; padding: 8px; background-color: #f0f0f0;">归属位置</th>'
+    : '';
 
   return `
 <!DOCTYPE html>
@@ -402,6 +444,8 @@ export function generateEngineeringQuoteHTML(data: EngineeringQuoteExportData): 
         <th style="border: 1px solid #333; padding: 8px; background-color: #f0f0f0;">数量</th>
         <th style="border: 1px solid #333; padding: 8px; background-color: #f0f0f0;">单价（元）</th>
         <th style="border: 1px solid #333; padding: 8px; background-color: #f0f0f0;">金额（元）</th>
+        ${tierHeader}
+        ${locationHeader}
       </tr>
     </thead>
     <tbody>
@@ -443,6 +487,15 @@ export function generateEngineeringQuoteHTML(data: EngineeringQuoteExportData): 
       <td style="border: 1px solid #333; padding: 8px; font-weight: bold; font-size: 14pt;">报价总计</td>
       <td style="border: 1px solid #333; padding: 8px; text-align: right; font-weight: bold; font-size: 14pt; color: #c53030;">¥${data.summary.grandTotal.toFixed(2)}</td>
     </tr>
+    ${tierMode ? `
+    <tr>
+      <td style="border: 1px solid #333; padding: 8px; font-weight: bold;">铁建总价（${tierTaxRate}%+${crccRate}%）</td>
+      <td style="border: 1px solid #333; padding: 8px; text-align: right; font-weight: bold;">¥${(data.summary.crccTotal ?? 0).toFixed(2)}</td>
+    </tr>
+    <tr>
+      <td style="border: 1px solid #333; padding: 8px; font-weight: bold;">移动总价（${tierTaxRate}%+${crccRate}%+${cmccRate}%）</td>
+      <td style="border: 1px solid #333; padding: 8px; text-align: right; font-weight: bold;">¥${(data.summary.cmccTotal ?? 0).toFixed(2)}</td>
+    </tr>` : ''}
   </table>
 
   <div class="summary total">大写金额：${data.summary.grandTotalRMB}</div>

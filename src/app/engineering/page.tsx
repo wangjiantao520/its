@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/immutability */
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
@@ -46,7 +47,7 @@ import type {
   StatsData,
   QuotaType,
 } from './engineering-helpers';
-import { downloadQuotaTemplate } from './engineering-helpers';
+import { downloadQuotaTemplate, buildEngineeringExportDataFromQuote } from './engineering-helpers';
 import { apiFetch } from '@/lib/api-fetch';
 
 export default function EngineeringPage() {
@@ -57,6 +58,11 @@ export default function EngineeringPage() {
   const [managementFeeRate, setManagementFeeRate] = useState(8);
   const [profitRate, setProfitRate] = useState(10);
   const [regulatoryFeeRate, setRegulatoryFeeRate] = useState(3);
+  // 三套取费模式：普通含税6% + 铁建管理费6% + 移动管理费8%
+  const [tierMode, setTierMode] = useState(false);
+  const [tierTaxRate, setTierTaxRate] = useState(6);
+  const [crccRate, setCrccRate] = useState(6);
+  const [cmccRate, setCmccRate] = useState(8);
   const [quoteItems, setQuoteItems] = useState<QuoteItem[]>([]);
   const [nextItemId, setNextItemId] = useState(1);
   const [quoteSequence, setQuoteSequence] = useState(0);
@@ -716,16 +722,27 @@ export default function EngineeringPage() {
       setManagementFeeRate(data.management_rate || 8);
       setProfitRate(data.profit_rate || 10);
       setRegulatoryFeeRate(data.regulatory_rate || 3);
+      setTierTaxRate(data.tax_rate && data.tax_rate !== 13 ? data.tax_rate : 6);
+      setCrccRate(data.crcc_rate || 6);
+      setCmccRate(data.cmcc_rate || 8);
+      setTierMode(Boolean(data.crcc_rate) || Boolean(data.cmcc_rate));
       setSavedQuoteId(data.id);
       setLastSavedAt(new Date(data.updated_at).toLocaleString('zh-CN'));
 
-      // 恢复报价明细
-      if (data.items && Array.isArray(data.items)) {
-        const loadedItems: QuoteItem[] = data.items.map((item: any, index: number) => ({
+      // 恢复报价明细（兼容数组与 JSON 字符串两种返回形式）
+      let rawItems: unknown = data.items;
+      if (typeof rawItems === 'string') {
+        try { rawItems = JSON.parse(rawItems); } catch { rawItems = null; }
+      }
+      if (Array.isArray(rawItems)) {
+        const loadedItems: QuoteItem[] = rawItems.map((item: any, index: number) => ({
           id: index + 1,
           itemType: (item.itemType || 'selfConstruction') as 'selfConstruction' | 'intelligent' | 'custom' | 'labor',
           itemId: item.itemId || (item.itemType === 'labor' ? `labor_${index + 1}` : `custom_${index + 1}`),
           quantity: item.quantity,
+          location: item.location || undefined,
+          purchasePrice: item.purchasePrice ? Number(item.purchasePrice) : undefined,
+          markupRate: item.markupRate ? Number(item.markupRate) : undefined,
           customName: item.itemType === 'custom' ? item.name : undefined,
           customUnit: item.itemType === 'custom' ? item.unit : undefined,
           customPrice: item.itemType === 'custom' ? item.price : undefined,
@@ -907,32 +924,89 @@ export default function EngineeringPage() {
     // 自行计算汇总数据，避免依赖后定义的 totals
     let totalBase = 0;
     quoteItems.forEach(item => {
-      if (item.itemType === 'custom') {
-        totalBase += (item.customPrice || 0) * item.quantity;
-      } else if (item.itemType === 'labor') {
-        const days = item.laborDays || 0;
-        const unitPrice = item.laborUnitPrice || 0;
-        totalBase += days * unitPrice;
-      } else {
-        const quotaItem = item.itemType === 'selfConstruction'
-            ? SELF_CONSTRUCTION_QUOTA.find(q => q.id === item.itemId)
-            : INTELLIGENT_PROJECT_QUOTA.find(q => q.id === item.itemId);
-        if (quotaItem) {
-          totalBase += quotaItem.price * item.quantity;
-        }
-      }
+      totalBase += getItemBasePrice(item) * item.quantity;
     });
 
-
     const subtotal = totalBase;
+    const quoteNumber = `GC${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}${String(new Date().getDate()).padStart(2, '0')}${String(quoteSequence).padStart(3, '0')}`;
+
+    if (tierMode) {
+      // 三套取费：普通含税×1.06，铁建=含税×1.06，移动=含税×1.08
+      const taxFactor = 1 + tierTaxRate / 100;
+      const crccFactor = 1 + crccRate / 100;
+      const cmccFactor = 1 + cmccRate / 100;
+      let crccTotal = 0;
+      let cmccTotal = 0;
+      const items = quoteItems.map(item => {
+        const basePrice = getItemBasePrice(item);
+        const quantity = item.quantity;
+        const taxUnit = basePrice * taxFactor;
+        const crccUnit = taxUnit * crccFactor;
+        const cmccUnit = taxUnit * crccFactor * cmccFactor;
+        crccTotal += crccUnit * quantity;
+        cmccTotal += cmccUnit * quantity;
+        const name = item.itemType === 'custom'
+          ? item.customName || ''
+          : item.itemType === 'labor'
+            ? (item.laborLevelName || '人工') + '人工' + (item.laborDescription ? '(' + item.laborDescription + ')' : '')
+            : (item.itemType === 'selfConstruction'
+                ? SELF_CONSTRUCTION_QUOTA.find(q => q.id === item.itemId)?.name
+                : INTELLIGENT_PROJECT_QUOTA.find(q => q.id === item.itemId)?.name) || '';
+        const unit = item.itemType === 'custom' ? item.customUnit || ''
+          : item.itemType === 'labor' ? '人天'
+          : (item.itemType === 'selfConstruction'
+              ? SELF_CONSTRUCTION_QUOTA.find(q => q.id === item.itemId)?.unit
+              : INTELLIGENT_PROJECT_QUOTA.find(q => q.id === item.itemId)?.unit) || '';
+        return {
+          name,
+          unit,
+          quantity,
+          unitPrice: basePrice,
+          amount: basePrice * quantity,
+          location: item.location || '',
+          crccUnitPrice: crccUnit,
+          cmccUnitPrice: cmccUnit,
+          crccAmount: crccUnit * quantity,
+          cmccAmount: cmccUnit * quantity,
+        };
+      }).filter(item => item.name);
+      return {
+        projectName,
+        clientName: customerName,
+        contactPerson,
+        contactPhone,
+        quoteNumber,
+        quoteDate: new Date().toISOString().split('T')[0],
+        items,
+        rates: {
+          managementRate: managementFeeRate,
+          profitRate: profitRate,
+          regulatoryRate: regulatoryFeeRate,
+          taxRate: tierTaxRate,
+          tierMode: true,
+          tierTaxRate,
+          crccRate,
+          cmccRate,
+        },
+        summary: {
+          subtotal,
+          managementFee: 0,
+          profit: 0,
+          regulatoryFee: 0,
+          tax: subtotal * (taxFactor - 1),
+          grandTotal: subtotal * taxFactor,
+          grandTotalRMB: convertToChineseCurrency(subtotal * taxFactor),
+          crccTotal,
+          cmccTotal,
+        },
+      };
+    }
+
     const managementFee = subtotal * (managementFeeRate / 100);
     const profit = subtotal * (profitRate / 100);
     const regulatoryFee = subtotal * (regulatoryFeeRate / 100);
     const taxAmount = (subtotal + managementFee + profit + regulatoryFee) * 0.13;
     const grandTotal = subtotal + managementFee + profit + regulatoryFee + taxAmount;
-
-    // 自行生成报价单号
-    const quoteNumber = `GC${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}${String(new Date().getDate()).padStart(2, '0')}${String(quoteSequence).padStart(3, '0')}`;
 
     return {
       projectName,
@@ -942,18 +1016,19 @@ export default function EngineeringPage() {
       quoteNumber,
       quoteDate: new Date().toISOString().split('T')[0],
       items: quoteItems.map(item => {
+        const basePrice = getItemBasePrice(item);
         if (item.itemType === 'custom') {
-          const unitPrice = (item.customPrice || 0) * (1 + managementFeeRate / 100 + profitRate / 100 + regulatoryFeeRate / 100);
+          const unitPrice = basePrice * (1 + managementFeeRate / 100 + profitRate / 100 + regulatoryFeeRate / 100);
           return {
             name: item.customName || '',
             unit: item.customUnit || '',
             quantity: item.quantity,
             unitPrice: unitPrice,
             amount: unitPrice * item.quantity,
+            location: item.location || '',
           };
         }
         if (item.itemType === 'labor') {
-          const basePrice = item.laborUnitPrice || 0;
           const days = item.laborDays || 0;
           const unitPrice = basePrice * (1 + managementFeeRate / 100 + profitRate / 100 + regulatoryFeeRate / 100);
           const levelName = item.laborLevelName || '人工';
@@ -964,19 +1039,21 @@ export default function EngineeringPage() {
             quantity: days,
             unitPrice: unitPrice,
             amount: unitPrice * days,
+            location: item.location || '',
           };
         }
         const quotaItem = item.itemType === 'selfConstruction'
           ? SELF_CONSTRUCTION_QUOTA.find(q => q.id === item.itemId)
           : INTELLIGENT_PROJECT_QUOTA.find(q => q.id === item.itemId);
         if (!quotaItem) return { name: '', unit: '', quantity: 0, unitPrice: 0, amount: 0 };
-        const unitPrice = quotaItem.price * (1 + managementFeeRate / 100 + profitRate / 100 + regulatoryFeeRate / 100);
+        const unitPrice = basePrice * (1 + managementFeeRate / 100 + profitRate / 100 + regulatoryFeeRate / 100);
         return {
           name: quotaItem.name,
           unit: quotaItem.unit,
           quantity: item.quantity,
           unitPrice: unitPrice,
           amount: unitPrice * item.quantity,
+          location: item.location || '',
         };
       }).filter(item => item.name),
       rates: {
@@ -995,7 +1072,7 @@ export default function EngineeringPage() {
         grandTotalRMB: convertToChineseCurrency(grandTotal),
       },
     };
-  }, [quoteItems, projectName, customerName, contactPhone, managementFeeRate, profitRate, regulatoryFeeRate]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [quoteItems, projectName, customerName, contactPerson, contactPhone, managementFeeRate, profitRate, regulatoryFeeRate, tierMode, tierTaxRate, crccRate, cmccRate]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 预览当前编辑的报价单
   const handlePreview = useCallback(() => {
@@ -1017,30 +1094,6 @@ export default function EngineeringPage() {
     setPreviewDialogOpen(true);
   }, [quoteItems.length, projectName, buildExportData]);
 
-  // 辅助函数：将数据库中的items映射为导出格式（兼容labor类型）
-  const mapItemsForExport = useCallback((items: any[], managementRate: number, profitRate: number, regulatoryRate: number) => {
-    const num = (v: any) => Number(v) || 0;
-    return (items || []).map(item => {
-      const basePrice = num(item.price);
-      const isLabor = (item as any).itemType === 'labor';
-      const qty = isLabor ? num((item as any).laborDays || item.quantity) : num(item.quantity);
-      const unitPrice = basePrice * (1 + num(managementRate) / 100 + num(profitRate) / 100 + num(regulatoryRate) / 100);
-      let displayName = item.name;
-      if (isLabor) {
-        const levelName = (item as any).laborLevelName || '人工';
-        const desc = (item as any).laborDescription ? '(' + (item as any).laborDescription + ')' : '';
-        displayName = levelName + '人工' + desc;
-      }
-      return {
-        name: displayName,
-        unit: isLabor ? '人天' : item.unit,
-        quantity: qty,
-        unitPrice: unitPrice,
-        amount: unitPrice * qty,
-      };
-    });
-  }, []);
-
   // 从列表预览报价单（从后端获取最新数据）
   const handlePreviewFromList = useCallback(async (quote: EngineeringQuote) => {
     try {
@@ -1052,33 +1105,7 @@ export default function EngineeringPage() {
       }
 
       const data = result.data as EngineeringQuote;
-      // 数据库返回的数值字段可能是字符串，统一转为数字
-      const num = (v: any) => Number(v) || 0;
-
-      const exportData: EngineeringQuoteExportData = {
-        projectName: data.project_name,
-        clientName: data.client_name || '',
-        contactPerson: data.contact_person || '',
-        contactPhone: data.contact_phone || '',
-        quoteNumber: data.quote_number,
-        quoteDate: new Date(data.created_at).toISOString().split('T')[0],
-        items: mapItemsForExport(data.items as any[], data.management_rate, data.profit_rate, data.regulatory_rate),
-        rates: {
-          managementRate: num(data.management_rate),
-          profitRate: num(data.profit_rate),
-          regulatoryRate: num(data.regulatory_rate),
-          taxRate: num(data.tax_rate),
-        },
-        summary: {
-          subtotal: num(data.subtotal),
-          managementFee: num(data.management_fee),
-          profit: num(data.profit),
-          regulatoryFee: num(data.regulatory_fee),
-          tax: num(data.tax),
-          grandTotal: num(data.total),
-          grandTotalRMB: convertToChineseCurrency(num(data.total)),
-        },
-      };
+      const exportData = buildEngineeringExportDataFromQuote(data);
 
       const html = generateEngineeringQuoteHTML(exportData);
       setPreviewHtml(html);
@@ -1139,34 +1166,10 @@ export default function EngineeringPage() {
       }
 
       const quoteList: EngineeringQuote[] = result.data as EngineeringQuote[];
-      const num = (v: any) => Number(v) || 0;
 
       let exportedCount = 0;
       for (const data of quoteList) {
-        const exportData: EngineeringQuoteExportData = {
-          projectName: data.project_name,
-          clientName: data.client_name || '',
-          contactPerson: data.contact_person || '',
-          contactPhone: data.contact_phone || '',
-          quoteNumber: data.quote_number,
-          quoteDate: new Date(data.created_at).toISOString().split('T')[0],
-          items: mapItemsForExport(data.items as any[], data.management_rate, data.profit_rate, data.regulatory_rate),
-          rates: {
-            managementRate: num(data.management_rate),
-            profitRate: num(data.profit_rate),
-            regulatoryRate: num(data.regulatory_rate),
-            taxRate: num(data.tax_rate),
-          },
-          summary: {
-            subtotal: num(data.subtotal),
-            managementFee: num(data.management_fee),
-            profit: num(data.profit),
-            regulatoryFee: num(data.regulatory_fee),
-            tax: num(data.tax),
-            grandTotal: num(data.total),
-            grandTotalRMB: convertToChineseCurrency(num(data.total)),
-          },
-        };
+        const exportData = buildEngineeringExportDataFromQuote(data);
 
         const html = generateEngineeringQuoteHTML(exportData);
         downloadAsWord(html, `工程报价单_${data.quote_number}.doc`);
@@ -1239,14 +1242,21 @@ export default function EngineeringPage() {
       // 每个报价单一个明细sheet
       for (const data of quoteList) {
         const sheetName = data.quote_number.substring(0, 31); // Excel sheet名最长31字符
-        const detailItems = mapItemsForExport(data.items as any[], data.management_rate, data.profit_rate, data.regulatory_rate);
-        const detailData: Record<string, string | number>[] = detailItems.map((item, idx) => ({
+        const exportData = buildEngineeringExportDataFromQuote(data);
+        const tierOn = exportData.rates.tierMode;
+        const detailData: Record<string, string | number>[] = exportData.items.map((item, idx) => ({
           '序号': idx + 1,
           '项目名称': item.name,
           '单位': item.unit,
           '数量': item.quantity,
           '单价（元）': item.unitPrice,
           '金额（元）': item.amount,
+          ...(tierOn ? {
+            '普通含税单价': item.crccUnitPrice ? Math.round(item.crccUnitPrice / (1 + (exportData.rates.crccRate || 0) / 100) * 100) / 100 : item.unitPrice,
+            '铁建单价': item.crccUnitPrice || '',
+            '移动单价': item.cmccUnitPrice || '',
+          } : {}),
+          '归属位置': item.location || '',
         }));
 
         // 追加汇总行
@@ -1256,6 +1266,10 @@ export default function EngineeringPage() {
         detailData.push({ '序号': '', '项目名称': `规费（${num(data.regulatory_rate)}%）`, '单位': '', '数量': '', '单价（元）': '', '金额（元）': num(data.regulatory_fee) });
         detailData.push({ '序号': '', '项目名称': `增值税（${num(data.tax_rate)}%）`, '单位': '', '数量': '', '单价（元）': '', '金额（元）': num(data.tax) });
         detailData.push({ '序号': '', '项目名称': '报价总计', '单位': '', '数量': '', '单价（元）': '', '金额（元）': num(data.total) });
+        if (tierOn) {
+          detailData.push({ '序号': '', '项目名称': `铁建总价（${num(data.crcc_rate)}%）`, '单位': '', '数量': '', '单价（元）': '', '金额（元）': num(data.crcc_fee) });
+          detailData.push({ '序号': '', '项目名称': `移动总价（${num(data.crcc_rate)}%+${num(data.cmcc_rate)}%）`, '单位': '', '数量': '', '单价（元）': '', '金额（元）': num(data.cmcc_fee) });
+        }
 
         const detailWs = XLSX.utils.json_to_sheet(detailData);
         detailWs['!cols'] = [
@@ -1294,34 +1308,10 @@ export default function EngineeringPage() {
       }
 
       const quoteList: EngineeringQuote[] = result.data as EngineeringQuote[];
-      const num = (v: any) => Number(v) || 0;
 
       let exportedCount = 0;
       for (const data of quoteList) {
-        const exportData: EngineeringQuoteExportData = {
-          projectName: data.project_name,
-          clientName: data.client_name || '',
-          contactPerson: data.contact_person || '',
-          contactPhone: data.contact_phone || '',
-          quoteNumber: data.quote_number,
-          quoteDate: new Date(data.created_at).toISOString().split('T')[0],
-          items: mapItemsForExport(data.items as any[], data.management_rate, data.profit_rate, data.regulatory_rate),
-          rates: {
-            managementRate: num(data.management_rate),
-            profitRate: num(data.profit_rate),
-            regulatoryRate: num(data.regulatory_rate),
-            taxRate: num(data.tax_rate),
-          },
-          summary: {
-            subtotal: num(data.subtotal),
-            managementFee: num(data.management_fee),
-            profit: num(data.profit),
-            regulatoryFee: num(data.regulatory_fee),
-            tax: num(data.tax),
-            grandTotal: num(data.total),
-            grandTotalRMB: convertToChineseCurrency(num(data.total)),
-          },
-        };
+        const exportData = buildEngineeringExportDataFromQuote(data);
 
         const html = generateEngineeringQuoteHTML(exportData);
         await downloadAsPDF(html, `工程报价单_${data.quote_number}.pdf`);
@@ -1474,10 +1464,10 @@ export default function EngineeringPage() {
     if (!shareTarget) return;
     setIsCreatingShare(true);
     try {
-      const result = await apiFetch<{ shareUrl: string; shareToken: string }>('/api/quote-shares', {
+      const result = await apiFetch<{ shareUrl: string; token: string }>('/api/quotes/share', {
         method: 'POST',
         body: JSON.stringify({
-          quoteId: shareTarget.id,
+          quoteId: `engineering:${shareTarget.id}`,
           password: sharePassword || null,
           expiresInDays: shareExpiresDays,
           maxViews: shareMaxViews,
@@ -1486,9 +1476,9 @@ export default function EngineeringPage() {
       });
 
       if (result.success) {
-        const shareData = result.data as { shareUrl: string; shareToken: string };
+        const shareData = result.data as { shareUrl: string; token: string };
         const fullUrl = `${window.location.origin}${shareData.shareUrl}`;
-        setShareResult({ shareUrl: fullUrl, shareToken: shareData.shareToken });
+        setShareResult({ shareUrl: fullUrl, shareToken: shareData.token });
         toast.success('分享链接已创建');
       } else {
         toast.error('创建分享链接失败', { description: result.error || '请稍后重试' });
@@ -1529,7 +1519,7 @@ export default function EngineeringPage() {
     setShareListDialogOpen(true);
     setIsLoadingShareList(true);
     try {
-      const result = await apiFetch<any[]>(`/api/quote-shares?quoteId=${quote.id}`);
+      const result = await apiFetch<any[]>(`/api/quotes/share?quoteId=${encodeURIComponent(`engineering:${quote.id}`)}`);
       if (result.success) {
         setShareList(result.data as any[]);
       } else {
@@ -1546,7 +1536,7 @@ export default function EngineeringPage() {
   // 停用分享链接
   const handleDeactivateShare = useCallback(async (shareId: number) => {
     try {
-      const result = await apiFetch('/api/quote-shares', {
+      const result = await apiFetch('/api/quotes/share', {
         method: 'DELETE',
         body: JSON.stringify({ id: shareId }),
       });
@@ -1554,7 +1544,7 @@ export default function EngineeringPage() {
         toast.success('分享链接已停用');
         // 刷新分享列表
         if (shareTarget) {
-          const listResult = await apiFetch<any[]>(`/api/quote-shares?quoteId=${shareTarget.id}`);
+          const listResult = await apiFetch<any[]>(`/api/quotes/share?quoteId=${encodeURIComponent(`engineering:${shareTarget.id}`)}`);
           if (listResult.success) setShareList(listResult.data as any[]);
         }
       } else {
@@ -1592,8 +1582,15 @@ export default function EngineeringPage() {
   };
 
   const updateQuantity = (itemId: number, quantity: number) => {
-    setQuoteItems(quoteItems.map(item => 
+    setQuoteItems(quoteItems.map(item =>
       item.id === itemId ? { ...item, quantity } : item
+    ));
+  };
+
+  // 更新明细行的通用字段（归属位置/采购价/加价率）
+  const updateQuoteItemField = (itemId: number, field: 'location' | 'purchasePrice' | 'markupRate', value: string | number) => {
+    setQuoteItems(quoteItems.map(item =>
+      item.id === itemId ? { ...item, [field]: value } : item
     ));
   };
 
@@ -1770,23 +1767,55 @@ export default function EngineeringPage() {
     );
   };
 
+  // 获取明细行基准单价（含采购价加价链路）
+  const getItemBasePrice = (item: QuoteItem): number => {
+    if (item.purchasePrice && item.purchasePrice > 0 && item.markupRate !== undefined && item.markupRate > 0) {
+      return item.purchasePrice * (1 + item.markupRate / 100);
+    }
+    if (item.itemType === 'custom') {
+      return item.customPrice || 0;
+    }
+    if (item.itemType === 'labor') {
+      return (item.laborDays || 0) * (item.laborUnitPrice || 0);
+    }
+    const quotaItem = getItemById(item.itemType, item.itemId);
+    return quotaItem ? quotaItem.price : 0;
+  };
+
   const calculateTotals = () => {
     let totalBase = 0;
+    let crccTotal = 0;
+    let cmccTotal = 0;
+
+    if (tierMode) {
+      // 三套取费模式：普通含税×1.06，铁建=含税×1.06，移动=含税×1.08
+      const taxFactor = 1 + tierTaxRate / 100;
+      const crccFactor = 1 + crccRate / 100;
+      const cmccFactor = 1 + cmccRate / 100;
+      quoteItems.forEach((item) => {
+        const base = getItemBasePrice(item) * item.quantity;
+        totalBase += base;
+        crccTotal += base * taxFactor * crccFactor;
+        cmccTotal += base * taxFactor * crccFactor * cmccFactor;
+      });
+      const taxAmount = totalBase * taxFactor - totalBase;
+      const total = totalBase * taxFactor;
+      return {
+        totalBase,
+        subtotal: totalBase,
+        managementFee: 0,
+        profit: 0,
+        regulatoryFee: 0,
+        taxAmount,
+        total,
+        crccTotal,
+        cmccTotal,
+        tierMode: true,
+      };
+    }
 
     quoteItems.forEach(item => {
-      if (item.itemType === 'custom') {
-        totalBase += (item.customPrice || 0) * item.quantity;
-      } else if (item.itemType === 'labor') {
-        // 人工天计价：人工天数 × 档位单价
-        const days = item.laborDays || 0;
-        const unitPrice = item.laborUnitPrice || 0;
-        totalBase += days * unitPrice;
-      } else {
-        const quotaItem = getItemById(item.itemType, item.itemId);
-        if (quotaItem) {
-          totalBase += quotaItem.price * item.quantity;
-        }
-      }
+      totalBase += getItemBasePrice(item) * item.quantity;
     });
 
     const subtotal = totalBase;
@@ -1805,6 +1834,9 @@ export default function EngineeringPage() {
       regulatoryFee,
       taxAmount,
       total,
+      crccTotal: 0,
+      cmccTotal: 0,
+      tierMode: false,
     };
   };
 
@@ -1837,13 +1869,17 @@ export default function EngineeringPage() {
         managementRate: managementFeeRate,
         profitRate,
         regulatoryRate: regulatoryFeeRate,
-        taxRate: 13,
+        taxRate: tierMode ? tierTaxRate : 13,
         subtotal: totals.subtotal,
         managementFee: totals.managementFee,
         profit: totals.profit,
         regulatoryFee: totals.regulatoryFee,
         tax: totals.taxAmount,
-        total: totals.total,
+        total: tierMode ? totals.total : totals.total,
+        crccRate: tierMode ? crccRate : 0,
+        crccFee: tierMode ? totals.crccTotal : 0,
+        cmccRate: tierMode ? cmccRate : 0,
+        cmccFee: tierMode ? totals.cmccTotal : 0,
         items: quoteItems.map(item => {
           if (item.itemType === 'custom') {
             return {
@@ -1854,6 +1890,9 @@ export default function EngineeringPage() {
               unit: item.customUnit || '',
               price: item.customPrice || 0,
               customRemark: item.customRemark || '',
+              location: item.location || '',
+              purchasePrice: item.purchasePrice || 0,
+              markupRate: item.markupRate || 0,
             };
           }
           if (item.itemType === 'labor') {
@@ -1868,6 +1907,9 @@ export default function EngineeringPage() {
               laborLevelName: item.laborLevelName || '',
               laborDays: item.laborDays || 0,
               laborDescription: item.laborDescription || '',
+              location: item.location || '',
+              purchasePrice: item.purchasePrice || 0,
+              markupRate: item.markupRate || 0,
             };
           }
           const quotaItem = getItemById(item.itemType, item.itemId);
@@ -1878,6 +1920,9 @@ export default function EngineeringPage() {
             name: quotaItem?.name || '',
             unit: quotaItem?.unit || '',
             price: quotaItem?.price || 0,
+            location: item.location || '',
+            purchasePrice: item.purchasePrice || 0,
+            markupRate: item.markupRate || 0,
           };
         }),
         status: 'draft',
@@ -2102,7 +2147,17 @@ export default function EngineeringPage() {
                     <TableHead className="w-[100px]">单位</TableHead>
                     <TableHead className="w-[120px]">数量</TableHead>
                     <TableHead className="w-[120px]">单价</TableHead>
-                    <TableHead className="w-[120px]">小计</TableHead>
+                    {tierMode ? (
+                      <>
+                        <TableHead className="w-[110px]">含税小计</TableHead>
+                        <TableHead className="w-[110px]">铁建小计</TableHead>
+                        <TableHead className="w-[110px]">移动小计</TableHead>
+                      </>
+                    ) : (
+                      <TableHead className="w-[120px]">小计</TableHead>
+                    )}
+                    <TableHead className="w-[100px]">归属位置</TableHead>
+                    {tierMode && <TableHead className="w-[140px]">采购价/加价率</TableHead>}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -2160,7 +2215,41 @@ export default function EngineeringPage() {
                               className="w-[100px]"
                             />
                           </TableCell>
-                          <TableCell>¥{subtotal.toFixed(2)}</TableCell>
+                          {tierMode ? (
+                            <>
+                              <TableCell>¥{(getItemBasePrice(item) * item.quantity * (1 + tierTaxRate / 100)).toFixed(2)}</TableCell>
+                              <TableCell>¥{(getItemBasePrice(item) * item.quantity * (1 + tierTaxRate / 100) * (1 + crccRate / 100)).toFixed(2)}</TableCell>
+                              <TableCell>¥{(getItemBasePrice(item) * item.quantity * (1 + tierTaxRate / 100) * (1 + crccRate / 100) * (1 + cmccRate / 100)).toFixed(2)}</TableCell>
+                            </>
+                          ) : (
+                            <TableCell>¥{subtotal.toFixed(2)}</TableCell>
+                          )}
+                          <TableCell>
+                            <Input
+                              placeholder="楼层"
+                              value={item.location || ''}
+                              onChange={(e) => updateQuoteItemField(item.id, 'location', e.target.value)}
+                              className="w-[90px]"
+                            />
+                          </TableCell>
+                          {tierMode && (
+                            <TableCell className="flex gap-1">
+                              <Input
+                                type="number"
+                                placeholder="采购价"
+                                value={item.purchasePrice || ''}
+                                onChange={(e) => updateQuoteItemField(item.id, 'purchasePrice', e.target.value)}
+                                className="w-[70px]"
+                              />
+                              <Input
+                                type="number"
+                                placeholder="加价%"
+                                value={item.markupRate || ''}
+                                onChange={(e) => updateQuoteItemField(item.id, 'markupRate', e.target.value)}
+                                className="w-[60px]"
+                              />
+                            </TableCell>
+                          )}
                         </TableRow>
                       );
                     } else if (item.itemType === 'labor') {
@@ -2223,14 +2312,48 @@ export default function EngineeringPage() {
                           <TableCell>
                             <span className="text-sm">¥{(item.laborUnitPrice || 0).toFixed(2)}</span>
                           </TableCell>
-                          <TableCell>
-                            <div className="text-sm">
-                              <span className="font-medium">¥{laborSubtotal.toFixed(2)}</span>
-                              <div className="text-xs text-muted-foreground mt-0.5">
-                                {item.laborDays || 0}天 × ¥{(item.laborUnitPrice || 0).toFixed(2)} + 费率
+                          {tierMode ? (
+                            <>
+                              <TableCell>¥{(getItemBasePrice(item) * (1 + tierTaxRate / 100)).toFixed(2)}</TableCell>
+                              <TableCell>¥{(getItemBasePrice(item) * (1 + tierTaxRate / 100) * (1 + crccRate / 100)).toFixed(2)}</TableCell>
+                              <TableCell>¥{(getItemBasePrice(item) * (1 + tierTaxRate / 100) * (1 + crccRate / 100) * (1 + cmccRate / 100)).toFixed(2)}</TableCell>
+                            </>
+                          ) : (
+                            <TableCell>
+                              <div className="text-sm">
+                                <span className="font-medium">¥{laborSubtotal.toFixed(2)}</span>
+                                <div className="text-xs text-muted-foreground mt-0.5">
+                                  {item.laborDays || 0}天 × ¥{(item.laborUnitPrice || 0).toFixed(2)} + 费率
+                                </div>
                               </div>
-                            </div>
+                            </TableCell>
+                          )}
+                          <TableCell>
+                            <Input
+                              placeholder="楼层"
+                              value={item.location || ''}
+                              onChange={(e) => updateQuoteItemField(item.id, 'location', e.target.value)}
+                              className="w-[90px]"
+                            />
                           </TableCell>
+                          {tierMode && (
+                            <TableCell className="flex gap-1">
+                              <Input
+                                type="number"
+                                placeholder="采购价"
+                                value={item.purchasePrice || ''}
+                                onChange={(e) => updateQuoteItemField(item.id, 'purchasePrice', e.target.value)}
+                                className="w-[70px]"
+                              />
+                              <Input
+                                type="number"
+                                placeholder="加价%"
+                                value={item.markupRate || ''}
+                                onChange={(e) => updateQuoteItemField(item.id, 'markupRate', e.target.value)}
+                                className="w-[60px]"
+                              />
+                            </TableCell>
+                          )}
                         </TableRow>
                       );
                     } else {
@@ -2266,7 +2389,41 @@ export default function EngineeringPage() {
                             />
                           </TableCell>
                           <TableCell>¥{quotaItem.price.toFixed(2)}</TableCell>
-                          <TableCell>¥{subtotal.toFixed(2)}</TableCell>
+                          {tierMode ? (
+                            <>
+                              <TableCell>¥{(getItemBasePrice(item) * item.quantity * (1 + tierTaxRate / 100)).toFixed(2)}</TableCell>
+                              <TableCell>¥{(getItemBasePrice(item) * item.quantity * (1 + tierTaxRate / 100) * (1 + crccRate / 100)).toFixed(2)}</TableCell>
+                              <TableCell>¥{(getItemBasePrice(item) * item.quantity * (1 + tierTaxRate / 100) * (1 + crccRate / 100) * (1 + cmccRate / 100)).toFixed(2)}</TableCell>
+                            </>
+                          ) : (
+                            <TableCell>¥{subtotal.toFixed(2)}</TableCell>
+                          )}
+                          <TableCell>
+                            <Input
+                              placeholder="楼层"
+                              value={item.location || ''}
+                              onChange={(e) => updateQuoteItemField(item.id, 'location', e.target.value)}
+                              className="w-[90px]"
+                            />
+                          </TableCell>
+                          {tierMode && (
+                            <TableCell className="flex gap-1">
+                              <Input
+                                type="number"
+                                placeholder="采购价"
+                                value={item.purchasePrice || ''}
+                                onChange={(e) => updateQuoteItemField(item.id, 'purchasePrice', e.target.value)}
+                                className="w-[70px]"
+                              />
+                              <Input
+                                type="number"
+                                placeholder="加价%"
+                                value={item.markupRate || ''}
+                                onChange={(e) => updateQuoteItemField(item.id, 'markupRate', e.target.value)}
+                                className="w-[60px]"
+                              />
+                            </TableCell>
+                          )}
                         </TableRow>
                       );
                     }
@@ -2280,36 +2437,86 @@ export default function EngineeringPage() {
           <Card>
             <CardHeader>
               <CardTitle>费率配置</CardTitle>
-              <CardDescription>设置管理费率、利润率和规费率</CardDescription>
+              <CardDescription>三套取费模式（含税6% + 铁建6% + 移动8%）或传统费率</CardDescription>
             </CardHeader>
-            <CardContent className="grid gap-4 md:grid-cols-3">
-              <div className="space-y-2">
-                <Label htmlFor="managementFeeRate">管理费率 (%)</Label>
-                <Input
-                  id="managementFeeRate"
-                  type="number"
-                  value={managementFeeRate}
-                  onChange={(e) => setManagementFeeRate(parseFloat(e.target.value) || 0)}
-                />
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="space-y-1">
+                  <p className="text-sm font-medium">三套取费模式</p>
+                  <p className="text-xs text-muted-foreground">普通含税 + 铁建 + 移动 三套并行计算</p>
+                </div>
+                <label className="flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={tierMode}
+                    onChange={(e) => setTierMode(e.target.checked)}
+                    className="w-4 h-4"
+                  />
+                  <span className="ml-2 text-sm">{tierMode ? '已开启' : '未开启'}</span>
+                </label>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="profitRate">利润率 (%)</Label>
-                <Input
-                  id="profitRate"
-                  type="number"
-                  value={profitRate}
-                  onChange={(e) => setProfitRate(parseFloat(e.target.value) || 0)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="regulatoryFeeRate">规费率 (%)</Label>
-                <Input
-                  id="regulatoryFeeRate"
-                  type="number"
-                  value={regulatoryFeeRate}
-                  onChange={(e) => setRegulatoryFeeRate(parseFloat(e.target.value) || 0)}
-                />
-              </div>
+
+              {tierMode ? (
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div className="space-y-2">
+                    <Label htmlFor="tierTaxRate">含税税率 (%)</Label>
+                    <Input
+                      id="tierTaxRate"
+                      type="number"
+                      value={tierTaxRate}
+                      onChange={(e) => setTierTaxRate(parseFloat(e.target.value) || 0)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="crccRate">铁建管理费率 (%)</Label>
+                    <Input
+                      id="crccRate"
+                      type="number"
+                      value={crccRate}
+                      onChange={(e) => setCrccRate(parseFloat(e.target.value) || 0)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="cmccRate">移动管理费率 (%)</Label>
+                    <Input
+                      id="cmccRate"
+                      type="number"
+                      value={cmccRate}
+                      onChange={(e) => setCmccRate(parseFloat(e.target.value) || 0)}
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div className="space-y-2">
+                    <Label htmlFor="managementFeeRate">管理费率 (%)</Label>
+                    <Input
+                      id="managementFeeRate"
+                      type="number"
+                      value={managementFeeRate}
+                      onChange={(e) => setManagementFeeRate(parseFloat(e.target.value) || 0)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="profitRate">利润率 (%)</Label>
+                    <Input
+                      id="profitRate"
+                      type="number"
+                      value={profitRate}
+                      onChange={(e) => setProfitRate(parseFloat(e.target.value) || 0)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="regulatoryFeeRate">规费率 (%)</Label>
+                    <Input
+                      id="regulatoryFeeRate"
+                      type="number"
+                      value={regulatoryFeeRate}
+                      onChange={(e) => setRegulatoryFeeRate(parseFloat(e.target.value) || 0)}
+                    />
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -2338,16 +2545,37 @@ export default function EngineeringPage() {
                 </div>
               </div>
               <div className="border-t pt-4">
-                <div className="flex items-center justify-between">
-                  <div className="space-y-1">
-                    <p className="text-sm text-muted-foreground">税额 (13%)</p>
-                    <p className="text-lg">¥{totals.taxAmount.toFixed(2)}</p>
+                {tierMode ? (
+                  <div className="grid gap-4 md:grid-cols-4">
+                    <div className="space-y-1">
+                      <p className="text-sm text-muted-foreground">含税小计 ({tierTaxRate}%)</p>
+                      <p className="text-lg font-semibold">¥{totals.total.toFixed(2)}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-sm text-muted-foreground">铁建总价 ({tierTaxRate}%+{crccRate}%)</p>
+                      <p className="text-lg font-semibold text-blue-700">¥{totals.crccTotal.toFixed(2)}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-sm text-muted-foreground">移动总价 ({tierTaxRate}%+{crccRate}%+{cmccRate}%)</p>
+                      <p className="text-lg font-semibold text-green-700">¥{totals.cmccTotal.toFixed(2)}</p>
+                    </div>
+                    <div className="text-right space-y-1">
+                      <p className="text-sm text-muted-foreground">不含税小计</p>
+                      <p className="text-lg text-muted-foreground">¥{totals.subtotal.toFixed(2)}</p>
+                    </div>
                   </div>
-                  <div className="text-right space-y-1">
-                    <p className="text-sm text-muted-foreground">总价</p>
-                    <p className="text-3xl font-bold text-primary">¥{totals.total.toFixed(2)}</p>
+                ) : (
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-1">
+                      <p className="text-sm text-muted-foreground">税额 (13%)</p>
+                      <p className="text-lg">¥{totals.taxAmount.toFixed(2)}</p>
+                    </div>
+                    <div className="text-right space-y-1">
+                      <p className="text-sm text-muted-foreground">总价</p>
+                      <p className="text-3xl font-bold text-primary">¥{totals.total.toFixed(2)}</p>
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
             </CardContent>
             <CardFooter className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between">

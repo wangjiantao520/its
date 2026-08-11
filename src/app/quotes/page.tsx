@@ -47,13 +47,15 @@ import {
   Send,
   Archive,
   X,
+  Calculator,
+  Wrench,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { downloadAsPDF } from '@/lib/export-utils';
 import { useConfirm } from '@/hooks/use-confirm';
 
 // 报价单状态
-type QuoteStatus = 'draft' | 'pending_review' | 'approved' | 'sent' | 'archived';
+type QuoteStatus = 'draft' | 'pending_review' | 'submitted' | 'approved' | 'rejected' | 'sent' | 'archived';
 
 // 报价单接口
 interface Quote {
@@ -82,7 +84,9 @@ interface ActionMenuItem {
 const STATUS_CONFIG: Record<QuoteStatus, { label: string; variant: 'default' | 'secondary' | 'outline' | 'destructive'; color: string }> = {
   draft: { label: '草稿', variant: 'secondary', color: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300' },
   pending_review: { label: '待审核', variant: 'secondary', color: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300' },
+  submitted: { label: '已提交', variant: 'secondary', color: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900 dark:text-cyan-300' },
   approved: { label: '已批准', variant: 'default', color: 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' },
+  rejected: { label: '已驳回', variant: 'destructive', color: 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300' },
   sent: { label: '已发送', variant: 'outline', color: 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300' },
   archived: { label: '已归档', variant: 'secondary', color: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400' },
 };
@@ -92,7 +96,9 @@ const TABS = [
   { value: 'all', label: '全部' },
   { value: 'draft', label: '草稿' },
   { value: 'pending_review', label: '待审核' },
+  { value: 'submitted', label: '已提交' },
   { value: 'approved', label: '已批准' },
+  { value: 'rejected', label: '已驳回' },
   { value: 'sent', label: '已发送' },
   { value: 'archived', label: '已归档' },
 ];
@@ -563,12 +569,25 @@ export default function QuotesPage() {
           </h1>
           <p className="text-muted-foreground mt-1">管理所有报价单，支持批量操作</p>
         </div>
-        <Button
-          onClick={() => router.push('/quotes/new')}
-        >
-          <Plus className="h-4 w-4 mr-2" />
-          新建报价
-        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button>
+              <Plus className="h-4 w-4 mr-2" />
+              新建报价
+              <ChevronDown className="h-4 w-4 ml-1" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => router.push('/engineering')}>
+              <Calculator className="h-4 w-4 mr-2" />
+              工程报价
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => router.push('/maintenance')}>
+              <Wrench className="h-4 w-4 mr-2" />
+              维保报价
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
       {/* 过滤和搜索栏 */}
@@ -740,9 +759,24 @@ export default function QuotesPage() {
                           <div className="flex flex-col items-center gap-2">
                             <FileText className="h-12 w-12 text-muted-foreground/50" />
                             <p className="text-muted-foreground">暂无数据</p>
-                            <Button variant="outline" onClick={() => router.push('/quotes/new')}>
-                              创建第一个报价单
-                            </Button>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="outline">
+                                  <Plus className="h-4 w-4 mr-2" />
+                                  创建第一个报价单
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="center">
+                                <DropdownMenuItem onClick={() => router.push('/engineering')}>
+                                  <Calculator className="h-4 w-4 mr-2" />
+                                  工程报价
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => router.push('/maintenance')}>
+                                  <Wrench className="h-4 w-4 mr-2" />
+                                  维保报价
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
                           </div>
                         </TableCell>
                       </TableRow>
@@ -768,8 +802,8 @@ export default function QuotesPage() {
                             {formatCurrency(quote.total_amount)}
                           </TableCell>
                           <TableCell>
-                            <Badge className={STATUS_CONFIG[quote.status].color}>
-                              {STATUS_CONFIG[quote.status].label}
+                            <Badge className={STATUS_CONFIG[quote.status]?.color ?? 'bg-gray-100 text-gray-700'}>
+                              {STATUS_CONFIG[quote.status]?.label ?? quote.status}
                             </Badge>
                           </TableCell>
                           <TableCell className="text-muted-foreground">

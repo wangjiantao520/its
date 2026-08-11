@@ -20,6 +20,8 @@ import {
   Settings,
   TrendingUp,
   Database,
+  Paperclip,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -35,6 +37,7 @@ import { useSearchParams } from "next/navigation";
 import { TiltIcon } from "@/components/ui/tilt-icon";
 import { createAssistantStreamParser } from "@/lib/assistant-stream";
 import { apiFetch } from "@/lib/api-fetch";
+import { extractFileContent, buildFilePrompt } from "@/lib/file-content";
 
 interface Message {
   role: "user" | "assistant";
@@ -53,12 +56,14 @@ function AssistantContent() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [isReadingFile, setIsReadingFile] = useState(false);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // 加载会话列表
   const loadSessions = useCallback(async () => {
@@ -101,6 +106,23 @@ function AssistantContent() {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || isLoading || isReadingFile) return;
+    setIsReadingFile(true);
+    try {
+      const result = await extractFileContent(file);
+      if (!result.ok) {
+        setMessages((prev) => [...prev, { role: "assistant", content: `⚠️ ${result.error}` }]);
+        return;
+      }
+      await handleSend(buildFilePrompt(result.label, result.content));
+    } finally {
+      setIsReadingFile(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
 
   const handleSend = async (overrideInput?: string) => {
     const textToSend = overrideInput ?? input;
@@ -530,6 +552,16 @@ function AssistantContent() {
             <div className="p-4 border-t border-border/40 bg-gradient-to-t from-muted/20 to-transparent">
               <div className="max-w-3xl mx-auto">
                 <div className="flex items-end gap-3 p-3 rounded-xl bg-muted/30 border border-border/40 focus-within:border-primary/30 focus-within:ring-2 focus-within:ring-primary/10 transition-all">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isLoading || isReadingFile}
+                    title="上传文件（txt/csv/xlsx）"
+                    className="shrink-0 w-9 h-9 rounded-xl text-muted-foreground hover:text-primary"
+                  >
+                    {isReadingFile ? <Loader2 size={16} className="animate-spin" /> : <Paperclip size={16} />}
+                  </Button>
                   <Textarea
                     ref={textareaRef}
                     value={input}
@@ -551,9 +583,16 @@ function AssistantContent() {
                   >
                     <Send size={16} />
                   </Button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".txt,.csv,.md,.json,.xlsx,.xls"
+                    className="hidden"
+                    onChange={handleFileChange}
+                  />
                 </div>
                 <p className="text-xs text-muted-foreground/50 text-center mt-2">
-                  AI生成内容仅供参考，请结合实际情况核对 · 按 Enter 发送，Shift+Enter 换行
+                  AI生成内容仅供参考，请结合实际情况核对 · 按 Enter 发送，Shift+Enter 换行 · 可上传文件让 AI 分析
                 </p>
               </div>
             </div>

@@ -125,8 +125,13 @@ test('updates and deletes only allowlisted source tables with RETURNING and Post
   }), true);
 
   assert.ok(database.queries.every(({ text }) => !text.includes('?')));
-  assert.ok(database.queries.every(({ text }) => /RETURNING id/i.test(text)));
+  assert.ok(database.queries.every(({ text }) => /(RETURNING id|FROM quote_versions|FROM quote_audit_logs|FROM quote_shares)/i.test(text)));
   assert.match(database.queries[0]?.text ?? '', /UPDATE maintenance_quotes/);
-  assert.match(database.queries[1]?.text ?? '', /DELETE FROM quotation_records/);
-  assert.match(database.queries[2]?.text ?? '', /UPDATE engineering_quotes/);
+  const sourceDelete = database.queries.find(({ text }) => /DELETE FROM quotation_records/i.test(text));
+  assert.ok(sourceDelete, '应存在 quotation_records 源表 DELETE');
+  assert.match(sourceDelete?.text ?? '', /RETURNING id/i);
+  assert.ok(database.queries.some(({ text }) => /DELETE FROM quote_versions/i.test(text)), '应级联清理 quote_versions');
+  assert.ok(database.queries.some(({ text }) => /DELETE FROM quote_audit_logs/i.test(text)), '应级联清理 quote_audit_logs');
+  assert.ok(database.queries.some(({ text }) => /DELETE FROM quote_shares/i.test(text)), '应级联清理 quote_shares');
+  assert.match(database.queries.at(-1)?.text ?? '', /UPDATE engineering_quotes/);
 });

@@ -122,6 +122,11 @@ const adminNavItems = [
     icon: UserCheck,
   },
   {
+    title: '智能助手',
+    url: '/assistant',
+    icon: Bot,
+  },
+  {
     title: 'AI配置中心',
     url: '/admin/ai-config',
     icon: Bot,

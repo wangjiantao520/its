@@ -137,6 +137,18 @@ export async function deleteQuoteByIdentity(
 ): Promise<boolean> {
   const parsed = parseQuoteIdentity(identity);
   if (!parsed) return false;
+  await database.query(
+    `DELETE FROM quote_versions WHERE quote_type = $1 AND quote_id = $2`,
+    [parsed.source, parsed.id],
+  );
+  await database.query(
+    `DELETE FROM quote_audit_logs WHERE quote_type = $1 AND quote_id = $2`,
+    [parsed.source, parsed.id],
+  );
+  await database.query(
+    `DELETE FROM quote_shares WHERE quote_type = $1 AND quote_id = $2`,
+    [parsed.source, parsed.id],
+  );
   const result = await database.query<IdRow>(
     `DELETE FROM ${SOURCE_TABLES[parsed.source]} WHERE id = $1 RETURNING id`,
     [parsed.id],

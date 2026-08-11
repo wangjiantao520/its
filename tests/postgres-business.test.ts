@@ -119,7 +119,7 @@ class RouteDatabase implements DatabaseClient {
     if (sql.startsWith('SELECT is_active FROM users')) return rows([{ is_active: true }]);
     if (sql.includes('INSERT INTO engineering_quotes')) {
       const id = this.engineering.length + 101;
-      this.engineering.push({ id, quote_number: String(params[0]), project_name: String(params[1]), client_name: params[2] === null ? null : String(params[2]), total: Number(params[15] ?? 0).toFixed(2), status: 'draft', created_by: String(params[17]), created_by_name: String(params[18]), created_at: '2026-08-04T01:00:00.000Z', updated_at: '2026-08-04T01:00:00.000Z', items: [] });
+      this.engineering.push({ id, quote_number: String(params[0]), project_name: String(params[1]), client_name: params[2] === null ? null : String(params[2]), total: Number(params[15] ?? 0).toFixed(2), status: 'draft', created_by: String(params[21]), created_by_name: String(params[22]), created_at: '2026-08-04T01:00:00.000Z', updated_at: '2026-08-04T01:00:00.000Z', items: [] });
       return rows([{ id: String(id) }]);
     }
     if (sql.includes('INSERT INTO maintenance_quotes')) {
@@ -171,7 +171,7 @@ class RouteDatabase implements DatabaseClient {
       const id = this.audits.length + 1; this.audits.push({ id, quote_id: params[0], quote_type: params[1], action: params[2], from_status: params[3], to_status: params[4], operator: params[6] }); return rows([{ id: String(id) }]);
     }
     if (sql.includes('INSERT INTO quote_shares')) {
-      const id = this.shares.length + 1; const share = { id: String(id), token: params[0], quote_id: params[1], quote_type: params[2], expires_at: '2026-08-11T00:00:00.000Z', max_views: params[4], view_count: 0, is_active: true }; this.shares.push(share); return rows([share]);
+      const id = this.shares.length + 1; const share = { id: String(id), token: params[0], quote_id: params[1], quote_type: params[2], expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), max_views: params[4], view_count: 0, is_active: true }; this.shares.push(share); return rows([share]);
     }
     if (sql.includes('FROM quote_shares') && sql.includes('FOR UPDATE')) {
       const share = this.shares.find((item) => item.token === params[0]); return rows(share ? [share] : []);
@@ -291,7 +291,7 @@ test('route business flow distinguishes auth, validation, ownership, admin, audi
     const shareResponse = await shareRoutes.POST(request('/api/quotes/share', 'member-a-token', 'POST', { quoteId: 'engineering:101', expiryDays: 7, maxViews: 2 }));
     const sharePayload = await payload(shareResponse); const shareData = sharePayload.data as Record<string, unknown>;
     assert.match(String(shareData.shareUrl), /^\/share\/[a-f0-9]{32}$/);
-    assert.equal(shareData.expiresAt, '2026-08-11T00:00:00.000Z');
+    assert.ok(new Date(String(shareData.expiresAt)).getTime() > Date.now());
     const token = String(shareData.token);
     const publicResponse = await publicShareRoutes.GET(request(`/api/share/${token}`), { params: Promise.resolve({ token }) });
     assert.equal(publicResponse.status, 200);

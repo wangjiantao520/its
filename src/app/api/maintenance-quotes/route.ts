@@ -78,7 +78,13 @@ export async function DELETE(request: NextRequest) {
     const body = record(await request.json());
     const id = positiveId(body?.id);
     if (!id) return NextResponse.json({ success: false, error: '无效的报价ID' }, { status: 400 });
-    const deleted = await getDatabase().query<IdRow>('DELETE FROM maintenance_quotes WHERE id = $1 RETURNING id', [id]);
+    const database = getDatabase();
+    const deleted = await database.transaction(async (client) => {
+      await client.query('DELETE FROM quote_versions WHERE quote_type = $1 AND quote_id = $2', ['maintenance', id]);
+      await client.query('DELETE FROM quote_audit_logs WHERE quote_type = $1 AND quote_id = $2', ['maintenance', id]);
+      await client.query('DELETE FROM quote_shares WHERE quote_type = $1 AND quote_id = $2', ['maintenance', id]);
+      return client.query<IdRow>('DELETE FROM maintenance_quotes WHERE id = $1 RETURNING id', [id]);
+    });
     if (!deleted.rows[0]) return NextResponse.json({ success: false, error: '报价不存在或已删除' }, { status: 404 });
     return NextResponse.json({ success: true, message: '删除成功' });
   } catch (error) {
