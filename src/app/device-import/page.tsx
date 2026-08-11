@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
+import * as XLSX from 'xlsx';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -9,11 +10,14 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useUser } from '@/contexts/user-context';
-import { DeviceImportItem, getDeviceImports, addDeviceImport, type MaintenanceLevel, type EngineerLevel, type DepreciationLevel } from '@/lib/device-imports';
+import { DeviceImportItem, type MaintenanceLevel, type EngineerLevel, type DepreciationLevel } from '@/lib/device-imports';
 import { FULL_DEVICE_QUOTAS } from '@/lib/complete-device-data';
 import { DEVICE_GRADE_OPTIONS, DEPRECIATION_GRADE_OPTIONS, type DeviceGrade, type DepreciationGrade } from '@/lib/device-grade';
-import { Upload, Trash2, CheckCircle2, XCircle, Clock } from 'lucide-react';
+import { parseDeviceImportRows } from '@/lib/device-import-parser';
+import { apiFetch } from '@/lib/api-fetch';
+import { Upload, Trash2, CheckCircle2, XCircle, Clock, Download, FileSpreadsheet, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 const DEVICE_CATEGORIES = [
@@ -64,8 +68,30 @@ export default function DeviceImportPage() {
     needSparePart: false,
     contractYears: 1
   });
-  const [importRecords, setImportRecords] = useState<DeviceImportItem[]>(getDeviceImports());
+  const [importRecords, setImportRecords] = useState<DeviceImportItem[]>([]);
   const [activeTab, setActiveTab] = useState('form');
+  const [secondaryPasswordOpen, setSecondaryPasswordOpen] = useState(false);
+  const [secondaryPassword, setSecondaryPassword] = useState('');
+  const [secondaryPasswordError, setSecondaryPasswordError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [importingExcel, setImportingExcel] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const loadImportRecords = async () => {
+    try {
+      const result = await apiFetch<DeviceImportItem[]>('/api/device-imports?mine=true');
+      if (result.success) setImportRecords(result.data || []);
+    } catch (error) {
+      console.error('加载导入记录失败:', error);
+    }
+  };
+
+  // 挂载时加载导入记录
+  useEffect(() => {
+    if (isLoggedIn) {
+      void loadImportRecords();
+    }
+  }, [isLoggedIn]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 如果未登录，不渲染内容（hooks 必须在 early return 之前调用）
   if (!isLoggedIn || !user) {
@@ -103,30 +129,107 @@ export default function DeviceImportPage() {
     setDevices(devices.filter((_, i) => i !== index));
   };
 
-  const handleSubmitImport = () => {
+  const handleSubmitImport = async () => {
     if (devices.length === 0) {
       toast.error('请先添加设备');
       return;
     }
+    setSecondaryPassword('');
+    setSecondaryPasswordError('');
+    setSecondaryPasswordOpen(true);
+  };
 
-    devices.forEach(device => {
-      addDeviceImport({
-        ...device,
-        category: device.category || '',
-        name: device.name || '',
-        model: device.model || '',
-        level: device.level || 'B',
-        engineerLevel: device.engineerLevel || '初级',
-        deviceCount: device.deviceCount || 1,
-        needSparePart: device.needSparePart || false,
-        contractYears: device.contractYears || 1,
-        submittedBy: user.name
+  const handleConfirmSubmit = async () => {
+    if (!secondaryPassword) {
+      setSecondaryPasswordError('请输入二级密码');
+      return;
+    }
+    setSubmitting(true);
+    setSecondaryPasswordError('');
+    try {
+      const response = await fetch('/api/device-imports/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          secondaryPassword,
+          devices: devices.map((d) => ({
+            category: d.category,
+            name: d.name,
+            model: d.model || '',
+            level: d.level || 'B',
+            engineerLevel: d.engineerLevel || '初级',
+            deviceCount: d.deviceCount || 1,
+            needSparePart: d.needSparePart || false,
+            contractYears: d.contractYears || 1,
+          })),
+        }),
       });
-    });
+      const result = await response.json();
+      if (result.success) {
+        toast.success(result.message || '提交成功');
+        setSecondaryPasswordOpen(false);
+        setSecondaryPassword('');
+        await loadImportRecords();
+        setDevices([]);
+        setActiveTab('records');
+      } else {
+        if (response.status === 403) {
+          setSecondaryPasswordError(result.error || '二级密码错误');
+        } else {
+          setSecondaryPasswordOpen(false);
+          toast.error(result.error || '提交失败');
+        }
+      }
+    } catch (error) {
+      toast.error('提交失败: ' + String(error));
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
-    setImportRecords(getDeviceImports());
-    setDevices([]);
-    setActiveTab('records');
+  const handleDownloadTemplate = () => {
+    window.open('/api/device-import-template', '_blank');
+  };
+
+  const handleExcelFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.name.endsWith('.xlsx') && !file.name.endsWith('.xls')) {
+      toast.error('请选择 Excel 文件（.xlsx 或 .xls）');
+      return;
+    }
+    setImportingExcel(true);
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+      const firstSheetName = workbook.SheetNames[0];
+      if (!firstSheetName) {
+        toast.error('工作簿中没有工作表');
+        return;
+      }
+      const sheet = workbook.Sheets[firstSheetName];
+      const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
+        header: 1,
+        raw: true,
+        defval: '',
+      });
+      const { devices: parsed, errors } = parseDeviceImportRows(rows);
+      if (parsed.length === 0) {
+        toast.error(errors[0] || '未解析到有效的设备数据');
+        return;
+      }
+      setDevices((prev) => [...prev, ...parsed]);
+      toast.success(`成功导入 ${parsed.length} 台设备`);
+      if (errors.length > 0) {
+        toast.warning(errors.slice(0, 3).join('；'));
+      }
+      setActiveTab('list');
+    } catch (error) {
+      toast.error('文件解析失败: ' + String(error));
+    } finally {
+      setImportingExcel(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
   };
 
   const getStatusBadge = (status: string) => {
@@ -159,6 +262,28 @@ export default function DeviceImportPage() {
       <div className="mb-6">
         <h1 className="text-2xl font-bold mb-2">设备清单导入</h1>
         <p className="text-gray-600">填写设备信息并提交审核</p>
+      </div>
+
+      <div className="flex items-center gap-3 mb-4">
+        <Button variant="outline" onClick={handleDownloadTemplate}>
+          <Download className="w-4 h-4 mr-2" />
+          下载导入模板
+        </Button>
+        <Button variant="outline" onClick={() => fileInputRef.current?.click()} disabled={importingExcel}>
+          {importingExcel ? (
+            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+          ) : (
+            <FileSpreadsheet className="w-4 h-4 mr-2" />
+          )}
+          Excel导入
+        </Button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".xlsx,.xls"
+          className="hidden"
+          onChange={handleExcelFileChange}
+        />
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
@@ -767,6 +892,50 @@ export default function DeviceImportPage() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* 二级密码确认对话框 */}
+      <Dialog open={secondaryPasswordOpen} onOpenChange={setSecondaryPasswordOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>二级密码确认</DialogTitle>
+            <DialogDescription>
+              提交设备清单需要二级密码确认，提交后将交由管理员审核。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            {secondaryPasswordError && (
+              <div className="text-sm text-red-500">{secondaryPasswordError}</div>
+            )}
+            <div className="space-y-2">
+              <Label htmlFor="deviceImportPassword">二级密码</Label>
+              <Input
+                id="deviceImportPassword"
+                type="password"
+                value={secondaryPassword}
+                onChange={(e) => setSecondaryPassword(e.target.value)}
+                placeholder="请输入二级密码"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') void handleConfirmSubmit();
+                }}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSecondaryPasswordOpen(false)}>
+              取消
+            </Button>
+            <Button onClick={() => void handleConfirmSubmit()} disabled={submitting} className="bg-blue-600 hover:bg-blue-700">
+              {submitting ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <CheckCircle2 className="w-4 h-4 mr-2" />
+              )}
+              确认提交
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

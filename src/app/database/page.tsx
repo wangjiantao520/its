@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useUser } from '@/contexts/user-context';
-import { getDeviceImports, updateDeviceImportStatus, DeviceImportItem, ImportStatus } from '@/lib/device-imports';
+import { DeviceImportItem, ImportStatus } from '@/lib/device-imports';
 import { apiFetch } from '@/lib/api-fetch';
 
 // 设备定额类型
@@ -192,10 +192,19 @@ export default function DatabaseManagementPage() {
   const [isReviewDialogOpen, setIsReviewDialogOpen] = useState(false);
   const [dialogAction, setDialogAction] = useState<'approve' | 'reject' | null>(null);
 
+  const loadImports = async () => {
+    try {
+      const result = await apiFetch<DeviceImportItem[]>('/api/device-imports');
+      if (result.success) setImports(result.data || []);
+    } catch (error) {
+      console.error('加载设备清单审核数据失败:', error);
+    }
+  };
+
   // 加载设备清单审核数据
   useEffect(() => {
-    setImports(getDeviceImports());
-  }, []);
+    void loadImports();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 切换标签页时重置分类筛选和分页
   useEffect(() => {
@@ -2049,17 +2058,31 @@ export default function DatabaseManagementPage() {
             <Button variant="outline" onClick={() => setIsReviewDialogOpen(false)}>
               取消
             </Button>
-            <Button 
-              onClick={() => {
+            <Button
+              onClick={async () => {
                 if (!selectedItem || !dialogAction) return;
-                const status = dialogAction === 'approve' ? 'approved' : 'rejected';
-                updateDeviceImportStatus(selectedItem.id, status, user?.name || '', reviewComment);
-                setImports(getDeviceImports());
+                try {
+                  const result = await apiFetch('/api/device-imports/review', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                      id: selectedItem.id,
+                      action: dialogAction,
+                      comment: reviewComment || undefined,
+                    }),
+                  });
+                  if (result.success) {
+                    toast.success(dialogAction === 'approve' ? '清单已通过' : '清单已拒绝');
+                    await loadImports();
+                  } else {
+                    toast.error(result.error || '审核失败');
+                  }
+                } catch (error) {
+                  toast.error('审核失败: ' + String(error));
+                }
                 setIsReviewDialogOpen(false);
                 setSelectedItem(null);
                 setDialogAction(null);
                 setReviewComment('');
-                toast.success(dialogAction === 'approve' ? '清单已通过' : '清单已拒绝');
               }}
               className={dialogAction === 'approve' ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'}
             >
