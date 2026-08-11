@@ -14,8 +14,7 @@ if [ -z "${DATABASE_URL:-}" ]; then
     exit 1
 fi
 
-echo "Applying PostgreSQL migrations and checking database health..."
-pnpm db:migrate
-
+# PostgreSQL 迁移与健康检查由 server.ts 启动时执行（preparePostgresStartup），
+# 避免在 serverless 冷启动时额外启动一个 tsx 迁移进程导致 30s 启动超时。
 echo "Starting HTTP service on port ${PORT} for deploy..."
 exec env PORT="${PORT}" node dist/server.js
