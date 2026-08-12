@@ -85,6 +85,7 @@ function AssistantContent() {
       if (result.success && result.data) {
         setMessages(result.data.messages || []);
         setCurrentSessionId(sessionId);
+        try { sessionStorage.setItem("its_active_assistant_session", sessionId); } catch { /* ignore */ }
       }
     } catch (e) {
       console.error("加载会话详情失败", e);
@@ -96,6 +97,13 @@ function AssistantContent() {
     const sessionId = searchParams.get("session");
     if (sessionId) {
       loadSession(sessionId);
+    } else {
+      // 切换页面回来时恢复上次的会话（sessionStorage 在同一标签页切换路由后仍保留）
+      let lastSessionId: string | null = null;
+      try { lastSessionId = sessionStorage.getItem("its_active_assistant_session"); } catch { /* ignore */ }
+      if (lastSessionId) {
+        loadSession(lastSessionId);
+      }
     }
   }, [loadSessions, loadSession, searchParams]);
 
@@ -162,6 +170,7 @@ function AssistantContent() {
       const parser = createAssistantStreamParser((event) => {
         if (event.type === "start") {
           setCurrentSessionId(event.session_id);
+          try { sessionStorage.setItem("its_active_assistant_session", event.session_id); } catch { /* ignore */ }
           void loadSessions();
         } else if (event.type === "content") {
           assistantMessage += event.content;
@@ -215,6 +224,7 @@ function AssistantContent() {
   const handleNewChat = () => {
     setMessages([]);
     setCurrentSessionId(null);
+    try { sessionStorage.removeItem("its_active_assistant_session"); } catch { /* ignore */ }
   };
 
   const handleDeleteSession = async (sessionId: string, e: React.MouseEvent) => {
