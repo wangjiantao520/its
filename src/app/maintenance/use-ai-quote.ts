@@ -9,6 +9,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { toast } from 'sonner';
+import * as XLSX from 'xlsx-js-style';
 import { extractFileContent } from '@/lib/file-content';
 import {
   parseQuoteRequirement,
@@ -20,6 +21,7 @@ import {
   parseDevicesLocal,
   type LocalQuotaDevice,
 } from '@/lib/local-device-parser';
+import { splitRequirementRows } from '@/lib/requirement-splitter';
 
 /** AI 设备匹配结果项（/api/ai-match-devices 返回的单个设备） */
 export interface AiMatchingCandidate {
@@ -225,6 +227,32 @@ export function useAiQuote(deviceQuotas: LocalQuotaDevice[] = []): UseAiQuoteRet
         return;
       }
       setUploadedFileContent(extracted.content);
+
+      // 若是 Excel，额外读取行数组做「工程+维保」分流
+      if (file.name.toLowerCase().endsWith('.xlsx') || file.name.toLowerCase().endsWith('.xls')) {
+        try {
+          const arrayBuffer = await file.arrayBuffer();
+          const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+          const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+          if (firstSheet) {
+            const rowArray = XLSX.utils.sheet_to_json<unknown[]>(firstSheet, { header: 1, defval: '' });
+            // 跳过表头行，找数据行（含名称且非合计）
+            const dataRows = rowArray.filter((r) => {
+              const first = Array.isArray(r) ? String(r[0] ?? '') : '';
+              return first && first !== '合计' && first !== '总计' && first !== '项目名称';
+            });
+            const split = splitRequirementRows(dataRows, deviceQuotasRef.current);
+            if (split.engineeringItems.length > 0) {
+              try {
+                sessionStorage.setItem('its_engineering_import_items', JSON.stringify(split.engineeringItems));
+                toast.info(`识别到 ${split.engineeringItems.length} 项工程明细，可去「工程报价」页查看`);
+              } catch { /* storage 不可用时忽略 */ }
+            }
+          }
+        } catch (e) {
+          console.error('需求表分流失败:', e);
+        }
+      }
 
       const fullText = `从文件 ${file.name} 中提取的设备清单：\n\n${extracted.content}`;
       setAiRequirementText(fullText);
