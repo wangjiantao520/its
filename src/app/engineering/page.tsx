@@ -71,6 +71,37 @@ export default function EngineeringPage() {
 
   useEffect(() => {
     setQuoteSequence(Math.floor(Math.random() * 1000));
+    // 从需求表分流结果导入工程明细（sessionStorage，由维保页分流后写入）
+    try {
+      const pending = sessionStorage.getItem('its_engineering_import_items');
+      if (pending) {
+        const items = JSON.parse(pending) as Array<{
+          customName: string;
+          customUnit?: string;
+          customPrice?: number;
+          quantity?: number;
+          location?: string;
+        }>;
+        sessionStorage.removeItem('its_engineering_import_items');
+        if (Array.isArray(items) && items.length > 0) {
+          // 延迟到组件完全挂载后再导入，确保 quoteItems state 已就绪
+          setTimeout(() => importEngineeringItems(items), 100);
+        }
+      }
+    } catch { /* 忽略损坏的存储 */ }
+    // 自动恢复上次保存的报价单（保存时把 ID 存 localStorage，跨会话保留）
+    try {
+      const quoteId = localStorage.getItem('its_engineering_quote_id');
+      if (quoteId) {
+        const numericId = Number(quoteId);
+        if (Number.isFinite(numericId) && numericId > 0) {
+          setTimeout(() => {
+            void handleLoadQuote({ id: numericId } as EngineeringQuote);
+          }, 150);
+        }
+      }
+    } catch { /* 忽略损坏的存储 */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // 草稿相关状态
@@ -1720,6 +1751,31 @@ export default function EngineeringPage() {
     setNextItemId(nextItemId + 1);
   };
 
+  // 批量导入工程明细（来自需求表分流结果）为自定义行
+  const importEngineeringItems = (items: Array<{
+    customName: string;
+    customUnit?: string;
+    customPrice?: number;
+    quantity?: number;
+    location?: string;
+  }>) => {
+    if (items.length === 0) return;
+    const newItems = items.map((item, index) => ({
+      id: nextItemId + index,
+      itemType: 'custom' as const,
+      itemId: `custom_${nextItemId + index}`,
+      quantity: item.quantity ?? 1,
+      location: item.location || '',
+      customName: item.customName || '',
+      customUnit: item.customUnit || '项',
+      customPrice: item.customPrice ?? 0,
+      customRemark: '',
+    }));
+    setQuoteItems((prev) => [...prev, ...newItems]);
+    setNextItemId(nextItemId + items.length);
+    toast.success(`已导入 ${items.length} 项工程明细`);
+  };
+
   // 添加人工天计价明细
   const addLaborQuoteItem = () => {
     const defaultLevel = laborPriceLevels.length > 0 ? laborPriceLevels[0] : null;
@@ -2049,6 +2105,11 @@ export default function EngineeringPage() {
         if (!savedQuoteId) {
           const data = result.data as { id: number };
           setSavedQuoteId(data.id);
+        }
+        // 持久化报价单 ID，切换页面/关闭浏览器后自动恢复
+        const effectiveId = savedQuoteId || (result.data as { id: number }).id;
+        if (effectiveId) {
+          try { localStorage.setItem('its_engineering_quote_id', String(effectiveId)); } catch { /* ignore */ }
         }
         setLastSavedAt(new Date().toLocaleString('zh-CN'));
         toast.success('保存成功', {
