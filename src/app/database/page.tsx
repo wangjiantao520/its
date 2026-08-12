@@ -14,11 +14,13 @@ import { Textarea } from '@/components/ui/textarea';
 import {
   Plus, Edit, Trash2, Save, X, Search, Download, Upload,
   Cpu, Wrench, Building2, Users, AlertCircle, CheckCircle2, Loader2,
-  ChevronDown, ChevronRight, CheckSquare, Settings, FileText, Database, Key
+  ChevronDown, ChevronRight, CheckSquare, Settings, FileText, Database, Key,
+  ClipboardList
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useUser } from '@/contexts/user-context';
 import { DeviceImportItem, ImportStatus } from '@/lib/device-imports';
+import { DeviceSuggestionItem, DeviceSuggestionPriceData } from '@/lib/device-suggestions';
 import { apiFetch } from '@/lib/api-fetch';
 
 // 设备定额类型
@@ -215,6 +217,35 @@ export default function DatabaseManagementPage() {
     }
   };
 
+  // 设备补录审核状态
+  const [suggestions, setSuggestions] = useState<DeviceSuggestionItem[]>([]);
+  const [selectedSuggestion, setSelectedSuggestion] = useState<DeviceSuggestionItem | null>(null);
+  const [suggestAction, setSuggestAction] = useState<'approve' | 'reject' | null>(null);
+  const [suggestDialogOpen, setSuggestDialogOpen] = useState(false);
+  const [suggestComment, setSuggestComment] = useState('');
+  const [priceDataForm, setPriceDataForm] = useState<DeviceSuggestionPriceData>({
+    category: '', name: '', brand: '', model: '', specification: '', maintenanceTier: 'C档',
+    level: 'B', engineerLevel: '初级', annualFaultCount: 0, aGearFaultCount: 0, bGearFaultCount: 0,
+    cGearFaultCount: 0, dGearFaultCount: 0, eGearFaultCount: 0, faultProcessingDays: 0,
+    inspectionDays: 0, onSiteCount: 0, inspectionLaborFee: 0, visitServiceFee: 0, trafficFee: 0,
+    faultHandlingFee: 0, toolAmortization: 0, consumableFee: 0, sparePartReserve: 0, sparePartFee: 0,
+  });
+  const [suggestionSubmitting, setSuggestionSubmitting] = useState(false);
+  const [copySearch, setCopySearch] = useState('');
+
+  const loadSuggestions = async () => {
+    try {
+      const result = await apiFetch<DeviceSuggestionItem[]>('/api/device-suggestions');
+      if (result.success) setSuggestions(result.data || []);
+    } catch (error) {
+      console.error('加载设备补录审核数据失败:', error);
+    }
+  };
+
+  const updatePriceForm = (key: keyof DeviceSuggestionPriceData, value: string | number) => {
+    setPriceDataForm((prev) => ({ ...prev, [key]: value }));
+  };
+
   const loadSystemParams = async () => {
     setSystemParamsLoading(true);
     try {
@@ -252,6 +283,7 @@ export default function DatabaseManagementPage() {
   useEffect(() => {
     void loadImports();
     void loadSystemParams();
+    void loadSuggestions();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 切换标签页时重置分类筛选和分页
@@ -1655,12 +1687,19 @@ export default function DatabaseManagementPage() {
             <Users className="w-4 h-4 mr-2" />
             人工单价
           </TabsTrigger>
-          <TabsTrigger 
-            value="device_review" 
+          <TabsTrigger
+            value="device_review"
             className="data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700 data-[state=active]:border-blue-200 data-[state=active]:shadow-sm border border-transparent px-4 py-2.5 transition-all"
           >
             <CheckSquare className="w-4 h-4 mr-2" />
             设备清单审核
+          </TabsTrigger>
+          <TabsTrigger
+            value="device_suggestion_review"
+            className="data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700 data-[state=active]:border-blue-200 data-[state=active]:shadow-sm border border-transparent px-4 py-2.5 transition-all"
+          >
+            <ClipboardList className="w-4 h-4 mr-2" />
+            补录审核
           </TabsTrigger>
           <TabsTrigger 
             value="system_settings" 
@@ -1979,6 +2018,379 @@ export default function DatabaseManagementPage() {
           </Card>
         </div>
       )}
+
+      {/* 补录审核标签页 */}
+      {activeTab === 'device_suggestion_review' && (
+        <div className="space-y-6">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <ClipboardList className="w-5 h-5 text-orange-600" />
+                    待审核补录
+                  </CardTitle>
+                  <CardDescription>审核报价时提交的未入库设备补录请求</CardDescription>
+                </div>
+                {suggestions.filter(i => i.status === 'pending').length > 0 && (
+                  <Badge variant="secondary" className="text-base px-3 py-1">
+                    待审核: {suggestions.filter(i => i.status === 'pending').length}
+                  </Badge>
+                )}
+              </div>
+            </CardHeader>
+            <CardContent>
+              {suggestions.filter(i => i.status === 'pending').length === 0 ? (
+                <p className="text-muted-foreground text-center py-8">暂无待审核的补录请求</p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>设备名称</TableHead>
+                      <TableHead>分类</TableHead>
+                      <TableHead>来源报价</TableHead>
+                      <TableHead>临时单价</TableHead>
+                      <TableHead>数量</TableHead>
+                      <TableHead>提交人</TableHead>
+                      <TableHead>提交时间</TableHead>
+                      <TableHead className="text-right">操作</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {suggestions.filter(i => i.status === 'pending').map((item) => (
+                      <TableRow key={item.id}>
+                        <TableCell className="font-medium">{item.name}</TableCell>
+                        <TableCell>{item.category || '-'}</TableCell>
+                        <TableCell>{item.quoteNumber || '-'}</TableCell>
+                        <TableCell>¥{Number(item.tempUnitPrice).toFixed(2)}</TableCell>
+                        <TableCell>{item.quantity}</TableCell>
+                        <TableCell>{item.submittedBy}</TableCell>
+                        <TableCell>{new Date(item.submittedAt).toLocaleString('zh-CN')}</TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-2">
+                            <Button size="sm" variant="outline" onClick={() => {
+                              setSelectedSuggestion(item);
+                              setSuggestAction('approve');
+                              setSuggestComment('');
+                              setPriceDataForm({
+                                category: item.category || '', name: item.name,
+                                brand: item.brand || '', model: item.model || '',
+                                specification: item.specification || '', maintenanceTier: item.maintenanceTier || 'C档',
+                                level: item.level || 'B', engineerLevel: item.engineerLevel || '初级',
+                                annualFaultCount: 0, aGearFaultCount: 0, bGearFaultCount: 0,
+                                cGearFaultCount: 0, dGearFaultCount: 0, eGearFaultCount: 0,
+                                faultProcessingDays: 0, inspectionDays: 0, onSiteCount: 0,
+                                inspectionLaborFee: 0, visitServiceFee: 0, trafficFee: 0,
+                                faultHandlingFee: 0, toolAmortization: 0, consumableFee: 0,
+                                sparePartReserve: 0, sparePartFee: 0,
+                              });
+                              setSuggestDialogOpen(true);
+                            }}>
+                              <CheckCircle2 className="w-4 h-4 mr-1 text-green-600" />
+                              通过
+                            </Button>
+                            <Button size="sm" variant="outline" onClick={() => {
+                              setSelectedSuggestion(item);
+                              setSuggestAction('reject');
+                              setSuggestComment('');
+                              setSuggestDialogOpen(true);
+                            }}>
+                              <X className="w-4 h-4 mr-1 text-red-600" />
+                              拒绝
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>已审核补录</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {suggestions.filter(i => i.status !== 'pending').length === 0 ? (
+                <p className="text-muted-foreground text-center py-8">暂无已审核的补录请求</p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>设备名称</TableHead>
+                      <TableHead>来源报价</TableHead>
+                      <TableHead>提交时间</TableHead>
+                      <TableHead>状态</TableHead>
+                      <TableHead>审核人</TableHead>
+                      <TableHead>审核意见</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {suggestions.filter(i => i.status !== 'pending').map((item) => (
+                      <TableRow key={item.id}>
+                        <TableCell className="font-medium">{item.name}</TableCell>
+                        <TableCell>{item.quoteNumber || '-'}</TableCell>
+                        <TableCell>{new Date(item.submittedAt).toLocaleString('zh-CN')}</TableCell>
+                        <TableCell>
+                          {item.status === 'approved' ? (
+                            <Badge className="bg-green-600">已通过并入库</Badge>
+                          ) : (
+                            <Badge className="bg-red-600">已拒绝</Badge>
+                          )}
+                        </TableCell>
+                        <TableCell>{item.reviewedBy || '-'}</TableCell>
+                        <TableCell>{item.reviewComment || '-'}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* 补录审核对话框 */}
+      <Dialog open={suggestDialogOpen} onOpenChange={setSuggestDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              {suggestAction === 'approve' ? '通过补录并入库' : '驳回补录'}
+            </DialogTitle>
+            <DialogDescription>
+              {selectedSuggestion && (
+                <>
+                  {suggestAction === 'approve'
+                    ? `为「${selectedSuggestion.name}」填写价格体系，批准后将写入设备库`
+                    : `确认驳回 ${selectedSuggestion.submittedBy} 提交的「${selectedSuggestion.name}」补录？`}
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+
+          {suggestAction === 'approve' ? (
+            <div className="py-2 space-y-4">
+              {/* 从库中复制相似设备价格 */}
+              <div className="rounded-lg border border-blue-200 bg-blue-50/40 p-3 space-y-2">
+                <Label className="text-xs text-blue-700">从设备库复制价格（可选）</Label>
+                <Input
+                  placeholder="输入设备名称或型号搜索库内设备..."
+                  value={copySearch}
+                  onChange={(e) => setCopySearch(e.target.value)}
+                  className="bg-white"
+                />
+                {copySearch.trim() && (
+                  <div className="max-h-32 overflow-y-auto space-y-1">
+                    {deviceQuotas
+                      .filter((q) => (q.name || '').toLowerCase().includes(copySearch.trim().toLowerCase()) || (q.model || '').toLowerCase().includes(copySearch.trim().toLowerCase()))
+                      .slice(0, 8)
+                      .map((q) => (
+                        <button
+                          key={q.id}
+                          type="button"
+                          onClick={() => {
+                            setPriceDataForm({
+                              category: q.category || priceDataForm.category,
+                              name: q.name || priceDataForm.name,
+                              brand: q.brand || '',
+                              model: q.model || '',
+                              specification: q.specification || '',
+                              maintenanceTier: q.maintenance_tier || priceDataForm.maintenanceTier,
+                              level: q.level || 'B',
+                              engineerLevel: q.engineer_level || '初级',
+                              annualFaultCount: q.annual_fault_count || 0,
+                              aGearFaultCount: q.a_gear_fault_count || 0,
+                              bGearFaultCount: q.b_gear_fault_count || 0,
+                              cGearFaultCount: q.c_gear_fault_count || 0,
+                              dGearFaultCount: q.d_gear_fault_count || 0,
+                              eGearFaultCount: q.e_gear_fault_count || 0,
+                              faultProcessingDays: q.fault_processing_days || 0,
+                              inspectionDays: q.inspection_days || 0,
+                              onSiteCount: q.on_site_count || 0,
+                              inspectionLaborFee: q.inspection_labor_fee || 0,
+                              visitServiceFee: q.on_site_fee_annual || 0,
+                              trafficFee: q.traffic_fee || 0,
+                              faultHandlingFee: q.fault_handling_fee_total || 0,
+                              toolAmortization: 0,
+                              consumableFee: 0,
+                              sparePartReserve: q.spare_part_reserve || 0,
+                              sparePartFee: 0,
+                            });
+                            setCopySearch('');
+                            toast.success(`已复制「${q.name}」的价格体系`);
+                          }}
+                          className="w-full text-left px-2 py-1.5 rounded text-xs hover:bg-blue-100 transition-colors flex items-center justify-between gap-2"
+                        >
+                          <span>{q.name}</span>
+                          <span className="text-muted-foreground">{q.model || q.category || ''}</span>
+                        </button>
+                      ))}
+                    {deviceQuotas.filter((q) => (q.name || '').toLowerCase().includes(copySearch.trim().toLowerCase()) || (q.model || '').toLowerCase().includes(copySearch.trim().toLowerCase())).length === 0 && (
+                      <p className="text-xs text-muted-foreground py-1">未找到匹配设备，请手动填写</p>
+                    )}
+                  </div>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>设备类别</Label>
+                <Input value={priceDataForm.category} onChange={(e) => updatePriceForm('category', e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>设备名称</Label>
+                <Input value={priceDataForm.name} onChange={(e) => updatePriceForm('name', e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>品牌</Label>
+                <Input value={priceDataForm.brand} onChange={(e) => updatePriceForm('brand', e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>型号</Label>
+                <Input value={priceDataForm.model} onChange={(e) => updatePriceForm('model', e.target.value)} />
+              </div>
+              <div className="space-y-2 col-span-2">
+                <Label>规格</Label>
+                <Input value={priceDataForm.specification} onChange={(e) => updatePriceForm('specification', e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>维保档次</Label>
+                <Input value={priceDataForm.maintenanceTier} onChange={(e) => updatePriceForm('maintenanceTier', e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>年故障次数</Label>
+                <Input type="number" value={priceDataForm.annualFaultCount} onChange={(e) => updatePriceForm('annualFaultCount', parseFloat(e.target.value) || 0)} />
+              </div>
+              <div className="space-y-2">
+                <Label>A档故障次数</Label>
+                <Input type="number" value={priceDataForm.aGearFaultCount} onChange={(e) => updatePriceForm('aGearFaultCount', parseFloat(e.target.value) || 0)} />
+              </div>
+              <div className="space-y-2">
+                <Label>B档故障次数</Label>
+                <Input type="number" value={priceDataForm.bGearFaultCount} onChange={(e) => updatePriceForm('bGearFaultCount', parseFloat(e.target.value) || 0)} />
+              </div>
+              <div className="space-y-2">
+                <Label>C档故障次数</Label>
+                <Input type="number" value={priceDataForm.cGearFaultCount} onChange={(e) => updatePriceForm('cGearFaultCount', parseFloat(e.target.value) || 0)} />
+              </div>
+              <div className="space-y-2">
+                <Label>D档故障次数</Label>
+                <Input type="number" value={priceDataForm.dGearFaultCount} onChange={(e) => updatePriceForm('dGearFaultCount', parseFloat(e.target.value) || 0)} />
+              </div>
+              <div className="space-y-2">
+                <Label>E档故障次数</Label>
+                <Input type="number" value={priceDataForm.eGearFaultCount} onChange={(e) => updatePriceForm('eGearFaultCount', parseFloat(e.target.value) || 0)} />
+              </div>
+              <div className="space-y-2">
+                <Label>故障处理天数</Label>
+                <Input type="number" value={priceDataForm.faultProcessingDays} onChange={(e) => updatePriceForm('faultProcessingDays', parseFloat(e.target.value) || 0)} />
+              </div>
+              <div className="space-y-2">
+                <Label>巡检天数</Label>
+                <Input type="number" value={priceDataForm.inspectionDays} onChange={(e) => updatePriceForm('inspectionDays', parseFloat(e.target.value) || 0)} />
+              </div>
+              <div className="space-y-2">
+                <Label>到场次数</Label>
+                <Input type="number" value={priceDataForm.onSiteCount} onChange={(e) => updatePriceForm('onSiteCount', parseInt(e.target.value) || 0)} />
+              </div>
+              <div className="col-span-2 border-t pt-3 mt-1">
+                <h4 className="font-medium text-sm mb-1">费用配置</h4>
+              </div>
+              <div className="space-y-2">
+                <Label>巡检费(元)</Label>
+                <Input type="number" value={priceDataForm.inspectionLaborFee} onChange={(e) => updatePriceForm('inspectionLaborFee', parseFloat(e.target.value) || 0)} />
+              </div>
+              <div className="space-y-2">
+                <Label>上门费(元)</Label>
+                <Input type="number" value={priceDataForm.visitServiceFee} onChange={(e) => updatePriceForm('visitServiceFee', parseFloat(e.target.value) || 0)} />
+              </div>
+              <div className="space-y-2">
+                <Label>交通费(元)</Label>
+                <Input type="number" value={priceDataForm.trafficFee} onChange={(e) => updatePriceForm('trafficFee', parseFloat(e.target.value) || 0)} />
+              </div>
+              <div className="space-y-2">
+                <Label>故障处理费(元)</Label>
+                <Input type="number" value={priceDataForm.faultHandlingFee} onChange={(e) => updatePriceForm('faultHandlingFee', parseFloat(e.target.value) || 0)} />
+              </div>
+              <div className="space-y-2">
+                <Label>工具仪表摊销(元)</Label>
+                <Input type="number" value={priceDataForm.toolAmortization} onChange={(e) => updatePriceForm('toolAmortization', parseFloat(e.target.value) || 0)} />
+              </div>
+              <div className="space-y-2">
+                <Label>耗材费(元)</Label>
+                <Input type="number" value={priceDataForm.consumableFee} onChange={(e) => updatePriceForm('consumableFee', parseFloat(e.target.value) || 0)} />
+              </div>
+              <div className="space-y-2">
+                <Label>备件风险准备金(元)</Label>
+                <Input type="number" value={priceDataForm.sparePartReserve} onChange={(e) => updatePriceForm('sparePartReserve', parseFloat(e.target.value) || 0)} />
+              </div>
+              <div className="space-y-2">
+                <Label>备件费(元)</Label>
+                <Input type="number" value={priceDataForm.sparePartFee} onChange={(e) => updatePriceForm('sparePartFee', parseFloat(e.target.value) || 0)} />
+              </div>
+              <div className="space-y-2 col-span-2">
+                <Label>审核意见（可选）</Label>
+                <Textarea
+                  placeholder="请输入审核意见..."
+                  value={suggestComment}
+                  onChange={(e) => setSuggestComment(e.target.value)}
+                />
+              </div>
+              </div>
+            </div>
+          ) : (
+            <div className="py-4">
+              <Label>驳回原因（必填）</Label>
+              <Textarea
+                placeholder="请输入驳回原因..."
+                value={suggestComment}
+                onChange={(e) => setSuggestComment(e.target.value)}
+                className="mt-2"
+              />
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSuggestDialogOpen(false)}>
+              取消
+            </Button>
+            <Button
+              disabled={suggestionSubmitting || (suggestAction === 'reject' && !suggestComment.trim())}
+              onClick={async () => {
+                if (!selectedSuggestion || !suggestAction) return;
+                setSuggestionSubmitting(true);
+                try {
+                  const body = suggestAction === 'approve'
+                    ? { id: selectedSuggestion.id, action: 'approve', priceData: priceDataForm, comment: suggestComment || undefined }
+                    : { id: selectedSuggestion.id, action: 'reject', comment: suggestComment };
+                  const result = await apiFetch('/api/device-suggestions/review', {
+                    method: 'POST',
+                    body: JSON.stringify(body),
+                  });
+                  if (result.success) {
+                    toast.success(suggestAction === 'approve' ? '已通过并入库' : '已驳回');
+                    await loadSuggestions();
+                  } else {
+                    toast.error(result.error || '审核失败');
+                  }
+                } catch (error) {
+                  toast.error('审核失败: ' + String(error));
+                }
+                setSuggestionSubmitting(false);
+                setSuggestDialogOpen(false);
+                setSelectedSuggestion(null);
+                setSuggestAction(null);
+                setSuggestComment('');
+              }}
+              className={suggestAction === 'approve' ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'}
+            >
+              {suggestionSubmitting ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : null}
+              确认
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* 系统参数标签页 */}
       {activeTab === 'system_settings' && (

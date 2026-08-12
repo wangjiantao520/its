@@ -49,6 +49,7 @@ import type {
 } from './engineering-helpers';
 import { downloadQuotaTemplate, buildEngineeringExportDataFromQuote } from './engineering-helpers';
 import { apiFetch } from '@/lib/api-fetch';
+import type { DeviceSuggestionItem } from '@/lib/device-suggestions';
 
 export default function EngineeringPage() {
   const [customerName, setCustomerName] = useState('');
@@ -163,6 +164,107 @@ export default function EngineeringPage() {
   const [quotaImportFileName, setQuotaImportFileName] = useState('');
   const [isImporting, setIsImporting] = useState(false);
   const quotaFileInputRef = useRef<HTMLInputElement>(null);
+
+  // 未入库设备补录状态
+  const [suggestionDialogOpen, setSuggestionDialogOpen] = useState(false);
+  const [mySuggestionsDialogOpen, setMySuggestionsDialogOpen] = useState(false);
+  const [suggestionSubmitting, setSuggestionSubmitting] = useState(false);
+  const [mySuggestions, setMySuggestions] = useState<DeviceSuggestionItem[]>([]);
+  const [mySuggestionsLoading, setMySuggestionsLoading] = useState(false);
+  const [suggestionDraft, setSuggestionDraft] = useState<Array<{
+    name: string;
+    category: string;
+    brand: string;
+    model: string;
+    specification: string;
+    tempUnitPrice: number;
+    quantity: number;
+    location: string;
+    comment: string;
+  }>>([]);
+
+  // 判断该明细行是否为"未入库设备"（自定义行或定额反查失败）
+  const isSuggestionCandidate = (item: QuoteItem): boolean => {
+    if (item.itemType === 'custom') return true;
+    if (item.itemType === 'labor') return false;
+    return !getItemById(item.itemType, item.itemId);
+  };
+
+  // 打开补录对话框，收集所有未入库行
+  const openSuggestionDialog = () => {
+    const candidates = quoteItems
+      .filter((item) => isSuggestionCandidate(item))
+      .map((item) => {
+        const quotaItem = getItemById(
+          item.itemType === 'custom' ? 'custom' : (item.itemType === 'labor' ? 'selfConstruction' : item.itemType),
+          item.itemId,
+        );
+        const tempPrice = item.purchasePrice ?? item.customPrice ?? quotaItem?.price ?? 0;
+        return {
+          name: item.itemType === 'custom' ? item.customName || '' : quotaItem?.name || item.itemId,
+          category: '其他',
+          brand: '',
+          model: '',
+          specification: '',
+          tempUnitPrice: typeof tempPrice === 'number' && Number.isFinite(tempPrice) ? tempPrice : 0,
+          quantity: item.quantity || 1,
+          location: item.location || '',
+          comment: '',
+        };
+      });
+    setSuggestionDraft(candidates);
+    setSuggestionDialogOpen(true);
+  };
+
+  // 打开"我的补录"对话框
+  const openMySuggestions = async () => {
+    setMySuggestionsDialogOpen(true);
+    setMySuggestionsLoading(true);
+    try {
+      const result = await apiFetch<DeviceSuggestionItem[]>('/api/device-suggestions?mine=true');
+      if (result.success) setMySuggestions(result.data || []);
+    } catch (error) {
+      console.error('加载我的补录失败:', error);
+    } finally {
+      setMySuggestionsLoading(false);
+    }
+  };
+
+  // 提交补录请求
+  const submitSuggestions = async () => {
+    const validDevices = suggestionDraft.filter((d) => d.name.trim());
+    if (validDevices.length === 0) {
+      toast.error('请至少填写一个补录设备名称');
+      return;
+    }
+    setSuggestionSubmitting(true);
+    try {
+      const result = await apiFetch('/api/device-suggestions/submit', {
+        method: 'POST',
+        body: JSON.stringify({
+          source: 'engineering',
+          quoteId: String(savedQuoteId ?? ''),
+          quoteNumber: savedQuoteId ? generateQuoteNumber() : '',
+          projectName: projectName || '未命名项目',
+          devices: validDevices,
+        }),
+      });
+      if (result.success) {
+        toast.success(`已提交 ${validDevices.length} 个补录请求`);
+        setSuggestionDialogOpen(false);
+      } else {
+        toast.error(result.error || '提交失败');
+      }
+    } catch (error) {
+      toast.error('提交失败: ' + String(error));
+    } finally {
+      setSuggestionSubmitting(false);
+    }
+  };
+
+  const updateSuggestionDraft = (index: number, key: keyof typeof suggestionDraft[number], value: string | number) => {
+    setSuggestionDraft((prev) => prev.map((d, i) => i === index ? { ...d, [key]: value } : d));
+  };
 
   // 分享链接状态
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
@@ -1514,7 +1616,7 @@ export default function EngineeringPage() {
   }, [shareResult]);
 
   // 打开分享记录管理对话框
-  const handleOpenShareList = useCallback(async (quote: EngineeringQuote) => {
+  const handleOpenShareList = async (quote: EngineeringQuote) => {
     setShareTarget(quote);
     setShareListDialogOpen(true);
     setIsLoadingShareList(true);
@@ -1531,7 +1633,7 @@ export default function EngineeringPage() {
     } finally {
       setIsLoadingShareList(false);
     }
-  }, []);
+  };
 
   // 停用分享链接
   const handleDeactivateShare = useCallback(async (shareId: number) => {
@@ -2359,7 +2461,91 @@ export default function EngineeringPage() {
                     } else {
                       // 定额库明细行 - 原有逻辑
                       const quotaItem = getItemById(item.itemType, item.itemId);
-                      if (!quotaItem) return <tr key={`empty-${item.id}`} style={{display: 'none'}} />;
+                      if (!quotaItem) {
+                        // 未入库设备行：反查失败，标记并允许补录
+                        const missingSubtotal = (item.purchasePrice ?? item.customPrice ?? 0) * (item.quantity || 0);
+                        const missingAmount = missingSubtotal * (1 + managementFeeRate / 100 + profitRate / 100 + regulatoryFeeRate / 100);
+                        return (
+                          <TableRow key={item.id} className="bg-orange-50/50">
+                            <TableCell>
+                              <div className="flex items-center gap-1">
+                                <Button variant="ghost" size="icon" onClick={() => removeQuoteItem(item.id)}>
+                                  <Trash2 className="h-4 w-4 text-destructive" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 text-xs text-orange-700"
+                                  onClick={openSuggestionDialog}
+                                >
+                                  <Plus className="h-3 w-3 mr-1" />
+                                  补录
+                                </Button>
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <span className="px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
+                                {item.itemType === 'selfConstruction' ? '自施工' : '智能化'}
+                              </span>
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium text-orange-800">{item.itemId || '未命名设备'}</span>
+                                <Badge className="bg-red-600">未入库</Badge>
+                              </div>
+                            </TableCell>
+                            <TableCell>-</TableCell>
+                            <TableCell>
+                              <Input
+                                type="number"
+                                value={item.quantity}
+                                onChange={(e) => updateQuantity(item.id, parseInt(e.target.value) || 0)}
+                                className="w-full"
+                              />
+                            </TableCell>
+                            <TableCell>¥{(item.purchasePrice ?? item.customPrice ?? 0).toFixed(2)}</TableCell>
+                            {tierMode ? (
+                              <>
+                                <TableCell>¥{missingAmount.toFixed(2)}</TableCell>
+                                <TableCell>¥{(missingAmount * (1 + crccRate / 100)).toFixed(2)}</TableCell>
+                                <TableCell>¥{(missingAmount * (1 + crccRate / 100) * (1 + cmccRate / 100)).toFixed(2)}</TableCell>
+                              </>
+                            ) : (
+                              <TableCell>
+                                <div className="text-sm">
+                                  <span className="font-medium">¥{missingAmount.toFixed(2)}</span>
+                                </div>
+                              </TableCell>
+                            )}
+                            <TableCell>
+                              <Input
+                                placeholder="楼层"
+                                value={item.location || ''}
+                                onChange={(e) => updateQuoteItemField(item.id, 'location', e.target.value)}
+                                className="w-[90px]"
+                              />
+                            </TableCell>
+                            {tierMode && (
+                              <TableCell className="flex gap-1">
+                                <Input
+                                  type="number"
+                                  placeholder="采购价"
+                                  value={item.purchasePrice || ''}
+                                  onChange={(e) => updateQuoteItemField(item.id, 'purchasePrice', e.target.value)}
+                                  className="w-[70px]"
+                                />
+                                <Input
+                                  type="number"
+                                  placeholder="加价%"
+                                  value={item.markupRate || ''}
+                                  onChange={(e) => updateQuoteItemField(item.id, 'markupRate', e.target.value)}
+                                  className="w-[60px]"
+                                />
+                              </TableCell>
+                            )}
+                          </TableRow>
+                        );
+                      }
                       const baseFee = quotaItem.price * item.quantity;
                       const subtotal = baseFee * (1 + managementFeeRate / 100 + profitRate / 100 + regulatoryFeeRate / 100);
                       return (
@@ -2588,6 +2774,14 @@ export default function EngineeringPage() {
                 )}
               </div>
               <div className="flex gap-4">
+              <Button variant="outline" onClick={openMySuggestions}>
+                <ClipboardList className="h-4 w-4 mr-2" />
+                我的补录
+              </Button>
+              <Button variant="outline" onClick={openSuggestionDialog} className="text-orange-700 border-orange-300 hover:bg-orange-50">
+                <Plus className="h-4 w-4 mr-2" />
+                提交补录
+              </Button>
               <Button variant="outline" onClick={handleSaveDraft} disabled={isSaving}>
                 {isSaving ? (
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -4537,6 +4731,176 @@ export default function EngineeringPage() {
               sandbox="allow-same-origin"
             />
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 未入库设备补录对话框 */}
+      <Dialog open={suggestionDialogOpen} onOpenChange={setSuggestionDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ClipboardList className="h-5 w-5 text-orange-600" />
+              提交设备补录
+            </DialogTitle>
+            <DialogDescription>
+              以下设备未在设备库中，提交补录请求后由管理员审核并入库
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {suggestionDraft.length === 0 ? (
+              <p className="text-muted-foreground text-center py-8">
+                当前没有可补录的设备（自定义明细行会自动纳入，人工行不补录）
+              </p>
+            ) : (
+              suggestionDraft.map((device, index) => (
+                <div key={index} className="rounded-lg border border-orange-200 bg-orange-50/40 p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-orange-800">补录设备 {index + 1}</span>
+                    <span className="text-xs text-muted-foreground">数量: {device.quantity}</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs">设备名称 *</Label>
+                      <Input
+                        placeholder="请输入设备名称"
+                        value={device.name}
+                        onChange={(e) => updateSuggestionDraft(index, 'name', e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">分类</Label>
+                      <Input
+                        placeholder="如：网络设备"
+                        value={device.category}
+                        onChange={(e) => updateSuggestionDraft(index, 'category', e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">品牌</Label>
+                      <Input
+                        placeholder="品牌（可选）"
+                        value={device.brand}
+                        onChange={(e) => updateSuggestionDraft(index, 'brand', e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">型号</Label>
+                      <Input
+                        placeholder="型号（可选）"
+                        value={device.model}
+                        onChange={(e) => updateSuggestionDraft(index, 'model', e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-1 col-span-2">
+                      <Label className="text-xs">规格</Label>
+                      <Input
+                        placeholder="规格（可选）"
+                        value={device.specification}
+                        onChange={(e) => updateSuggestionDraft(index, 'specification', e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">临时单价（元）</Label>
+                      <Input
+                        type="number"
+                        value={device.tempUnitPrice}
+                        onChange={(e) => updateSuggestionDraft(index, 'tempUnitPrice', parseFloat(e.target.value) || 0)}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">归属位置</Label>
+                      <Input
+                        placeholder="如：3F"
+                        value={device.location}
+                        onChange={(e) => updateSuggestionDraft(index, 'location', e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-1 col-span-2">
+                      <Label className="text-xs">备注</Label>
+                      <Input
+                        placeholder="补充说明（可选）"
+                        value={device.comment}
+                        onChange={(e) => updateSuggestionDraft(index, 'comment', e.target.value)}
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSuggestionDialogOpen(false)}>
+              取消
+            </Button>
+            <Button
+              disabled={suggestionSubmitting}
+              onClick={submitSuggestions}
+              className="bg-orange-600 hover:bg-orange-700"
+            >
+              {suggestionSubmitting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Plus className="h-4 w-4 mr-2" />}
+              提交补录请求
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 我的补录对话框 */}
+      <Dialog open={mySuggestionsDialogOpen} onOpenChange={setMySuggestionsDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ClipboardList className="h-5 w-5 text-blue-600" />
+              我的补录记录
+            </DialogTitle>
+            <DialogDescription>我提交的设备补录请求及审核状态</DialogDescription>
+          </DialogHeader>
+
+          {mySuggestionsLoading ? (
+            <div className="flex justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : mySuggestions.length === 0 ? (
+            <p className="text-muted-foreground text-center py-8">暂无补录记录</p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>设备名称</TableHead>
+                  <TableHead>来源报价</TableHead>
+                  <TableHead>临时单价</TableHead>
+                  <TableHead>提交时间</TableHead>
+                  <TableHead>状态</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {mySuggestions.map((item) => (
+                  <TableRow key={item.id}>
+                    <TableCell className="font-medium">{item.name}</TableCell>
+                    <TableCell>{item.quoteNumber || '-'}</TableCell>
+                    <TableCell>¥{Number(item.tempUnitPrice).toFixed(2)}</TableCell>
+                    <TableCell>{new Date(item.submittedAt).toLocaleString('zh-CN')}</TableCell>
+                    <TableCell>
+                      {item.status === 'pending' ? (
+                        <Badge variant="secondary">待审核</Badge>
+                      ) : item.status === 'approved' ? (
+                        <Badge className="bg-green-600">已入库</Badge>
+                      ) : (
+                        <Badge className="bg-red-600">已驳回</Badge>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setMySuggestionsDialogOpen(false)}>
+              关闭
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

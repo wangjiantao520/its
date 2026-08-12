@@ -136,6 +136,7 @@ import {
 } from './maintenance-helpers';
 import { useAiQuote } from './use-ai-quote';
 import { apiFetch } from '@/lib/api-fetch';
+import type { DeviceSuggestionItem } from '@/lib/device-suggestions';
 
 export default function MaintenanceQuotePage() {
   const { user } = useUser();
@@ -501,6 +502,7 @@ export default function MaintenanceQuotePage() {
   // 从数据库加载设备定额数据（挂载时）
   useEffect(() => {
     void loadDeviceData();
+    void autoRestoreLastQuote();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -705,6 +707,28 @@ export default function MaintenanceQuotePage() {
       toast.success(`已复用历史报价 ${quote.quoteNumber}`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '复用历史报价失败');
+    }
+  };
+
+  // 自动恢复上次保存的维保报价（保存时把 identity 存 localStorage，刷新后自动回显）
+  const autoRestoreLastQuote = async () => {
+    try {
+      const savedIdentity = localStorage.getItem('its_maintenance_quote_identity');
+      if (!savedIdentity) return;
+      const match = /^quotation:(\d+)$/.exec(savedIdentity);
+      if (!match) return;
+      const detail = await apiFetch<any>(`/api/quotations/${match[1]}`);
+      if (!detail.success) return;
+      const data = detail.data;
+      const reusedDevices = data?.quote_data?.devices;
+      if (Array.isArray(reusedDevices) && reusedDevices.length > 0) {
+        setSelectedDevices(reusedDevices);
+        setClientName(data.client_name || '');
+        setProjectName(data.project_name || '');
+        setCurrentQuoteIdentity(savedIdentity);
+      }
+    } catch (error) {
+      console.error('自动恢复上次报价失败:', error);
     }
   };
 
@@ -1085,6 +1109,84 @@ export default function MaintenanceQuotePage() {
     setSelectedDevices(newDevices);
   };
 
+  // 未入库设备补录状态
+  const [suggestionDialogOpen, setSuggestionDialogOpen] = useState(false);
+  const [suggestionSubmitting, setSuggestionSubmitting] = useState(false);
+  const [suggestionDraft, setSuggestionDraft] = useState<Array<{
+    name: string;
+    category: string;
+    brand: string;
+    model: string;
+    specification: string;
+    tempUnitPrice: number;
+    quantity: number;
+    location: string;
+    comment: string;
+  }>>([]);
+
+  // 判断某台已选设备是否在设备库中（不在库 → 可补录）
+  const isDeviceNotInLibrary = (device: SelectedDevice): boolean => {
+    if (!device.quota?.id) return true;
+    return !dbDeviceQuotas.some((q: any) => String(q.id) === String(device.quota.id));
+  };
+
+  // 打开补录对话框，收集所有未入库设备
+  const openSuggestionDialog = () => {
+    const candidates = selectedDevices
+      .filter((device) => isDeviceNotInLibrary(device))
+      .map((device) => ({
+        name: device.quota?.name || '',
+        category: (device.quota as any)?.category || '其他',
+        brand: (device.quota as any)?.brand || '',
+        model: (device.quota as any)?.model || '',
+        specification: (device.quota as any)?.specification || '',
+        tempUnitPrice: typeof device.quota?.cityPrice === 'number' && Number.isFinite(device.quota.cityPrice)
+          ? device.quota.cityPrice
+          : 0,
+        quantity: device.quantity || 1,
+        location: '',
+        comment: '',
+      }));
+    setSuggestionDraft(candidates);
+    setSuggestionDialogOpen(true);
+  };
+
+  // 提交补录请求
+  const submitSuggestions = async () => {
+    const validDevices = suggestionDraft.filter((d) => d.name.trim());
+    if (validDevices.length === 0) {
+      toast.error('请至少填写一个补录设备名称');
+      return;
+    }
+    setSuggestionSubmitting(true);
+    try {
+      const result = await apiFetch('/api/device-suggestions/submit', {
+        method: 'POST',
+        body: JSON.stringify({
+          source: 'maintenance',
+          quoteId: '',
+          quoteNumber: '',
+          projectName: projectName || '未命名项目',
+          devices: validDevices,
+        }),
+      });
+      if (result.success) {
+        toast.success(`已提交 ${validDevices.length} 个补录请求`);
+        setSuggestionDialogOpen(false);
+      } else {
+        toast.error(result.error || '提交失败');
+      }
+    } catch (error) {
+      toast.error('提交失败: ' + String(error));
+    } finally {
+      setSuggestionSubmitting(false);
+    }
+  };
+
+  const updateSuggestionDraft = (index: number, key: keyof typeof suggestionDraft[number], value: string | number) => {
+    setSuggestionDraft((prev) => prev.map((d, i) => i === index ? { ...d, [key]: value } : d));
+  };
+
   // 计算报价（支持新老两种模式）
   // 计算报价
   const handleCalculate = useCallback(() => {
@@ -1303,6 +1405,7 @@ export default function MaintenanceQuotePage() {
         if (result.data?.id) {
           const identity = `quotation:${result.data.id}`;
           setCurrentQuoteIdentity(identity);
+          try { localStorage.setItem('its_maintenance_quote_identity', identity); } catch { /* ignore */ }
           toast.success(`报价单 ${newQuoteNumber} 已保存！`);
           return identity;
         }
@@ -1532,21 +1635,26 @@ export default function MaintenanceQuotePage() {
     // 5. 费用明细Sheet（与页面显示一致）
     let costDetailData: any[] = [];
     if (useFullData && fullQuoteResult) {
-      costDetailData = fullQuoteResult.deviceItems.map((item, index) => ({
-        '设备名称': item.quota.name,
-        '成新率': item.depreciationLevel,
-        '设备分档': item.deviceGrade,
-        '数量': item.quantity,
-        '巡检时长（分钟）': item.inspectionDuration,
-        '巡检费': formatCurrencyLocal(item.inspectionFee * item.quantity * FULL_REGION_FACTORS[selectedRegionForSummary as keyof typeof FULL_REGION_FACTORS]),
-        '上门费': formatCurrencyLocal(item.onSiteFee * item.quantity * FULL_REGION_FACTORS[selectedRegionForSummary as keyof typeof FULL_REGION_FACTORS]),
-        '故障处理费': formatCurrencyLocal(item.faultHandlingFee * item.quantity * FULL_REGION_FACTORS[selectedRegionForSummary as keyof typeof FULL_REGION_FACTORS]),
-        '工具仪表摊销': formatCurrencyLocal(item.toolAmortization * item.quantity * FULL_REGION_FACTORS[selectedRegionForSummary as keyof typeof FULL_REGION_FACTORS]),
-        '耗材费': formatCurrencyLocal(item.consumableFee * item.quantity * FULL_REGION_FACTORS[selectedRegionForSummary as keyof typeof FULL_REGION_FACTORS]),
-        '备件风险准备金': formatCurrencyLocal(item.sparePartReserve * item.quantity * FULL_REGION_FACTORS[selectedRegionForSummary as keyof typeof FULL_REGION_FACTORS]),
-        '单价': formatCurrencyLocal(item.cityPrice * FULL_REGION_FACTORS[selectedRegionForSummary as keyof typeof FULL_REGION_FACTORS]),
-        '小计': formatCurrencyLocal(item.totalAfterDiscount * FULL_REGION_FACTORS[selectedRegionForSummary as keyof typeof FULL_REGION_FACTORS]),
-      }));
+      costDetailData = fullQuoteResult.deviceItems.map((item, index) => {
+        const regionFactor = FULL_REGION_FACTORS[selectedRegionForSummary as keyof typeof FULL_REGION_FACTORS];
+        // 折扣因子与小计 totalAfterDiscount 一致：批量折扣 × 年限折扣 × 合同年限
+        const discountFactor = (item.bulkDiscountFactor ?? 1.0) * (item.yearDiscountFactor ?? 1.0) * (item.contractYears || 1);
+        return {
+          '设备名称': item.quota.name,
+          '成新率': item.depreciationLevel,
+          '设备分档': item.deviceGrade,
+          '数量': item.quantity,
+          '巡检时长（分钟）': item.inspectionDuration,
+          '巡检费': formatCurrencyLocal(item.inspectionFee * item.quantity * regionFactor * discountFactor),
+          '上门费': formatCurrencyLocal(item.onSiteFee * item.quantity * regionFactor * discountFactor),
+          '故障处理费': formatCurrencyLocal(item.faultHandlingFee * item.quantity * regionFactor * discountFactor),
+          '工具仪表摊销': formatCurrencyLocal(item.toolAmortization * item.quantity * regionFactor * discountFactor),
+          '耗材费': formatCurrencyLocal(item.consumableFee * item.quantity * regionFactor * discountFactor),
+          '备件风险准备金': formatCurrencyLocal(item.sparePartReserve * item.quantity * regionFactor * discountFactor),
+          '单价': formatCurrencyLocal(item.cityPrice * regionFactor),
+          '小计': formatCurrencyLocal(item.totalAfterDiscount * regionFactor),
+        };
+      });
     } else if (quoteResult) {
       costDetailData = quoteResult.deviceItems.map((item, index) => ({
         '设备名称': item.quota.name,
@@ -2248,7 +2356,14 @@ export default function MaintenanceQuotePage() {
                         <TableBody>
                           {selectedDevices.map((item, index) => (
                             <TableRow key={item.quota.id || index}>
-                              <TableCell className="font-medium">{item.quota.name}</TableCell>
+                              <TableCell className="font-medium">
+                                <div className="flex items-center gap-2">
+                                  {item.quota.name}
+                                  {isDeviceNotInLibrary(item) && (
+                                    <Badge className="bg-red-600">未入库</Badge>
+                                  )}
+                                </div>
+                              </TableCell>
                               <TableCell className="text-slate-500">{item.quota.model}</TableCell>
                               <TableCell>
                                 <Input
@@ -2552,6 +2667,16 @@ export default function MaintenanceQuotePage() {
                               </TableCell>
                               <TableCell>
                                 <div className="flex items-center gap-1">
+                                  {isDeviceNotInLibrary(item) && (
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      onClick={openSuggestionDialog}
+                                      title="提交补录"
+                                    >
+                                      <Plus className="h-4 w-4 text-orange-500" />
+                                    </Button>
+                                  )}
                                   <Button
                                     variant="ghost"
                                     size="icon"
@@ -4984,6 +5109,108 @@ export default function MaintenanceQuotePage() {
             </Button>
             <Button onClick={handleSubmitForReview} disabled={!reviewComment.trim()}>
               提交审核
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 未入库设备补录对话框 */}
+      <Dialog open={suggestionDialogOpen} onOpenChange={setSuggestionDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Plus className="h-5 w-5 text-orange-600" />
+              提交设备补录
+            </DialogTitle>
+            <DialogDescription>
+              以下设备未在设备库中，提交补录请求后由管理员审核并入库
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {suggestionDraft.length === 0 ? (
+              <p className="text-muted-foreground text-center py-8">当前没有可补录的设备</p>
+            ) : (
+              suggestionDraft.map((device, index) => (
+                <div key={index} className="rounded-lg border border-orange-200 bg-orange-50/40 p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-orange-800">补录设备 {index + 1}</span>
+                    <span className="text-xs text-muted-foreground">数量: {device.quantity}</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs">设备名称 *</Label>
+                      <Input
+                        placeholder="请输入设备名称"
+                        value={device.name}
+                        onChange={(e) => updateSuggestionDraft(index, 'name', e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">分类</Label>
+                      <Input
+                        placeholder="如：网络设备"
+                        value={device.category}
+                        onChange={(e) => updateSuggestionDraft(index, 'category', e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">品牌</Label>
+                      <Input
+                        placeholder="品牌（可选）"
+                        value={device.brand}
+                        onChange={(e) => updateSuggestionDraft(index, 'brand', e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">型号</Label>
+                      <Input
+                        placeholder="型号（可选）"
+                        value={device.model}
+                        onChange={(e) => updateSuggestionDraft(index, 'model', e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-1 col-span-2">
+                      <Label className="text-xs">规格</Label>
+                      <Input
+                        placeholder="规格（可选）"
+                        value={device.specification}
+                        onChange={(e) => updateSuggestionDraft(index, 'specification', e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">临时单价（元）</Label>
+                      <Input
+                        type="number"
+                        value={device.tempUnitPrice}
+                        onChange={(e) => updateSuggestionDraft(index, 'tempUnitPrice', parseFloat(e.target.value) || 0)}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">备注</Label>
+                      <Input
+                        placeholder="补充说明（可选）"
+                        value={device.comment}
+                        onChange={(e) => updateSuggestionDraft(index, 'comment', e.target.value)}
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSuggestionDialogOpen(false)}>
+              取消
+            </Button>
+            <Button
+              disabled={suggestionSubmitting}
+              onClick={submitSuggestions}
+              className="bg-orange-600 hover:bg-orange-700"
+            >
+              {suggestionSubmitting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Plus className="h-4 w-4 mr-2" />}
+              提交补录请求
             </Button>
           </DialogFooter>
         </DialogContent>

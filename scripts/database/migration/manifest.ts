@@ -40,6 +40,7 @@ export const TABLE_COLUMNS = {
   system_parameters: ['key', 'value', 'updated_at'],
   survey_records: ['id', 'user_id', 'survey_data', 'quote_result', 'contract_years', 'created_at'],
   device_imports: ['id', 'category', 'name', 'model', 'level', 'engineer_level', 'device_count', 'need_spare_part', 'contract_years', 'device_data', 'status', 'submitted_by', 'submitted_at', 'reviewed_by', 'reviewed_at', 'review_comment'],
+  device_suggestions: ['id', 'source', 'quote_id', 'quote_number', 'project_name', 'category', 'name', 'brand', 'model', 'specification', 'maintenance_tier', 'level', 'engineer_level', 'temp_unit_price', 'quantity', 'location', 'comment', 'price_data', 'status', 'submitted_by', 'submitted_at', 'reviewed_by', 'reviewed_at', 'review_comment'],
 } as const satisfies Readonly<Record<string, readonly string[]>>;
 
 export type MigrationTableName = keyof typeof TABLE_COLUMNS;
@@ -49,10 +50,19 @@ const NON_IDENTITY_TABLES = new Set<MigrationTableName>([
   'self_construction_quotas',
   'intelligent_project_quotas',
   'maintenance_device_quotas',
+  'sqlite_import_runs',
+  'system_parameters',
+  'system_settings',
 ]);
 
 const PRIMARY_KEYS: Readonly<Record<MigrationTableName, string>> = Object.fromEntries(
-  Object.keys(TABLE_COLUMNS).map((name) => [name, name === 'auth_sessions' ? 'token_hash' : 'id']),
+  Object.keys(TABLE_COLUMNS).map((name) => [
+    name,
+    name === 'auth_sessions' ? 'token_hash'
+      : name === 'sqlite_import_runs' ? 'import_id'
+      : name === 'system_parameters' || name === 'system_settings' ? 'key'
+      : 'id',
+  ]),
 ) as Readonly<Record<MigrationTableName, string>>;
 
 export const MIGRATION_TABLES: readonly MigrationTableSpec[] = Object.entries(TABLE_COLUMNS)
