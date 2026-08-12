@@ -244,7 +244,7 @@ export default function MaintenanceQuotePage() {
     handleClearFile,
     handleFileUpload,
     handleUseExample,
-  } = useAiQuote();
+  } = useAiQuote(dbDeviceQuotas);
 
   // 价格设置功能
   const [showPriceSettings, setShowPriceSettings] = useState(false);

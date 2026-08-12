@@ -249,7 +249,8 @@ async function callDeepSeekAPI(userMessage: string): Promise<string> {
     { role: 'user', content: userMessage }
   ];
 
-  const result = await callAIModel(messages, { temperature: 0.3, maxTokens: 3000 });
+  // Coze 平台对单次请求执行时限较紧，给 AI 调用设置较短超时并在超时前返回明确错误
+  const result = await callAIModel(messages, { temperature: 0.3, maxTokens: 1000, timeoutMs: 20_000 });
   if (!result.success || !result.content) {
     throw new Error(result.error || 'AI 调用失败');
   }

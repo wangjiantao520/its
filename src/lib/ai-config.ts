@@ -84,6 +84,7 @@ export async function callAIModel(
     temperature?: number;
     maxTokens?: number;
     configId?: number;
+    timeoutMs?: number;
   }
 ): Promise<{ success: boolean; content?: string; error?: string; config?: AIModelConfig }> {
   const config = options?.configId
@@ -94,7 +95,11 @@ export async function callAIModel(
     return { success: false, error: '未找到可用的AI模型配置，请在系统设置中配置或设置 DEEPSEEK_API_KEY 环境变量' };
   }
 
-  return callAIModelWithConfig(config, messages, options);
+  return callAIModelWithConfig(config, messages, {
+    temperature: options?.temperature,
+    maxTokens: options?.maxTokens,
+    timeoutMs: options?.timeoutMs,
+  });
 }
 
 export async function getAIModelConfigById(

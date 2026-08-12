@@ -7,15 +7,19 @@
 
 'use client';
 
-import { useState } from 'react';
-import * as XLSX from 'xlsx-js-style';
+import { useState, useRef, useEffect } from 'react';
 import { toast } from 'sonner';
+import { extractFileContent } from '@/lib/file-content';
 import {
   parseQuoteRequirement,
   type AiQuoteDraft,
   type RecognitionStatus,
   type ChatMessage,
 } from '@/lib/ai-quote-parser';
+import {
+  parseDevicesLocal,
+  type LocalQuotaDevice,
+} from '@/lib/local-device-parser';
 
 /** AI 设备匹配结果项（/api/ai-match-devices 返回的单个设备） */
 export interface AiMatchingCandidate {
@@ -71,7 +75,7 @@ export interface UseAiQuoteReturn {
   handleUseExample: (example: string) => void;
 }
 
-export function useAiQuote(): UseAiQuoteReturn {
+export function useAiQuote(deviceQuotas: LocalQuotaDevice[] = []): UseAiQuoteReturn {
   const [aiRequirementText, setAiRequirementText] = useState('');
   const [aiRecognitionStatus, setAiRecognitionStatus] = useState<RecognitionStatus>('idle');
   const [aiDraft, setAiDraft] = useState<AiQuoteDraft | null>(null);
@@ -85,9 +89,45 @@ export function useAiQuote(): UseAiQuoteReturn {
   const [aiMatchingDevices, setAiMatchingDevices] = useState<AiMatchingDevice[]>([]);
   const [isAiMatching, setIsAiMatching] = useState(false);
 
-  /** 内部共用：识别需求文本并写入草稿 */
+  // 设备库是异步加载的，用 ref 保持 recognizeText 始终读到最新数据
+  const deviceQuotasRef = useRef(deviceQuotas);
+  useEffect(() => {
+    deviceQuotasRef.current = deviceQuotas;
+  }, [deviceQuotas]);
+
+  /** 内部共用：识别需求文本并写入草稿（优先本地规则，秒级；本地无结果才回退 DeepSeek） */
   const recognizeText = async (text: string) => {
-    const draft = await parseQuoteRequirement(text);
+    let draft: AiQuoteDraft | null = null;
+
+    // 1. 本地规则解析（用设备库做词典，不依赖 AI）
+    const quotas = deviceQuotasRef.current;
+    if (quotas.length > 0) {
+      const local = parseDevicesLocal(text, quotas);
+      if (local.devices.length > 0) {
+        draft = {
+          devices: local.devices.map((d) => ({
+            rawText: d.rawText,
+            deviceName: d.deviceName,
+            model: d.model,
+            brand: d.brand,
+            quantity: d.quantity,
+            useYears: d.useYears,
+            confidence: d.confidence,
+            matchedDeviceId: d.matchedDeviceId,
+            matchedDeviceName: d.matchedDeviceName,
+            warnings: d.warnings,
+          })),
+          missingFields: local.unmatchedText.length > 0 ? ['部分内容未识别'] : [],
+          suggestions: local.suggestions,
+        };
+      }
+    }
+
+    // 2. 本地无结果时回退 DeepSeek
+    if (!draft || draft.devices.length === 0) {
+      draft = await parseQuoteRequirement(text);
+    }
+
     setAiDraft(draft);
     setCompletionDraft(JSON.parse(JSON.stringify(draft)));
     setAiRecognitionStatus(
@@ -116,16 +156,34 @@ export function useAiQuote(): UseAiQuoteReturn {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: aiRequirementText }),
       });
+      if (!response.ok) {
+        // 避免 500 时 response.json() 抛错，先读取文本再尝试解析
+        const raw = await response.text();
+        let errorText = 'AI 服务暂时不可用，请稍后重试';
+        try {
+          const parsed = JSON.parse(raw) as { error?: string };
+          if (parsed.error) errorText = parsed.error;
+        } catch { /* 非 JSON 响应，用默认文案 */ }
+        console.error('AI设备匹配失败:', errorText);
+        toast.error(errorText);
+        setAiRecognitionStatus('failed');
+        return;
+      }
       const result = await response.json();
       if (result.success) {
         setAiMatchingDevices(result.devices);
         setAiRecognitionStatus('success');
+        if (result.devices && result.devices.length === 0) {
+          toast.info('未识别到设备，请补充设备描述');
+        }
       } else {
         console.error('AI设备匹配失败:', result.error);
+        toast.error(result.error || 'AI 匹配失败，请稍后重试');
         setAiRecognitionStatus('failed');
       }
     } catch (error) {
       console.error('AI设备匹配失败:', error);
+      toast.error('AI 匹配失败，请检查网络后重试');
       setAiRecognitionStatus('failed');
     } finally {
       setIsAiMatching(false);
@@ -160,54 +218,27 @@ export function useAiQuote(): UseAiQuoteReturn {
     setAiRecognitionStatus('recognizing');
 
     try {
-      if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
-        const reader = new FileReader();
-        reader.onload = async (e) => {
-          const data = new Uint8Array(e.target?.result as ArrayBuffer);
-          const workbook = XLSX.read(data, { type: 'array' });
-          const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-          const jsonData = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
-
-          const textContent = (jsonData as unknown[][])
-            .map((row: unknown[]) => (Array.isArray(row) ? row.join('\t') : String(row)))
-            .join('\n');
-          setUploadedFileContent(textContent);
-
-          const fullText = `从文件 ${file.name} 中提取的设备清单：\n\n${textContent}`;
-          setAiRequirementText(fullText);
-
-          try {
-            await recognizeText(fullText);
-          } catch (error) {
-            console.error('AI解析失败:', error);
-            setAiRecognitionStatus('failed');
-          }
-        };
-        reader.readAsArrayBuffer(file);
-      } else if (file.name.endsWith('.txt') || file.name.endsWith('.csv') || file.name.endsWith('.md')) {
-        const reader = new FileReader();
-        reader.onload = async (e) => {
-          const content = e.target?.result as string;
-          setUploadedFileContent(content);
-
-          const fullText = `从文件 ${file.name} 中提取的设备清单：\n\n${content}`;
-          setAiRequirementText(fullText);
-
-          try {
-            await recognizeText(fullText);
-          } catch (error) {
-            console.error('AI解析失败:', error);
-            setAiRecognitionStatus('failed');
-          }
-        };
-        reader.readAsText(file);
-      } else {
+      const extracted = await extractFileContent(file);
+      if (!extracted.ok) {
         setAiRecognitionStatus('failed');
-        toast.error('暂不支持该文件格式，请上传 .xlsx, .xls, .csv, .txt 或 .md 文件');
+        toast.error(extracted.error);
+        return;
+      }
+      setUploadedFileContent(extracted.content);
+
+      const fullText = `从文件 ${file.name} 中提取的设备清单：\n\n${extracted.content}`;
+      setAiRequirementText(fullText);
+
+      try {
+        await recognizeText(fullText);
+      } catch (error) {
+        console.error('AI解析失败:', error);
+        setAiRecognitionStatus('failed');
       }
     } catch (error) {
       console.error('文件读取失败:', error);
       setAiRecognitionStatus('failed');
+      toast.error('文件读取失败，请重试');
     }
   };
 
