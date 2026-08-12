@@ -218,7 +218,7 @@ test('loads exactly the strictly named source migration assets in numeric order'
     .filter((fileName) => /^\d{3}_[a-z0-9_]+\.sql$/.test(fileName))
     .sort();
 
-  assert.deepEqual(migrations.map(({ version }) => version), [1, 2, 3, 4, 5, 6, 7, 8]);
+  assert.deepEqual(migrations.map(({ version }) => version), [1, 2, 3, 4, 5, 6, 7, 8, 9]);
   assert.deepEqual(migrations.map(({ name }) => name), sourceFiles);
   assert.deepEqual(sourceFiles, [
     '001_initial_schema.sql',
@@ -229,6 +229,7 @@ test('loads exactly the strictly named source migration assets in numeric order'
     '006_device_imports.sql',
     '007_system_parameters.sql',
     '008_engineering_quote_tiers.sql',
+    '009_device_suggestions.sql',
   ]);
 });
 
@@ -239,8 +240,8 @@ test('target schema exactly matches canonical definitions and route write compat
   const routeAudit = extractRouteSqlAudit();
 
   assert.deepEqual(serializableManifest(actual), serializableManifest(expected));
-  assert.equal(actual.size, 34);
-  assert.equal([...actual.values()].reduce((total, columns) => total + columns.size, 0), 468);
+  assert.equal(actual.size, 35);
+  assert.equal([...actual.values()].reduce((total, columns) => total + columns.size, 0), 492);
   assert.deepEqual(
     [...routeAudit.referencedTables].filter((table) => !actual.has(table)).sort(),
     [],
@@ -319,6 +320,7 @@ test('loads copied SQL assets when only the production dist layout is available'
     '006_device_imports.sql',
     '007_system_parameters.sql',
     '008_engineering_quote_tiers.sql',
+    '009_device_suggestions.sql',
   ]) {
     fs.copyFileSync(path.join('src/lib/database/sql', fileName), path.join(distSql, fileName));
   }
@@ -327,7 +329,7 @@ test('loads copied SQL assets when only the production dist layout is available'
   const originalWorkingDirectory = process.cwd();
   try {
     process.chdir(temporaryProject);
-    assert.deepEqual(loadPostgresMigrations().map(({ version }) => version), [1, 2, 3, 4, 5, 6, 7, 8]);
+    assert.deepEqual(loadPostgresMigrations().map(({ version }) => version), [1, 2, 3, 4, 5, 6, 7, 8, 9]);
     assert.equal(
       loadPostgresMigrations().some(({ sql }) => sql.includes('dangerous_unlisted_sql')),
       false,
@@ -377,14 +379,14 @@ test('migration CLI never prints credentials from a malformed database URL', () 
 test('applies each migration exactly once and acquires the required transaction lock', async () => {
   const client = new RecordingMigrationClient();
 
-  assert.deepEqual(await runPostgresMigrations(client), { appliedVersions: [1, 2, 3, 4, 5, 6, 7, 8] });
+  assert.deepEqual(await runPostgresMigrations(client), { appliedVersions: [1, 2, 3, 4, 5, 6, 7, 8, 9] });
   assert.deepEqual(await runPostgresMigrations(client), { appliedVersions: [] });
   assert.equal(client.transactionCount, 2);
   assert.equal(
     client.queries.filter(({ text }) => /pg_advisory_xact_lock\(49375483\)/i.test(text)).length,
     2,
   );
-  assert.deepEqual([...client.versions.keys()], [1, 2, 3, 4, 5, 6, 7, 8]);
+  assert.deepEqual([...client.versions.keys()], [1, 2, 3, 4, 5, 6, 7, 8, 9]);
 });
 
 test('concurrent migration calls serialize safely', async () => {
@@ -397,7 +399,7 @@ test('concurrent migration calls serialize safely', async () => {
   ]);
 
   assert.deepEqual(results, [
-    { appliedVersions: [1, 2, 3, 4, 5, 6, 7, 8] },
+    { appliedVersions: [1, 2, 3, 4, 5, 6, 7, 8, 9] },
     { appliedVersions: [] },
   ]);
   assert.deepEqual(client.transactionStartOrder, [1, 2]);
@@ -409,7 +411,7 @@ test('concurrent migration calls serialize safely', async () => {
   for (const migration of migrations) {
     assert.equal(client.migrationExecutionCounts.get(migration.sql), 1);
   }
-  assert.deepEqual([...client.versions.keys()], [1, 2, 3, 4, 5, 6, 7, 8]);
+  assert.deepEqual([...client.versions.keys()], [1, 2, 3, 4, 5, 6, 7, 8, 9]);
 });
 
 test('a failed migration rolls back its version record and does not continue', async () => {
@@ -495,7 +497,7 @@ const integrationOptions = process.env.TEST_DATABASE_URL
 test('PostgreSQL: migrations are idempotent and create the exact canonical schema', integrationOptions, async (t) => {
   const harness = await createPostgresTestHarness(t);
 
-  assert.deepEqual(await runPostgresMigrations(harness.client), { appliedVersions: [1, 2, 3, 4, 5, 6, 7, 8] });
+  assert.deepEqual(await runPostgresMigrations(harness.client), { appliedVersions: [1, 2, 3, 4, 5, 6, 7, 8, 9] });
   assert.deepEqual(await runPostgresMigrations(harness.client), { appliedVersions: [] });
 
   const columns = await harness.client.query<{
@@ -518,9 +520,12 @@ test('PostgreSQL: migrations are idempotent and create the exact canonical schem
     tableColumns.add(column_name);
     actualManifest.set(table_name, tableColumns);
   }
+  const expectedManifest = buildCanonicalPostgresManifest();
+  // 与上面的查询排除对称：sqlite_import_runs 是一次性 SQLite 迁移辅助表，不在集成 schema 对比范围内
+  expectedManifest.delete('sqlite_import_runs');
   assert.deepEqual(
     serializableManifest(actualManifest),
-    serializableManifest(buildCanonicalPostgresManifest()),
+    serializableManifest(expectedManifest),
   );
 
   const criticalColumn = (table: string, column: string) => {
@@ -657,11 +662,11 @@ test('PostgreSQL: concurrent runners apply every migration once', integrationOpt
     runPostgresMigrations(secondClient),
   ]);
 
-  assert.deepEqual(results.flatMap(({ appliedVersions }) => appliedVersions).sort(), [1, 2, 3, 4, 5, 6, 7, 8]);
+  assert.deepEqual(results.flatMap(({ appliedVersions }) => appliedVersions).sort(), [1, 2, 3, 4, 5, 6, 7, 8, 9]);
   const versions = await harness.client.query<{ version: number }>(
     'SELECT version FROM schema_migrations ORDER BY version',
   );
-  assert.deepEqual(versions.rows.map(({ version }) => version), [1, 2, 3, 4, 5, 6, 7, 8]);
+  assert.deepEqual(versions.rows.map(({ version }) => version), [1, 2, 3, 4, 5, 6, 7, 8, 9]);
 });
 
 test('PostgreSQL: failed migration rolls back DDL, DML, and version row', integrationOptions, async (t) => {

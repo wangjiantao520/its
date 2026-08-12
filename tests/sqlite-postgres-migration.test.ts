@@ -1866,6 +1866,8 @@ const integrationOptions = process.env.TEST_DATABASE_URL
 
 test('PostgreSQL: business table locks block an ordinary writer during cutover', integrationOptions, async (t) => {
   const harness = await createPostgresTestHarness(t);
+  // 先迁移建表，使 writerClient 能看到表并验证锁（否则表在导入事务内新建，其他连接不可见）
+  await runPostgresMigrations(harness.client);
   const writerClient = harness.createAdditionalClient();
   const sourcePath = createFixture(t);
   const backupDirectory = path.join(temporaryDirectory(t), 'backups');
@@ -1878,6 +1880,7 @@ test('PostgreSQL: business table locks block an ordinary writer during cutover',
     sourcePath,
     client: harness.client,
     backupDirectory,
+    allowNonemptyTarget: true, // 表已预迁移且无业务数据，允许导入
     afterBusinessTablesLocked: async () => {
       signalLocked?.();
       await release;
@@ -1985,7 +1988,7 @@ test('PostgreSQL: imports exact fixture values and resets generated IDs', integr
     password_hash: string;
     is_active: boolean;
     created_at: Date;
-  }>('SELECT id::text, username, password_hash, is_active, created_at FROM users ORDER BY id');
+  }>('SELECT id::text, username, password_hash, is_active, created_at FROM users ORDER BY id::text::int');
   assert.deepEqual(users.rows.map(({ id, username, password_hash, is_active }) => ({
     id, username, password_hash, is_active,
   })), [

@@ -250,8 +250,11 @@ export async function assertTargetSchema(client: DatabaseClient): Promise<void> 
       ON table_relation.oid = index_state.indrelid
     JOIN pg_catalog.pg_namespace table_namespace
       ON table_namespace.oid = table_relation.relnamespace
+    LEFT JOIN pg_catalog.pg_constraint constraint_ref
+      ON constraint_ref.conindid = index_state.indexrelid
     WHERE table_namespace.nspname = current_schema()
       AND NOT index_state.indisprimary
+      AND constraint_ref.oid IS NULL
     ORDER BY table_relation.relname, index_relation.relname
   `);
   assertTargetSchemaContract(
@@ -418,7 +421,9 @@ export function buildMigrationVerification(
   identities: Record<string, IdentityVerification>,
   rows: RowVerificationReport = { success: true, tables: {} },
 ): MigrationVerificationReport {
-  const tables = Object.fromEntries(MIGRATION_TABLES.map(({ name }) => {
+  const tables = Object.fromEntries(MIGRATION_TABLES
+    .filter(({ name }) => name !== 'sqlite_import_runs') // 台账表由导入过程写入，fixture 中不存在，不参与业务数据对比
+    .map(({ name }) => {
     const sourceTable = source.tables[name] ?? { count: 0, primaryKey: null };
     const targetTable = target.tables[name] ?? { count: 0, primaryKey: null };
     return [name, {
@@ -603,9 +608,13 @@ async function collectTargetRows(
       rows[table.name] = [];
       continue;
     }
-    const projections = columns.map((column) => (
-      `CASE WHEN ${quoteIdentifier(column)} IS NULL THEN NULL ELSE ${quoteIdentifier(column)}::text END AS ${quoteIdentifier(column)}`
-    ));
+    const projections = columns.map((column) => {
+      // jsonb 列若用 ::text，postgres.js 会对 jsonb 值再编码一层引号，导致双重转义；
+      // 直接返回 jsonb 字符串即可由 canonicalizeTargetJson 处理
+      const qualified = `${table.name}.${column}`;
+      const cast = JSON_COLUMNS.has(qualified) ? '' : '::text';
+      return `CASE WHEN ${quoteIdentifier(column)} IS NULL THEN NULL ELSE ${quoteIdentifier(column)}${cast} END AS ${quoteIdentifier(column)}`;
+    });
     const result = await client.query<CanonicalRow>(
       `SELECT ${projections.join(', ')} FROM ${quoteIdentifier(table.name)} ORDER BY ${quoteIdentifier(table.primaryKey)}`,
     );

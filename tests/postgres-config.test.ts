@@ -167,29 +167,41 @@ test('scoped configuration modules no longer use SQLite or MySQL query syntax', 
 test('AI config and agent skill repositories await DatabaseClient queries', async () => {
   await assertScopedFilesUsePostgres();
   const { getActiveAIModelConfig } = await import('../src/lib/ai-config');
-  const aiDatabase = new FakeConfigDatabase('admin', (text, params) => {
-    assert.match(text, /is_active = true/);
-    assert.deepEqual(params, []);
-    return result([{
-      id: '12', name: '运行模型', provider: 'deepseek', model_name: 'deepseek-chat',
-      api_endpoint: 'https://api.deepseek.com/v1/chat/completions', api_key: 'secret',
-      temperature: 0.2, max_tokens: 1000, system_prompt: null,
-    }]);
-  });
-  assert.equal((await getActiveAIModelConfig(aiDatabase))?.id, 12);
+  // 清除生产环境变量，确保走数据库分支（否则环境变量会抢先返回，跳过查询）
+  const originalDeepSeekKey = process.env.DEEPSEEK_API_KEY;
+  const originalDeepSeekUrl = process.env.DEEPSEEK_API_URL;
+  delete process.env.DEEPSEEK_API_KEY;
+  delete process.env.DEEPSEEK_API_URL;
+  try {
+    const aiDatabase = new FakeConfigDatabase('admin', (text, params) => {
+      assert.match(text, /is_active = true/);
+      assert.deepEqual(params, []);
+      return result([{
+        id: '12', name: '运行模型', provider: 'deepseek', model_name: 'deepseek-chat',
+        api_endpoint: 'https://api.deepseek.com/v1/chat/completions', api_key: 'secret',
+        temperature: 0.2, max_tokens: 1000, system_prompt: null,
+      }]);
+    });
+    assert.equal((await getActiveAIModelConfig(aiDatabase))?.id, 12);
 
-  const skillDatabase = new FakeConfigDatabase('admin', (text, params) => {
-    assert.match(text, /ILIKE \$1/);
-    assert.deepEqual(params, ['%交换机%']);
-    return result([{
-      name: '核心交换机', category: '网络', model: 'S1', original_price: '1000.00', maintenance_rate: 0.05,
-    }]);
-  });
-  installDatabase(skillDatabase);
-  const { skillExecutors } = await import('../src/lib/agent-skills');
-  const output = await skillExecutors.quota_query({ keyword: '交换机' });
-  assert.match(output, /核心交换机/);
-  assert.ok(skillDatabase.queries.every(({ text }) => !text.includes('?')));
+    const skillDatabase = new FakeConfigDatabase('admin', (text, params) => {
+      assert.match(text, /ILIKE \$1/);
+      assert.deepEqual(params, ['%交换机%']);
+      return result([{
+        name: '核心交换机', category: '网络', model: 'S1', original_price: '1000.00', maintenance_rate: 0.05,
+      }]);
+    });
+    installDatabase(skillDatabase);
+    const { skillExecutors } = await import('../src/lib/agent-skills');
+    const output = await skillExecutors.quota_query({ keyword: '交换机' });
+    assert.match(output, /核心交换机/);
+    assert.ok(skillDatabase.queries.every(({ text }) => !text.includes('?')));
+  } finally {
+    if (originalDeepSeekKey === undefined) delete process.env.DEEPSEEK_API_KEY;
+    else process.env.DEEPSEEK_API_KEY = originalDeepSeekKey;
+    if (originalDeepSeekUrl === undefined) delete process.env.DEEPSEEK_API_URL;
+    else process.env.DEEPSEEK_API_URL = originalDeepSeekUrl;
+  }
 });
 
 test('agent skill executors cover recognition, formula, report and diagnosis', async () => {

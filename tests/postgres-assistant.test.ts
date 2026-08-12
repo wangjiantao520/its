@@ -425,8 +425,11 @@ test('live PostgreSQL assistant persistence', {
 
     const completed = await chatRoutes.POST(request('/api/agents/1/chat', 'live-member-token', 'POST', { message: '完成消息' }), { params: Promise.resolve({ id: '1' }) });
     assert.match(await completed.text(), /真实 PG 终态回复/);
-    const completedLog = await harness.client.query<{ actions_executed: Record<string, unknown>; agent_response: string; session_id: string }>(`SELECT actions_executed, agent_response, session_id FROM agent_logs WHERE user_message=$1`, ['完成消息']);
-    assert.equal(completedLog.rows[0].actions_executed.status, 'completed');
+    const completedLog = await harness.client.query<{ actions_executed: string; agent_response: string; session_id: string }>(`SELECT actions_executed, agent_response, session_id FROM agent_logs WHERE user_message=$1`, ['完成消息']);
+    const completedActions = typeof completedLog.rows[0].actions_executed === 'string'
+      ? JSON.parse(completedLog.rows[0].actions_executed) as Record<string, unknown>
+      : completedLog.rows[0].actions_executed as Record<string, unknown>;
+    assert.equal(completedActions.status, 'completed');
     assert.equal(completedLog.rows[0].agent_response, '真实 PG 终态回复');
 
     let liveProviderAborted = false;
@@ -446,8 +449,11 @@ test('live PostgreSQL assistant persistence', {
     liveAbortController.abort();
     await liveInterrupted.text();
     assert.equal(liveProviderAborted, true);
-    const interruptedLog = await harness.client.query<{ actions_executed: Record<string, unknown>; agent_response: string }>(`SELECT actions_executed, agent_response FROM agent_logs WHERE user_message=$1`, ['中断消息']);
-    assert.equal(interruptedLog.rows[0].actions_executed.status, 'interrupted');
+    const interruptedLog = await harness.client.query<{ actions_executed: string; agent_response: string }>(`SELECT actions_executed, agent_response FROM agent_logs WHERE user_message=$1`, ['中断消息']);
+    const interruptedActions = typeof interruptedLog.rows[0].actions_executed === 'string'
+      ? JSON.parse(interruptedLog.rows[0].actions_executed) as Record<string, unknown>
+      : interruptedLog.rows[0].actions_executed as Record<string, unknown>;
+    assert.equal(interruptedActions.status, 'interrupted');
     assert.equal(interruptedLog.rows[0].agent_response, '');
 
     const beforeUnauthorized = await harness.client.query<{ total: string }>('SELECT COUNT(*)::text AS total FROM agent_logs');
@@ -473,10 +479,13 @@ test('live PostgreSQL assistant persistence', {
       learningRoutes.POST(request('/api/ai-learning', 'live-admin-token', 'POST', learningBody)),
     ]);
     assert.deepEqual(learningResponses.map(({ status }) => status), [200, 200]);
-    const memories = await harness.client.query<{ usage_count: number; device_config: Record<string, unknown> }>(`SELECT usage_count, device_config FROM ai_learning_memory WHERE device_signature=$1`, ['并发交换机::mid']);
+    const memories = await harness.client.query<{ usage_count: number; device_config: string }>(`SELECT usage_count, device_config FROM ai_learning_memory WHERE device_signature=$1`, ['并发交换机::mid']);
     assert.equal(memories.rows.length, 1);
     assert.equal(memories.rows[0].usage_count, 2);
-    assert.equal(memories.rows[0].device_config.deviceName, '并发交换机');
+    const learningConfig = typeof memories.rows[0].device_config === 'string'
+      ? JSON.parse(memories.rows[0].device_config) as Record<string, unknown>
+      : memories.rows[0].device_config as Record<string, unknown>;
+    assert.equal(learningConfig.deviceName, '并发交换机');
   } finally {
     globalThis.fetch = originalFetch;
     delete databaseGlobal.__itsPostgresDatabaseClient__;
