@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import * as XLSX from 'xlsx-js-style';
 import { requireApiAuth } from '@/lib/api-auth-server';
+import { BORDER_ALL, ZEBRA_FILL } from '@/lib/excel-style';
 
 type TemplateColumn = readonly [header: string, key: string, width: number];
 
@@ -100,7 +101,15 @@ export async function GET(request: NextRequest) {
           font: { bold: true, color: { rgb: 'FFFFFF' } },
           fill: { patternType: 'solid', fgColor: { rgb: '1E40AF' } },
           alignment: { vertical: 'center', horizontal: 'center' },
+          border: BORDER_ALL,
         };
+      }
+    }
+    // 示例行：边框 + 斑马纹
+    for (let index = 0; index < columns.length; index += 1) {
+      const cell = sheet[XLSX.utils.encode_cell({ r: 1, c: index })];
+      if (cell) {
+        cell.s = { border: BORDER_ALL, fill: ZEBRA_FILL, alignment: { vertical: 'center' } };
       }
     }
 

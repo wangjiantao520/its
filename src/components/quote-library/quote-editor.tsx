@@ -36,10 +36,7 @@ import {
   type QuoteItem,
   type QuoteSummary,
 } from '@/lib/quote-library-types';
-import {
-  buildSummaryAoa,
-  buildPointsAoa,
-} from '@/lib/quote-library-server-export';
+import { renderQuoteDataToWorkbook } from '@/lib/quote-library-template';
 
 interface QuoteEditorProps {
   initialData?: QuoteData;
@@ -158,13 +155,11 @@ export function QuoteEditor({ initialData, initialTotalAmount, onChange, disable
   };
 
   const downloadTemplate = () => {
-    const aoa = buildSummaryAoa({
+    const data: QuoteData = {
       template: templateVersion,
       summary: { title: title || '报价汇总', items: items.length > 0 ? items : [newItem()], totals: { taxable_total: 0, tiejiang_taxable_total: 0, yidong_taxable_total: 0 }, note: note || undefined },
-    });
-    const ws = XLSX.utils.aoa_to_sheet(aoa);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, '汇总');
+    };
+    const wb = renderQuoteDataToWorkbook(data);
     XLSX.writeFile(wb, '报价模板.xlsx');
   };
 
@@ -205,10 +200,7 @@ export function QuoteEditor({ initialData, initialTotalAmount, onChange, disable
       },
       points: points.length > 0 ? { floors: points } : undefined,
     };
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(buildSummaryAoa(data)), '汇总');
-    const pointsAoa = buildPointsAoa(data);
-    if (pointsAoa.length > 0) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(pointsAoa), 'Sheet2');
+    const wb = renderQuoteDataToWorkbook(data);
     XLSX.writeFile(wb, `${title || '报价资料'}.xlsx`);
   };
 

@@ -31,7 +31,8 @@ import {
   Mail,
   MapPin,
 } from 'lucide-react';
-import * as XLSX from 'xlsx';
+import * as XLSX from 'xlsx-js-style';
+import { newSheet, writeTable, type HeaderSpec } from '@/lib/excel-style';
 import { apiFetch } from '@/lib/api-fetch';
 
 // 响应数据可能是 { items, total } 或直接数组；这里统一用宽松类型
@@ -149,18 +150,30 @@ export function ClientList({ onCreateQuote }: ClientListProps) {
 
   // Export clients to Excel
   const handleExport = () => {
-    const exportData = clients.map((c) => ({
-      客户编号: c.client_code,
-      客户名称: c.name,
-      联系人: c.contact_person ?? '',
-      联系电话: c.contact_phone ?? '',
-      邮箱: c.contact_email ?? '',
-      地址: c.address ?? '',
-      地区: c.region ?? '',
-      等级: levelLabels[c.level] ?? c.level,
-      备注: c.remark ?? '',
-    }));
-    const ws = XLSX.utils.json_to_sheet(exportData);
+    const headers: HeaderSpec[] = [
+      { title: '客户编号', width: 14 },
+      { title: '客户名称', width: 20 },
+      { title: '联系人', width: 10 },
+      { title: '联系电话', width: 14 },
+      { title: '邮箱', width: 24 },
+      { title: '地址', width: 28 },
+      { title: '地区', width: 10 },
+      { title: '等级', width: 10 },
+      { title: '备注', width: 20 },
+    ];
+    const rows = clients.map((c) => [
+      c.client_code,
+      c.name,
+      c.contact_person ?? '',
+      c.contact_phone ?? '',
+      c.contact_email ?? '',
+      c.address ?? '',
+      c.region ?? '',
+      levelLabels[c.level] ?? c.level,
+      c.remark ?? '',
+    ]);
+    const ws = newSheet(headers);
+    writeTable(ws, 0, headers, rows);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, '客户列表');
     XLSX.writeFile(wb, '客户列表.xlsx');

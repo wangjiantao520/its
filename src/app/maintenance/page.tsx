@@ -9,7 +9,7 @@
  */
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import * as XLSX from 'xlsx-js-style';
 import { toast } from 'sonner';
 import { useUser } from '@/contexts/user-context';
@@ -62,6 +62,7 @@ import {
   Check,
   ChevronRight,
   MoreHorizontal,
+  ListChecks,
 } from 'lucide-react';
 // 旧数据结构（保持向后兼容）
 import {
@@ -120,6 +121,7 @@ import { ValueAddedServicesSelector } from '@/components/value-added-services-se
 import { SurveyQuestionnaire } from '@/components/survey-questionnaire';
 import type { SurveyAnswer } from '@/lib/survey-questions';
 import { VALUE_ADDED_SERVICES, calculateValueAddedServicesTotal, type ValueAddedService } from '@/lib/value-added-services';
+import { calculateServiceItems, type ServiceItem } from '@/lib/maintenance-service-items';
 import { AI_QUOTE_EXAMPLES } from '@/lib/ai-quote-parser';
 import { AiChatPanel } from '@/components/quotes/ai-chat-panel';
 import {
@@ -128,6 +130,7 @@ import {
   convertToChineseCurrency,
   type MaintenanceQuoteExportData,
 } from '@/lib/export-utils';
+import { buildMaintenanceWorkbook, type MaintenanceExcelInput } from '@/lib/maintenance-excel-export';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   DEPRECIATION_GRADE_MAP,
@@ -595,6 +598,10 @@ export default function MaintenanceQuotePage() {
   
   const [selectedDevices, setSelectedDevices] = useState<SelectedDevice[]>([]);
 
+  // 按次服务项（与设备维保并行，可混合）
+  const [serviceItems, setServiceItems] = useState<ServiceItem[]>([]);
+  const [nextServiceId, setNextServiceId] = useState(1);
+
   // 计算结果（支持新老两种）
   const [quoteResult, setQuoteResult] = useState<MaintenanceQuoteResult | null>(null);
   const [fullQuoteResult, setFullQuoteResult] = useState<FullMaintenanceQuoteResult | null>(null);
@@ -692,6 +699,22 @@ export default function MaintenanceQuotePage() {
     }
   };
 
+  // 从 quote_data 恢复按次服务项（历史复用 / 自动恢复共用）
+  const restoreServiceItems = (savedItems: unknown) => {
+    if (!Array.isArray(savedItems) || savedItems.length === 0) {
+      setServiceItems([]);
+      setNextServiceId(1);
+      return;
+    }
+    const items = savedItems as ServiceItem[];
+    setServiceItems(items);
+    const maxSeq = items.reduce((max, item) => {
+      const seq = /^svc-(\d+)$/.exec(item.id)?.[1];
+      return seq ? Math.max(max, parseInt(seq, 10)) : max;
+    }, 0);
+    setNextServiceId(maxSeq + 1);
+  };
+
   const handleSelectHistoryQuote = async (quote: any) => {
     try {
       const result = await apiFetch<any>(`/api/quotations/${quote.sourceId}`);
@@ -701,6 +724,7 @@ export default function MaintenanceQuotePage() {
       if (Array.isArray(reusedDevices) && reusedDevices.length > 0) {
         setSelectedDevices(reusedDevices);
       }
+      restoreServiceItems(detail.quote_data?.serviceItems);
       setClientName(detail.client_name || quote.clientName || '');
       setProjectName(detail.project_name || quote.projectName || '');
       setShowHistoryDialog(false);
@@ -727,6 +751,7 @@ export default function MaintenanceQuotePage() {
         setProjectName(data.project_name || '');
         setCurrentQuoteIdentity(savedIdentity);
       }
+      restoreServiceItems(data?.quote_data?.serviceItems);
     } catch (error) {
       console.error('自动恢复上次报价失败:', error);
     }
@@ -1109,6 +1134,45 @@ export default function MaintenanceQuotePage() {
     setSelectedDevices(newDevices);
   };
 
+  // 按次服务项：新增 / 更新 / 删除
+  const addServiceItem = () => {
+    const item: ServiceItem = {
+      id: `svc-${nextServiceId}`,
+      name: '',
+      description: '',
+      unit: '项',
+      quantity: 1,
+      unitPrice: 0,
+      timesPerYear: 1,
+      settledByActual: false,
+    };
+    setServiceItems((prev) => [...prev, item]);
+    setNextServiceId((n) => n + 1);
+  };
+
+  const updateServiceField = (id: string, field: keyof ServiceItem, value: string | number | boolean) => {
+    setServiceItems((prev) =>
+      prev.map((item) => {
+        if (item.id !== id) return item;
+        if (field === 'quantity' || field === 'unitPrice' || field === 'timesPerYear') {
+          const num = typeof value === 'number' ? value : parseFloat(String(value));
+          return { ...item, [field]: Number.isFinite(num) ? num : 0 };
+        }
+        return { ...item, [field]: value };
+      })
+    );
+  };
+
+  const removeServiceItem = (id: string) => {
+    setServiceItems((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  // 按次服务项计价（复用全局合同年限，不计税）
+  const serviceCalc = useMemo(
+    () => calculateServiceItems(serviceItems, parseInt(contractYears) || 1),
+    [serviceItems, contractYears]
+  );
+
   // 未入库设备补录状态
   const [suggestionDialogOpen, setSuggestionDialogOpen] = useState(false);
   const [suggestionSubmitting, setSuggestionSubmitting] = useState(false);
@@ -1190,7 +1254,7 @@ export default function MaintenanceQuotePage() {
   // 计算报价（支持新老两种模式）
   // 计算报价
   const handleCalculate = useCallback(() => {
-    if (selectedDevices.length === 0) {
+    if (selectedDevices.length === 0 && serviceItems.length === 0) {
       return;
     }
 
@@ -1232,12 +1296,12 @@ export default function MaintenanceQuotePage() {
       setQuoteResult(result);
       setFullQuoteResult(null);
     }
-  }, [selectedDevices, useFullData, slaConfig, region, contractYears]);
+  }, [selectedDevices, useFullData, slaConfig, region, contractYears, serviceItems]);
 
   // 手动触发计算
   const handleCalculateClick = () => {
-    if (selectedDevices.length === 0) {
-      toast.error('请先添加设备到设备列表！');
+    if (selectedDevices.length === 0 && serviceItems.length === 0) {
+      toast.error('请先添加设备或服务项！');
       return;
     }
     handleCalculate();
@@ -1252,8 +1316,8 @@ export default function MaintenanceQuotePage() {
 
   // 导出报价单（导出Word）- 优先使用完整数据
   const handleExportQuote = () => {
-    if ((!quoteResult && !fullQuoteResult) || selectedDevices.length === 0) {
-      toast.error('请先添加设备并计算报价后再导出！');
+    if ((!quoteResult && !fullQuoteResult && serviceItems.length === 0) || (selectedDevices.length === 0 && serviceItems.length === 0)) {
+      toast.error('请先添加设备或服务项并计算报价后再导出！');
       return;
     }
 
@@ -1303,10 +1367,27 @@ export default function MaintenanceQuotePage() {
     const subtotalAfterDiscount = useFull ? activeFullResult!.subtotalAfterDiscount : subtotalBeforeDiscount;
     const bulkDiscountAmount = useFull ? activeFullResult!.bulkDiscountAmount : 0;
     const years = parseInt(contractYears) as 1 | 2 | 3;
-    const grandTotal = useFull
+    const deviceGrandTotal = useFull
       ? activeFullResult!.totalByYear[years]
       : (activeSimpleResult?.totalByYear[years] ?? 0);
     const taxAmount = useFull ? activeFullResult!.taxAmount : (activeSimpleResult?.taxAmount ?? 0);
+
+    // 按次服务项清单（不计税，直接叠加）
+    const serviceList = serviceItems.map((item) => {
+      const calc = serviceCalc.results.find((r) => r.item.id === item.id);
+      return {
+        name: item.name || '-',
+        description: item.description || '-',
+        unit: item.unit || '项',
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        timesPerYear: item.timesPerYear,
+        settledByActual: item.settledByActual,
+        yearCost: calc?.yearCost ?? 0,
+        totalCost: calc?.totalCost ?? 0,
+      };
+    });
+    const grandTotal = deviceGrandTotal + serviceCalc.total;
 
     const exportData = {
       projectName,
@@ -1333,6 +1414,7 @@ export default function MaintenanceQuotePage() {
       equipmentCount: selectedDevices.reduce((sum, d) => sum + d.quantity, 0),
       bulkDiscount: useFull ? (1 - activeFullResult!.bulkDiscountAmount / activeFullResult!.subtotalBeforeDiscount) : 1.0,
       equipmentList,
+      serviceList,
       summary: {
         totalInspection,
         totalOnsite,
@@ -1347,6 +1429,8 @@ export default function MaintenanceQuotePage() {
         yearsDiscountAmount: 0,
         bulkDiscountAmount,
         subtotal: subtotalAfterDiscount,
+        serviceYearTotal: serviceCalc.yearTotal,
+        serviceTotal: serviceCalc.total,
         tax: taxAmount,
         grandTotal,
         grandTotalRMB: convertToChineseCurrency(grandTotal),
@@ -1359,16 +1443,16 @@ export default function MaintenanceQuotePage() {
 
   // 保存报价
   const handleSaveQuote = async (): Promise<string | null> => {
-    if ((!quoteResult && !fullQuoteResult) || selectedDevices.length === 0) {
-      toast.error('请先添加设备并点击"计算报价"按钮后再保存！');
+    if ((!quoteResult && !fullQuoteResult && serviceItems.length === 0) || (selectedDevices.length === 0 && serviceItems.length === 0)) {
+      toast.error('请先添加设备或服务项并点击"计算报价"按钮后再保存！');
       return null;
     }
 
     const timestamp = Date.now();
     const newQuoteNumber = `WB${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}${String(new Date().getDate()).padStart(2, '0')}${String(timestamp % 1000).padStart(3, '0')}`;
 
-    // 计算总金额
-    const totalAmount = fullQuoteResult?.finalTotal || quoteResult?.total || 0;
+    // 计算总金额（设备维保 + 按次服务项，服务项不计税）
+    const totalAmount = (fullQuoteResult?.finalTotal || quoteResult?.total || 0) + serviceCalc.total;
 
     // 准备设备明细数据
     const devices = selectedDevices.map(item => ({
@@ -1395,7 +1479,8 @@ export default function MaintenanceQuotePage() {
           quote_data: {
             quoteNumber: newQuoteNumber,
             result: fullQuoteResult || quoteResult,
-            devices: selectedDevices
+            devices: selectedDevices,
+            serviceItems
           },
           devices
         })
@@ -1422,312 +1507,142 @@ export default function MaintenanceQuotePage() {
     }
   };
 
-  // 导出Excel
+  // 导出Excel（多Sheet美化）
   const handleExportExcel = () => {
-    if ((!quoteResult && !fullQuoteResult) || selectedDevices.length === 0) {
-      toast.error('请先添加设备并点击"计算报价"按钮后再导出！');
+    if ((!quoteResult && !fullQuoteResult && serviceItems.length === 0) || (selectedDevices.length === 0 && serviceItems.length === 0)) {
+      toast.error('请先添加设备或服务项并点击"计算报价"按钮后再导出！');
       return;
     }
-
-    // 辅助函数：给表格添加样式
-    const applyStylesToSheet = (sheet: XLSX.WorkSheet, data: any[]) => {
-      const range = XLSX.utils.decode_range(sheet['!ref'] || 'A1');
-      
-      // 表头样式：深蓝色背景、白色字体、加粗
-      const headerStyle = {
-        fill: { fgColor: { rgb: '1e3a8a' } },
-        font: { color: { rgb: 'ffffff' }, bold: true },
-        alignment: { horizontal: 'center', vertical: 'center' },
-        border: {
-          top: { style: 'thin', color: { rgb: '000000' } },
-          bottom: { style: 'thin', color: { rgb: '000000' } },
-          left: { style: 'thin', color: { rgb: '000000' } },
-          right: { style: 'thin', color: { rgb: '000000' } }
-        }
-      };
-      
-      // 偶数行样式：浅蓝背景
-      const evenRowStyle = {
-        fill: { fgColor: { rgb: 'eff6ff' } },
-        border: {
-          top: { style: 'thin', color: { rgb: 'cccccc' } },
-          bottom: { style: 'thin', color: { rgb: 'cccccc' } },
-          left: { style: 'thin', color: { rgb: 'cccccc' } },
-          right: { style: 'thin', color: { rgb: 'cccccc' } }
-        }
-      };
-      
-      // 奇数行样式：白色背景
-      const oddRowStyle = {
-        fill: { fgColor: { rgb: 'ffffff' } },
-        border: {
-          top: { style: 'thin', color: { rgb: 'cccccc' } },
-          bottom: { style: 'thin', color: { rgb: 'cccccc' } },
-          left: { style: 'thin', color: { rgb: 'cccccc' } },
-          right: { style: 'thin', color: { rgb: 'cccccc' } }
-        }
-      };
-
-      // 应用表头样式
-      for (let col = range.s.c; col <= range.e.c; col++) {
-        const cellAddress = XLSX.utils.encode_cell({ r: 0, c: col });
-        if (!sheet[cellAddress]) sheet[cellAddress] = { t: 's', v: '' };
-        sheet[cellAddress].s = headerStyle;
-      }
-
-      // 应用数据行样式
-      for (let row = 1; row <= data.length; row++) {
-        const rowStyle = row % 2 === 0 ? evenRowStyle : oddRowStyle;
-        for (let col = range.s.c; col <= range.e.c; col++) {
-          const cellAddress = XLSX.utils.encode_cell({ r: row, c: col });
-          if (!sheet[cellAddress]) sheet[cellAddress] = { t: 's', v: '' };
-          sheet[cellAddress].s = rowStyle;
-        }
-      }
-    };
 
     // 生成报价单号
     const timestamp = Date.now();
     const quoteNumber = `WB${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}${String(new Date().getDate()).padStart(2, '0')}${String(timestamp % 1000).padStart(3, '0')}`;
 
-    // 1. 设备清单Sheet
-    const equipmentData = selectedDevices.map((device, index) => ({
-      '序号': index + 1,
-      '设备名称': device.quota.name,
-      '规格型号': device.quota.model,
-      '数量': device.quantity,
-      '成新率': device.depreciationLevel,
-      '设备分档': device.deviceGrade,
-      '在保状态': device.inWarranty ? '在保' : '过保',
-      '需要备件': device.needSparePart ? '是' : '否',
-      '合同年限': `${device.contractYears}年`,
-      '运维团队经验': device.slaConfig?.teamExperience || '-',
-      '安全等级': device.slaConfig?.securityLevel || '-',
-      '支持方式': device.slaConfig?.supportMode || '-',
-      '故障恢复时间': device.slaConfig?.faultRecoveryTime || '-',
-      '到场时间': device.slaConfig?.arrivalTime || '-',
-      '响应时间': device.slaConfig?.responseTime || '-',
-      '服务时间': device.slaConfig?.serviceTime || '-',
+    const years = parseInt(contractYears) as 1 | 2 | 3;
+    const deviceGrandTotal = useFullData && fullQuoteResult
+      ? fullQuoteResult.totalByYear[years]
+      : (quoteResult?.totalByYear[years] ?? 0);
+    const grandTotal = deviceGrandTotal + serviceCalc.total;
+
+    // 设备清单（选中设备）
+    const deviceList = selectedDevices.map((device) => ({
+      name: device.quota.name || '设备',
+      model: device.quota.model || '-',
+      category: device.quota.category || '未分类',
+      quantity: device.quantity,
+      depreciationLevel: device.depreciationLevel,
+      deviceGrade: device.deviceGrade,
+      inWarranty: device.inWarranty,
+      needSparePart: device.needSparePart,
+      contractYears: device.contractYears,
+      slaText: device.slaConfig
+        ? `${device.slaConfig.teamExperience ?? '有经验'} / ${device.slaConfig.supportMode ?? '远程+现场'}`
+        : '-',
+      subtotal: device.quota.cityPrice * device.quantity,
     }));
 
-    // 2. 设备报价明细Sheet
-    let equipmentQuoteData: any[] = [];
-    if (useFullData && fullQuoteResult) {
-      equipmentQuoteData = fullQuoteResult.deviceItems.map((item, index) => ({
-        '序号': index + 1,
-        '设备名称': item.quota.name,
-        '成新率': item.depreciationLevel,
-        '设备分档': item.deviceGrade,
-        '数量': item.quantity,
-        '巡检时长（分钟）': item.inspectionDuration,
-        '巡检费': formatCurrencyLocal(item.inspectionFee),
-        '上门费': formatCurrencyLocal(item.onSiteFee),
-        '故障处理费': formatCurrencyLocal(item.faultHandlingFee),
-        '工具仪表摊销': formatCurrencyLocal(item.toolAmortization),
-        '耗材费': formatCurrencyLocal(item.consumableFee),
-        '备件风险准备金': formatCurrencyLocal(item.sparePartReserve),
-        '单价（城区）': formatCurrencyLocal(item.cityPrice),
-        '小计（城区）': formatCurrencyLocal(item.totalAfterDiscount),
-      }));
-    } else if (quoteResult) {
-      equipmentQuoteData = quoteResult.deviceItems.map((item, index) => ({
-        '序号': index + 1,
-        '设备名称': item.quota.name,
-        '成新率': (item as any).depreciationLevel || '-',
-        '设备分档': (item as any).deviceGrade || '-',
-        '数量': item.quantity,
-        '巡检时长（分钟）': (item as any).inspectionDuration || item.quota.inspectionDuration,
-        '巡检费': formatCurrencyLocal(item.inspectionFee),
-        '上门费': formatCurrencyLocal(item.onSiteFee),
-        '故障处理费': formatCurrencyLocal(item.faultHandlingFee),
-        '工具仪表摊销': formatCurrencyLocal(item.toolAmortization),
-        '耗材费': formatCurrencyLocal(item.consumableFee),
-        '备件风险准备金': formatCurrencyLocal(item.sparePartReserve),
-        '单价': formatCurrencyLocal(item.cityPrice),
-        '小计': formatCurrencyLocal(item.totalAfterDiscount),
-      }));
-    }
+    // 设备报价明细（完整计算逻辑）
+    const quoteItems = (useFullData && fullQuoteResult ? fullQuoteResult.deviceItems : quoteResult?.deviceItems ?? []).map((item) => ({
+      name: item.quota.name || '设备',
+      depreciationLevel: (item as any).depreciationLevel || '-',
+      deviceGrade: (item as any).deviceGrade || '-',
+      quantity: item.quantity,
+      inspectionFee: item.inspectionFee,
+      onSiteFee: item.onSiteFee,
+      faultHandlingFee: item.faultHandlingFee,
+      toolAmortization: item.toolAmortization,
+      consumableFee: item.consumableFee,
+      sparePartReserve: item.sparePartReserve,
+      unitPrice: item.cityPrice,
+      subtotal: item.totalAfterDiscount,
+    }));
 
-    // 3. 费用总结Sheet
-    let summaryData: any[] = [];
-    if (useFullData && fullQuoteResult) {
-      // 计算当前选中地区的详细费用
-      const regionFactor = FULL_REGION_FACTORS[selectedRegionForSummary as keyof typeof FULL_REGION_FACTORS];
-      const totalInspection = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.inspectionFee * item.quantity * regionFactor, 0);
-      const totalOnSite = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.onSiteFee * item.quantity * regionFactor, 0);
-      const totalFaultHandling = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.faultHandlingFee * item.quantity * regionFactor, 0);
-      const totalTools = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.toolAmortization * item.quantity * regionFactor, 0);
-      const totalConsumables = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.consumableFee * item.quantity * regionFactor, 0);
-      const totalSpareParts = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.sparePartReserve * item.quantity * regionFactor, 0);
-      
-      const totalInspectionDuration = fullQuoteResult.deviceItems.reduce((sum, item) => sum + item.inspectionDuration * item.quantity, 0);
-      const totalDevices = fullQuoteResult.totalDevices;
-      
-      summaryData = [
-        { '项目': '客户名称', '内容': clientName || '-' },
-        { '项目': '项目名称', '内容': projectName || '-' },
-        { '项目': '联系人', '内容': contactPerson || '-' },
-        { '项目': '联系电话', '内容': contactPhone || '-' },
-        { '项目': '报价日期', '内容': quoteDate || '-' },
-        { '项目': '合同年限', '内容': `${contractYears}年` },
-        { '项目': '当前显示地区', '内容': selectedRegionForSummary },
-        { '项目': '', '内容': '' },
-        { '项目': '统计信息', '内容': '' },
-        { '项目': '设备总数', '内容': totalDevices },
-        { '项目': '总巡检时长', '内容': `${totalInspectionDuration}分钟` },
-        { '项目': '', '内容': '' },
-        { '项目': '费用明细汇总', '内容': '' },
-        { '项目': '巡检费合计', '内容': formatCurrencyLocal(totalInspection) },
-        { '项目': '上门费合计', '内容': formatCurrencyLocal(totalOnSite) },
-        { '项目': '故障处理费合计', '内容': formatCurrencyLocal(totalFaultHandling) },
-        { '项目': '工具仪表摊销', '内容': formatCurrencyLocal(totalTools) },
-        { '项目': '耗材费合计', '内容': formatCurrencyLocal(totalConsumables) },
-        { '项目': '备件风险准备金', '内容': formatCurrencyLocal(totalSpareParts) },
-        { '项目': '', '内容': '' },
-        { '项目': '小计（不含税）', '内容': formatCurrencyLocal(fullQuoteResult.totalByRegion[selectedRegionForSummary].subtotal) },
-        { '项目': '税额', '内容': formatCurrencyLocal(fullQuoteResult.totalByRegion[selectedRegionForSummary].taxAmount) },
-        { '项目': '', '内容': '' },
-        { '项目': '第一年总价', '内容': formatCurrencyLocal(fullQuoteResult.totalByYear[1]) },
-        { '项目': '第二年总价', '内容': formatCurrencyLocal(fullQuoteResult.totalByYear[2]) },
-        { '项目': '第三年总价', '内容': formatCurrencyLocal(fullQuoteResult.totalByYear[3]) },
-      ];
-    } else if (quoteResult) {
-      const totalDevices = quoteResult.deviceItems.reduce((sum, d) => sum + d.quantity, 0);
-      summaryData = [
-        { '项目': '客户名称', '内容': clientName || '-' },
-        { '项目': '项目名称', '内容': projectName || '-' },
-        { '项目': '联系人', '内容': contactPerson || '-' },
-        { '项目': '联系电话', '内容': contactPhone || '-' },
-        { '项目': '报价日期', '内容': quoteDate || '-' },
-        { '项目': '合同年限', '内容': `${contractYears}年` },
-        { '项目': '', '内容': '' },
-        { '项目': '统计信息', '内容': '' },
-        { '项目': '设备总数', '内容': totalDevices },
-        { '项目': '', '内容': '' },
-        { '项目': '小计（不含税）', '内容': formatCurrencyLocal((quoteResult as any).subtotalAfterDiscount || 0) },
-        { '项目': '税额', '内容': formatCurrencyLocal(quoteResult.taxAmount) },
-        { '项目': '', '内容': '' },
-        { '项目': '第一年总价', '内容': formatCurrencyLocal(quoteResult.totalByYear[1]) },
-        { '项目': '第二年总价', '内容': formatCurrencyLocal(quoteResult.totalByYear[2]) },
-        { '项目': '第三年总价', '内容': formatCurrencyLocal(quoteResult.totalByYear[3]) },
-      ];
-    }
+    // 服务项
+    const serviceList = serviceItems.map((item) => {
+      const calc = serviceCalc.results.find((r) => r.item.id === item.id);
+      return {
+        name: item.name || '-',
+        description: item.description || '-',
+        unit: item.unit || '项',
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        timesPerYear: item.timesPerYear,
+        settledByActual: item.settledByActual,
+        yearCost: calc?.yearCost ?? 0,
+        totalCost: calc?.totalCost ?? 0,
+      };
+    });
 
-    // 4. 分地区报价Sheet
-    let regionQuoteData: any[] = [];
-    if (useFullData && fullQuoteResult) {
-      regionQuoteData = Object.entries(fullQuoteResult.totalByRegion).map(([region, data]) => ({
-        '地区': region,
-        '地区系数': FULL_REGION_FACTORS[region as keyof typeof FULL_REGION_FACTORS],
-        '不含税小计': formatCurrencyLocal(data.subtotal),
-        '税额': formatCurrencyLocal(data.taxAmount),
-        '含税总价': formatCurrencyLocal(data.total),
-      }));
-      
-      // 添加各年总价
-      regionQuoteData.push({ '地区': '', '地区系数': '', '不含税小计': '', '税额': '', '含税总价': '' });
-      regionQuoteData.push({ '地区': '年度总价', '地区系数': '', '不含税小计': '', '税额': '', '含税总价': '' });
-      regionQuoteData.push({ '地区': '第一年', '地区系数': '', '不含税小计': '', '税额': '', '含税总价': formatCurrencyLocal(fullQuoteResult.totalByYear[1]) });
-      regionQuoteData.push({ '地区': '第二年', '地区系数': '', '不含税小计': '', '税额': '', '含税总价': formatCurrencyLocal(fullQuoteResult.totalByYear[2]) });
-      regionQuoteData.push({ '地区': '第三年', '地区系数': '', '不含税小计': '', '税额': '', '含税总价': formatCurrencyLocal(fullQuoteResult.totalByYear[3]) });
-    }
-
-    // 5. 费用明细Sheet（与页面显示一致）
-    let costDetailData: any[] = [];
-    if (useFullData && fullQuoteResult) {
-      costDetailData = fullQuoteResult.deviceItems.map((item, index) => {
-        const regionFactor = FULL_REGION_FACTORS[selectedRegionForSummary as keyof typeof FULL_REGION_FACTORS];
-        // 折扣因子与小计 totalAfterDiscount 一致：批量折扣 × 年限折扣 × 合同年限
-        const discountFactor = (item.bulkDiscountFactor ?? 1.0) * (item.yearDiscountFactor ?? 1.0) * (item.contractYears || 1);
-        return {
-          '设备名称': item.quota.name,
-          '成新率': item.depreciationLevel,
-          '设备分档': item.deviceGrade,
-          '数量': item.quantity,
-          '巡检时长（分钟）': item.inspectionDuration,
-          '巡检费': formatCurrencyLocal(item.inspectionFee * item.quantity * regionFactor * discountFactor),
-          '上门费': formatCurrencyLocal(item.onSiteFee * item.quantity * regionFactor * discountFactor),
-          '故障处理费': formatCurrencyLocal(item.faultHandlingFee * item.quantity * regionFactor * discountFactor),
-          '工具仪表摊销': formatCurrencyLocal(item.toolAmortization * item.quantity * regionFactor * discountFactor),
-          '耗材费': formatCurrencyLocal(item.consumableFee * item.quantity * regionFactor * discountFactor),
-          '备件风险准备金': formatCurrencyLocal(item.sparePartReserve * item.quantity * regionFactor * discountFactor),
-          '单价': formatCurrencyLocal(item.cityPrice * regionFactor),
-          '小计': formatCurrencyLocal(item.totalAfterDiscount * regionFactor),
-        };
-      });
-    } else if (quoteResult) {
-      costDetailData = quoteResult.deviceItems.map((item, index) => ({
-        '设备名称': item.quota.name,
-        '成新率': (item as any).depreciationLevel || '-',
-        '设备分档': (item as any).deviceGrade || '-',
-        '数量': item.quantity,
-        '巡检时长（分钟）': (item as any).inspectionDuration || item.quota.inspectionDuration,
-        '巡检费': formatCurrencyLocal(item.inspectionFee * item.quantity),
-        '上门费': formatCurrencyLocal(item.onSiteFee * item.quantity),
-        '故障处理费': formatCurrencyLocal(item.faultHandlingFee * item.quantity),
-        '工具仪表摊销': formatCurrencyLocal(item.toolAmortization * item.quantity),
-        '耗材费': formatCurrencyLocal(item.consumableFee * item.quantity),
-        '备件风险准备金': formatCurrencyLocal(item.sparePartReserve * item.quantity),
-        '单价': formatCurrencyLocal(item.cityPrice),
-        '小计': formatCurrencyLocal(item.totalAfterDiscount),
-      }));
-    }
-
-    // 创建Workbook - 合并所有数据到一个Sheet
-    const workbook = XLSX.utils.book_new();
-    
-    // 合并所有数据到一个数组
-    const allData: any[] = [];
-    
-    // 基本信息
-    allData.push({ "": "维保报价单", " ": "" });
-    allData.push({ "": "", " ": "" });
-    allData.push({ "": "客户名称", " ": clientName || "-" });
-    allData.push({ "": "项目名称", " ": projectName || "-" });
-    allData.push({ "": "报价日期", " ": quoteDate || "-" });
-    allData.push({ "": "报价单号", " ": quoteNumber });
-    allData.push({ "": "", " ": "" });
-    
-    // 设备清单
-    allData.push({ "": "设备清单", " ": "" });
-    equipmentData.forEach(item => allData.push(item));
-    allData.push({ "": "", " ": "" });
-    
-    // 设备报价明细
-    allData.push({ "": "设备报价明细", " ": "" });
-    equipmentQuoteData.forEach(item => allData.push(item));
-    allData.push({ "": "", " ": "" });
-    
-    // 费用汇总
-    allData.push({ "": "费用汇总", " ": "" });
-    summaryData.forEach(item => allData.push(item));
-    allData.push({ "": "", " ": "" });
-    
     // 分地区报价
-    allData.push({ "": "分地区报价", " ": "" });
-    regionQuoteData.forEach(item => allData.push(item));
-    allData.push({ "": "", " ": "" });
-    
-    // 费用明细
-    allData.push({ "": "费用明细", " ": "" });
-    costDetailData.forEach(item => allData.push(item));
-    
-    // 创建Sheet并下载
-    const sheet = XLSX.utils.json_to_sheet(allData);
-    sheet["!cols"] = [{ wch: 20 }, { wch: 25 }];
-    XLSX.utils.book_append_sheet(workbook, sheet, "维保报价单");
+    const regions = useFullData && fullQuoteResult
+      ? Object.entries(fullQuoteResult.totalByRegion).map(([region, data]) => ({
+          region,
+          factor: FULL_REGION_FACTORS[region as keyof typeof FULL_REGION_FACTORS] ?? 1,
+          subtotal: data.subtotal,
+          tax: data.taxAmount,
+          total: data.total,
+        }))
+      : [];
+
+    const yearly = [
+      { year: '第一年', total: useFullData && fullQuoteResult ? fullQuoteResult.totalByYear[1] : (quoteResult?.totalByYear[1] ?? 0) },
+      { year: '第二年', total: useFullData && fullQuoteResult ? fullQuoteResult.totalByYear[2] : (quoteResult?.totalByYear[2] ?? 0) },
+      { year: '第三年', total: useFullData && fullQuoteResult ? fullQuoteResult.totalByYear[3] : (quoteResult?.totalByYear[3] ?? 0) },
+    ];
+
+    const input: MaintenanceExcelInput = {
+      info: {
+        projectName: projectName || '-',
+        clientName: clientName || '-',
+        contactPerson: contactPerson || '-',
+        contactPhone: contactPhone || '-',
+        quoteNumber,
+        quoteDate: quoteDate || '-',
+        engineerLevel: '中级',
+        region: region || '-',
+        contractYears: years,
+        equipmentCount: selectedDevices.reduce((sum, d) => sum + d.quantity, 0),
+        serviceCount: serviceItems.length,
+        grandTotal,
+        grandTotalRMB: convertToChineseCurrency(grandTotal),
+      },
+      devices: deviceList,
+      quoteItems,
+      summary: {
+        totalInspection: quoteItems.reduce((s, q) => s + q.inspectionFee * q.quantity, 0),
+        totalOnsite: quoteItems.reduce((s, q) => s + q.onSiteFee * q.quantity, 0),
+        totalRepair: quoteItems.reduce((s, q) => s + q.faultHandlingFee * q.quantity, 0),
+        totalTools: quoteItems.reduce((s, q) => s + q.toolAmortization * q.quantity, 0),
+        totalConsumables: quoteItems.reduce((s, q) => s + q.consumableFee * q.quantity, 0),
+        totalSpareParts: quoteItems.reduce((s, q) => s + q.sparePartReserve * q.quantity, 0),
+        subtotalBeforeDiscount: useFullData && fullQuoteResult ? fullQuoteResult.subtotalBeforeDiscount : 0,
+        subtotalAfterDiscount: useFullData && fullQuoteResult ? fullQuoteResult.subtotalAfterDiscount : (quoteResult?.subtotal ?? 0),
+        bulkDiscountAmount: useFullData && fullQuoteResult ? fullQuoteResult.bulkDiscountAmount : 0,
+        subtotal: (useFullData && fullQuoteResult ? fullQuoteResult.subtotalAfterDiscount : (quoteResult?.subtotal ?? 0)) + serviceCalc.total,
+        serviceYearTotal: serviceCalc.yearTotal,
+        serviceTotal: serviceCalc.total,
+        tax: useFullData && fullQuoteResult ? fullQuoteResult.taxAmount : (quoteResult?.taxAmount ?? 0),
+        grandTotal,
+      },
+      serviceItems: serviceList,
+      regions,
+      yearly,
+    };
+
+    const workbook = buildMaintenanceWorkbook(input);
     XLSX.writeFile(workbook, `维保报价单_${quoteNumber}.xlsx`);
   };
 
+
   // 自动计算
   useEffect(() => {
-    if (selectedDevices.length > 0) {
+    if (selectedDevices.length > 0 || serviceItems.length > 0) {
       handleCalculate();
     } else {
       setQuoteResult(null);
       setFullQuoteResult(null);
     }
-  }, [selectedDevices, slaConfig, contractYears, region, useFullData]);
+  }, [selectedDevices, serviceItems, slaConfig, contractYears, region, useFullData]);
 
   return (
     <div className="space-y-6">
@@ -2708,6 +2623,140 @@ export default function MaintenanceQuotePage() {
               </CardContent>
             </Card>
 
+            {/* 按次服务项（与设备维保并行，可混合；金额不计税） */}
+            <Card className="lg:col-span-3">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <ListChecks className="h-5 w-5 text-blue-600" />
+                      按次服务项
+                    </CardTitle>
+                    <CardDescription>按「服务类型 × 单次单价 × 年预估次数」计价，不计增值税；金额直接叠加到报价总额</CardDescription>
+                  </div>
+                  <Button variant="outline" className="flex items-center gap-2" onClick={addServiceItem}>
+                    <Plus className="h-4 w-4" />
+                    添加服务项
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {serviceItems.length === 0 ? (
+                  <div className="text-center py-8 text-slate-400">
+                    暂无服务项，点击右上角「添加服务项」录入按次服务（如机房 UPS / 精密空调维护）
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="border rounded-lg overflow-hidden">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>服务类型</TableHead>
+                            <TableHead>服务内容</TableHead>
+                            <TableHead className="w-20">数量</TableHead>
+                            <TableHead className="w-16">单位</TableHead>
+                            <TableHead className="w-24">单价（元）</TableHead>
+                            <TableHead className="w-20">年预估次数</TableHead>
+                            <TableHead className="w-24">按实结算</TableHead>
+                            <TableHead className="text-right w-28">年费用</TableHead>
+                            <TableHead className="text-right w-28">{contractYears}年总额</TableHead>
+                            <TableHead className="w-16">操作</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {serviceItems.map((item) => {
+                            const calc = serviceCalc.results.find((r) => r.item.id === item.id);
+                            return (
+                              <TableRow key={item.id}>
+                                <TableCell>
+                                  <Input
+                                    placeholder="服务类型（如：例行巡检）"
+                                    value={item.name}
+                                    onChange={(e) => updateServiceField(item.id, 'name', e.target.value)}
+                                  />
+                                </TableCell>
+                                <TableCell>
+                                  <Input
+                                    placeholder="服务内容"
+                                    value={item.description}
+                                    onChange={(e) => updateServiceField(item.id, 'description', e.target.value)}
+                                  />
+                                </TableCell>
+                                <TableCell>
+                                  <Input
+                                    type="number"
+                                    min="0"
+                                    value={item.quantity}
+                                    onChange={(e) => updateServiceField(item.id, 'quantity', e.target.value)}
+                                    className="w-20"
+                                  />
+                                </TableCell>
+                                <TableCell>
+                                  <Input
+                                    value={item.unit}
+                                    onChange={(e) => updateServiceField(item.id, 'unit', e.target.value)}
+                                    className="w-16"
+                                  />
+                                </TableCell>
+                                <TableCell>
+                                  <Input
+                                    type="number"
+                                    min="0"
+                                    value={item.unitPrice}
+                                    onChange={(e) => updateServiceField(item.id, 'unitPrice', e.target.value)}
+                                    className="w-24"
+                                  />
+                                </TableCell>
+                                <TableCell>
+                                  <Input
+                                    type="number"
+                                    min="0"
+                                    value={item.timesPerYear}
+                                    onChange={(e) => updateServiceField(item.id, 'timesPerYear', e.target.value)}
+                                    className="w-20"
+                                  />
+                                </TableCell>
+                                <TableCell>
+                                  <div className="flex items-center gap-2">
+                                    <Switch
+                                      checked={item.settledByActual}
+                                      onCheckedChange={(checked) => updateServiceField(item.id, 'settledByActual', checked)}
+                                    />
+                                    <span className="text-xs text-slate-500">{item.settledByActual ? '是' : '否'}</span>
+                                  </div>
+                                </TableCell>
+                                <TableCell className="text-right font-medium">
+                                  {item.settledByActual ? '按实结算' : formatCurrencyLocal(calc?.yearCost ?? 0)}
+                                </TableCell>
+                                <TableCell className="text-right font-medium text-blue-700">
+                                  {formatCurrencyLocal(calc?.totalCost ?? 0)}
+                                </TableCell>
+                                <TableCell>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => removeServiceItem(item.id)}
+                                  >
+                                    <Trash2 className="h-4 w-4 text-red-500" />
+                                  </Button>
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })}
+                        </TableBody>
+                      </Table>
+                    </div>
+                    <div className="flex items-center justify-end gap-6">
+                      <div className="text-sm text-slate-500">服务项年费用小计</div>
+                      <div className="text-lg font-bold text-slate-900">{formatCurrencyLocal(serviceCalc.yearTotal)}</div>
+                      <div className="text-sm text-slate-500">服务项总额（{contractYears}年）</div>
+                      <div className="text-lg font-bold text-blue-700">{formatCurrencyLocal(serviceCalc.total)}</div>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
             {/* 计算结果 - 支持新老两种模式 */}
             {(quoteResult || fullQuoteResult) && (
               <Card className="lg:col-span-3">
@@ -3165,11 +3214,25 @@ export default function MaintenanceQuotePage() {
                               <span className="font-medium">-{formatCurrencyLocal(fullQuoteResult.bulkDiscountAmount)}</span>
                             </div>
                           )}
+                          {serviceItems.length > 0 && (
+                            <>
+                              <div className="flex justify-between text-sm">
+                                <span className="text-slate-500">按次服务项（{contractYears}年）</span>
+                                <span className="font-medium">
+                                  {formatCurrencyLocal(serviceCalc.total)}
+                                </span>
+                              </div>
+                              <div className="flex justify-between text-sm text-slate-400">
+                                <span>　└ 服务项年费用小计</span>
+                                <span>{formatCurrencyLocal(serviceCalc.yearTotal)}</span>
+                              </div>
+                            </>
+                          )}
                           <div className="h-px bg-slate-200" />
                           <div className="flex justify-between">
                             <span className="font-semibold">含税总价</span>
                             <span className="text-xl font-bold text-blue-700">
-                              {formatCurrencyLocal(fullQuoteResult?.finalTotal || quoteResult?.total || 0)}
+                              {formatCurrencyLocal((fullQuoteResult?.finalTotal || quoteResult?.total || 0) + serviceCalc.total)}
                             </span>
                           </div>
                         </CardContent>

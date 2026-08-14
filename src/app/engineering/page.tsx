@@ -25,9 +25,10 @@ import {
   type IntelligentItem,
 } from '@/lib/self-construction-quota';
 import { toast } from 'sonner';
-import * as XLSX from 'xlsx';
+import * as XLSX from 'xlsx-js-style';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
+import { newSheet, writeTable, put, merge, type HeaderSpec } from '@/lib/excel-style';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationPrevious, PaginationNext, PaginationEllipsis } from '@/components/ui/pagination';
@@ -1347,67 +1348,123 @@ export default function EngineeringPage() {
 
       const wb = XLSX.utils.book_new();
 
-      // 汇总表
-      const summaryData = quoteList.map((data, idx) => ({
-        '序号': idx + 1,
-        '报价单号': data.quote_number,
-        '项目名称': data.project_name,
-        '客户名称': data.client_name || '',
-        '联系人': data.contact_person || '',
-        '联系电话': data.contact_phone || '',
-        '直接工程费': num(data.subtotal),
-        '管理费': num(data.management_fee),
-        '利润': num(data.profit),
-        '规费': num(data.regulatory_fee),
-        '税金': num(data.tax),
-        '报价总额': num(data.total),
-        '状态': data.status === 'draft' ? '草稿' : data.status === 'submitted' ? '已提交' : data.status === 'approved' ? '已审批' : data.status === 'rejected' ? '已驳回' : data.status,
-        '创建时间': new Date(data.created_at).toLocaleString('zh-CN'),
-      }));
-      const summaryWs = XLSX.utils.json_to_sheet(summaryData);
-      summaryWs['!cols'] = [
-        { wch: 6 }, { wch: 20 }, { wch: 24 }, { wch: 16 }, { wch: 10 }, { wch: 14 },
-        { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 14 },
-        { wch: 8 }, { wch: 20 },
+      // ===== 汇总表 =====
+      const summaryHeaders: HeaderSpec[] = [
+        { title: '序号', width: 6 },
+        { title: '报价单号', width: 20 },
+        { title: '项目名称', width: 26 },
+        { title: '客户名称', width: 16 },
+        { title: '联系人', width: 10 },
+        { title: '联系电话', width: 14 },
+        { title: '直接工程费', width: 14 },
+        { title: '管理费', width: 12 },
+        { title: '利润', width: 12 },
+        { title: '规费', width: 12 },
+        { title: '税金', width: 12 },
+        { title: '报价总额', width: 14 },
+        { title: '状态', width: 8 },
+        { title: '创建时间', width: 20 },
       ];
+      const summaryWs = newSheet(summaryHeaders);
+      const summaryRows = quoteList.map((data, idx) => [
+        idx + 1,
+        data.quote_number,
+        data.project_name,
+        data.client_name || '',
+        data.contact_person || '',
+        data.contact_phone || '',
+        num(data.subtotal),
+        num(data.management_fee),
+        num(data.profit),
+        num(data.regulatory_fee),
+        num(data.tax),
+        num(data.total),
+        data.status === 'draft' ? '草稿' : data.status === 'submitted' ? '已提交' : data.status === 'approved' ? '已审批' : data.status === 'rejected' ? '已驳回' : data.status,
+        new Date(data.created_at).toLocaleString('zh-CN'),
+      ]);
+      writeTable(summaryWs, 0, summaryHeaders, summaryRows, {
+        moneyCols: [6, 7, 8, 9, 10, 11],
+        totalRow: [
+          '', '合计', '', '', '', '',
+          summaryRows.reduce((s, r) => s + Number(r[6]), 0),
+          summaryRows.reduce((s, r) => s + Number(r[7]), 0),
+          summaryRows.reduce((s, r) => s + Number(r[8]), 0),
+          summaryRows.reduce((s, r) => s + Number(r[9]), 0),
+          summaryRows.reduce((s, r) => s + Number(r[10]), 0),
+          summaryRows.reduce((s, r) => s + Number(r[11]), 0),
+          '', '',
+        ],
+      });
       XLSX.utils.book_append_sheet(wb, summaryWs, '报价汇总');
 
-      // 每个报价单一个明细sheet
+      // ===== 每个报价单一个明细sheet =====
       for (const data of quoteList) {
         const sheetName = data.quote_number.substring(0, 31); // Excel sheet名最长31字符
         const exportData = buildEngineeringExportDataFromQuote(data);
         const tierOn = exportData.rates.tierMode;
-        const detailData: Record<string, string | number>[] = exportData.items.map((item, idx) => ({
-          '序号': idx + 1,
-          '项目名称': item.name,
-          '单位': item.unit,
-          '数量': item.quantity,
-          '单价（元）': item.unitPrice,
-          '金额（元）': item.amount,
-          ...(tierOn ? {
-            '普通含税单价': item.crccUnitPrice ? Math.round(item.crccUnitPrice / (1 + (exportData.rates.crccRate || 0) / 100) * 100) / 100 : item.unitPrice,
-            '铁建单价': item.crccUnitPrice || '',
-            '移动单价': item.cmccUnitPrice || '',
-          } : {}),
-          '归属位置': item.location || '',
-        }));
-
-        // 追加汇总行
-        detailData.push({ '序号': '', '项目名称': '直接工程费小计', '单位': '', '数量': '', '单价（元）': '', '金额（元）': num(data.subtotal) });
-        detailData.push({ '序号': '', '项目名称': `管理费（${num(data.management_rate)}%）`, '单位': '', '数量': '', '单价（元）': '', '金额（元）': num(data.management_fee) });
-        detailData.push({ '序号': '', '项目名称': `利润（${num(data.profit_rate)}%）`, '单位': '', '数量': '', '单价（元）': '', '金额（元）': num(data.profit) });
-        detailData.push({ '序号': '', '项目名称': `规费（${num(data.regulatory_rate)}%）`, '单位': '', '数量': '', '单价（元）': '', '金额（元）': num(data.regulatory_fee) });
-        detailData.push({ '序号': '', '项目名称': `增值税（${num(data.tax_rate)}%）`, '单位': '', '数量': '', '单价（元）': '', '金额（元）': num(data.tax) });
-        detailData.push({ '序号': '', '项目名称': '报价总计', '单位': '', '数量': '', '单价（元）': '', '金额（元）': num(data.total) });
-        if (tierOn) {
-          detailData.push({ '序号': '', '项目名称': `铁建总价（${num(data.crcc_rate)}%）`, '单位': '', '数量': '', '单价（元）': '', '金额（元）': num(data.crcc_fee) });
-          detailData.push({ '序号': '', '项目名称': `移动总价（${num(data.crcc_rate)}%+${num(data.cmcc_rate)}%）`, '单位': '', '数量': '', '单价（元）': '', '金额（元）': num(data.cmcc_fee) });
-        }
-
-        const detailWs = XLSX.utils.json_to_sheet(detailData);
-        detailWs['!cols'] = [
-          { wch: 6 }, { wch: 30 }, { wch: 8 }, { wch: 8 }, { wch: 14 }, { wch: 14 },
+        const detailHeaders: HeaderSpec[] = [
+          { title: '序号', width: 6 },
+          { title: '项目名称', width: 32 },
+          { title: '单位', width: 8 },
+          { title: '数量', width: 8 },
+          { title: '单价（元）', width: 14 },
+          { title: '金额（元）', width: 14 },
+          ...(tierOn ? [
+            { title: '普通含税单价', width: 14 },
+            { title: '铁建单价', width: 14 },
+            { title: '移动单价', width: 14 },
+          ] as HeaderSpec[] : []),
+          { title: '归属位置', width: 14 },
         ];
+        const detailWs = newSheet(detailHeaders);
+        const detailRows: Array<Array<string | number>> = exportData.items.map((item, idx) => [
+          idx + 1,
+          item.name,
+          item.unit,
+          item.quantity,
+          item.unitPrice,
+          item.amount,
+          ...(tierOn ? [
+            item.crccUnitPrice ? Math.round(item.crccUnitPrice / (1 + (exportData.rates.crccRate || 0) / 100) * 100) / 100 : item.unitPrice,
+            item.crccUnitPrice || '',
+            item.cmccUnitPrice || '',
+          ] : []),
+          item.location || '',
+        ]);
+        // 金额列索引：单价=4，金额=5；tier 模式下铁建/移动单价=7/8
+        const moneyCols = tierOn ? [4, 5, 7, 8] : [4, 5];
+        const nextRow = writeTable(detailWs, 0, detailHeaders, detailRows, { moneyCols });
+
+        // 追加汇总行（加粗）：铁建总价写铁建单价列(7)，移动总价写移动单价列(8)
+        const summaryLines: Array<{ label: string; amount: number | string; amountCol: number }> = [
+          { label: '直接工程费小计', amount: num(data.subtotal), amountCol: 5 },
+          { label: `管理费（${num(data.management_rate)}%）`, amount: num(data.management_fee), amountCol: 5 },
+          { label: `利润（${num(data.profit_rate)}%）`, amount: num(data.profit), amountCol: 5 },
+          { label: `规费（${num(data.regulatory_rate)}%）`, amount: num(data.regulatory_fee), amountCol: 5 },
+          { label: `增值税（${num(data.tax_rate)}%）`, amount: num(data.tax), amountCol: 5 },
+          { label: '报价总计', amount: num(data.total), amountCol: 5 },
+        ];
+        if (tierOn) {
+          summaryLines.push({ label: `铁建总价（${num(data.crcc_rate)}%）`, amount: num(data.crcc_fee), amountCol: 7 });
+          summaryLines.push({ label: `移动总价（${num(data.crcc_rate)}%+${num(data.cmcc_rate)}%）`, amount: num(data.cmcc_fee), amountCol: 8 });
+        }
+        const summaryRowStyle = {
+          fill: { fgColor: { rgb: 'fff3cd' } },
+          font: { bold: true },
+          border: { top: { style: 'thin', color: { rgb: 'c0c4cc' } }, bottom: { style: 'thin', color: { rgb: 'c0c4cc' } }, left: { style: 'thin', color: { rgb: 'c0c4cc' } }, right: { style: 'thin', color: { rgb: 'c0c4cc' } } },
+        };
+        summaryLines.forEach(({ label, amount, amountCol }, i) => {
+          const r = nextRow + i;
+          put(detailWs, r, 1, label, summaryRowStyle);
+          if (typeof amount === 'number') {
+            put(detailWs, r, amountCol, amount, {
+              ...summaryRowStyle,
+              numFmt: '¥#,##0.00',
+              alignment: { horizontal: 'right', vertical: 'center' },
+            });
+          }
+        });
+
         XLSX.utils.book_append_sheet(wb, detailWs, sheetName);
       }
 

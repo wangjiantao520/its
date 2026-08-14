@@ -6,6 +6,7 @@
  */
 
 import * as XLSX from 'xlsx-js-style';
+import { newSheet, put, merge, HEADER_FILL, HEADER_FONT, TITLE_FONT, CENTER, RIGHT, BORDER_ALL, ZEBRA_FILL, MONEY_FMT } from '@/lib/excel-style';
 import type { DepreciationLevel, RegionType } from '@/lib/device-quota-full';
 import type { FullMaintenanceQuoteResult } from '@/lib/maintenance-calculator-full';
 import type { MaintenanceQuoteResult } from '@/lib/maintenance-quota';
@@ -65,27 +66,61 @@ export function exportSummaryExcel(params: ExportSummaryParams): void {
   const maintenanceCost = grandTotal * costRatioVal;
   const maintenanceProfit = grandTotal - maintenanceCost;
 
-  const summaryData = [
-    { '项目': '报价单号', '数值': `WB${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}${String(new Date().getDate()).padStart(2, '0')}` },
-    { '项目': '项目名称', '数值': projectName || '-' },
-    { '项目': '客户名称', '数值': clientName || '-' },
-    { '项目': '设备数量', '数值': `${selectedDevices.reduce((s, d) => s + d.quantity, 0)} 台` },
-    { '项目': '服务区域', '数值': region },
-    { '项目': '合同年限', '数值': `${contractYears} 年` },
-    { '项目': '', '数值': '' },
-    { '项目': '维保报价（不含税）', '数值': `¥${(fullQuoteResult?.subtotalAfterDiscount ?? quoteResult?.subtotal ?? 0).toLocaleString()}` },
-    { '项目': '增值税（13%）', '数值': `¥${(fullQuoteResult?.taxAmount ?? quoteResult?.taxAmount ?? 0).toLocaleString()}` },
-    { '项目': '含税总价', '数值': `¥${grandTotal.toLocaleString()}` },
-    { '项目': '', '数值': '' },
-    { '项目': '维保成本', '数值': `¥${maintenanceCost.toLocaleString()}` },
-    { '项目': '维保利润', '数值': `¥${maintenanceProfit.toLocaleString()}` },
-    { '项目': '成本率', '数值': `${costRatio}%` },
-    { '项目': '利润率', '数值': `${100 - costRatio}%` },
+  // 纵向键值对：['项目', '数值']，空项目名表示分隔行
+  const summaryRows: Array<[string, string]> = [
+    ['报价单号', `WB${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}${String(new Date().getDate()).padStart(2, '0')}`],
+    ['项目名称', projectName || '-'],
+    ['客户名称', clientName || '-'],
+    ['设备数量', `${selectedDevices.reduce((s, d) => s + d.quantity, 0)} 台`],
+    ['服务区域', region],
+    ['合同年限', `${contractYears} 年`],
+    ['', ''],
+    ['维保报价（不含税）', (fullQuoteResult?.subtotalAfterDiscount ?? quoteResult?.subtotal ?? 0).toLocaleString()],
+    ['增值税（13%）', (fullQuoteResult?.taxAmount ?? quoteResult?.taxAmount ?? 0).toLocaleString()],
+    ['含税总价', grandTotal.toLocaleString()],
+    ['', ''],
+    ['维保成本', maintenanceCost.toLocaleString()],
+    ['维保利润', maintenanceProfit.toLocaleString()],
+    ['成本率', `${costRatio}%`],
+    ['利润率', `${100 - costRatio}%`],
   ];
 
   const wb = XLSX.utils.book_new();
-  const ws = XLSX.utils.json_to_sheet(summaryData);
-  ws['!cols'] = [{ wch: 25 }, { wch: 35 }];
+  const ws = newSheet([{ title: '项目', width: 25 }, { title: '数值', width: 35 }]);
+  // 标题
+  merge(ws, { r: 0, c: 0 }, { r: 0, c: 1 });
+  put(ws, 0, 0, '维保报价汇总', { font: TITLE_FONT, alignment: CENTER });
+  ws['!rows'] = [{ hpt: 30 }];
+  // 表头
+  put(ws, 1, 0, '项目', { fill: HEADER_FILL, font: HEADER_FONT, alignment: CENTER, border: BORDER_ALL });
+  put(ws, 1, 1, '数值', { fill: HEADER_FILL, font: HEADER_FONT, alignment: CENTER, border: BORDER_ALL });
+
+  let isMoneySection = false;
+  summaryRows.forEach(([label, value], i) => {
+    const r = i + 2;
+    if (label === '') {
+      // 分隔行（浅底）
+      put(ws, r, 0, '', { border: BORDER_ALL });
+      put(ws, r, 1, '', { border: BORDER_ALL });
+      isMoneySection = i > 6;
+      return;
+    }
+    const isTotal = label === '含税总价' || label === '维保利润';
+    const style = {
+      border: BORDER_ALL,
+      fill: isTotal ? { fgColor: { rgb: 'fff3cd' } } : (i % 2 === 1 ? ZEBRA_FILL : undefined),
+      font: isTotal ? { bold: true } : undefined,
+    };
+    put(ws, r, 0, label, { ...style, alignment: CENTER });
+    // 金额区（维保报价/增值税/含税总价/成本/利润）右对齐带千分位
+    const numericValue = !Number.isNaN(Number(value.replace(/,/g, '')));
+    if (isMoneySection && numericValue) {
+      put(ws, r, 1, Number(value.replace(/,/g, '')), { ...style, numFmt: MONEY_FMT, alignment: RIGHT });
+    } else {
+      put(ws, r, 1, value, { ...style, alignment: { horizontal: 'left', vertical: 'center' } });
+    }
+  });
+
   XLSX.utils.book_append_sheet(wb, ws, '报价汇总');
   XLSX.writeFile(wb, `维保报价汇总_${new Date().toISOString().slice(0, 10)}.xlsx`);
 }

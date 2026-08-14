@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Copy, Eye, FileDown, FileSpreadsheet, History, Search, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import * as XLSX from 'xlsx';
+import * as XLSX from 'xlsx-js-style';
+import { newSheet, writeTable, type HeaderSpec } from '@/lib/excel-style';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -70,16 +71,28 @@ export default function HistoryPage() {
       toast.info('没有可导出的记录');
       return;
     }
-    const worksheet = XLSX.utils.json_to_sheet(items.map((record) => ({
-      报价单号: record.quote_number,
-      报价类型: TYPE_LABELS[record.quote_type] || record.quote_type,
-      客户名称: record.client_name,
-      项目名称: record.project_name,
-      总价: record.total_amount,
-      状态: record.status,
-      创建时间: record.created_at,
-      创建人: record.created_by_name,
-    })));
+    const headers: HeaderSpec[] = [
+      { title: '报价单号', width: 22 },
+      { title: '报价类型', width: 12 },
+      { title: '客户名称', width: 16 },
+      { title: '项目名称', width: 26 },
+      { title: '总价', width: 14 },
+      { title: '状态', width: 10 },
+      { title: '创建时间', width: 20 },
+      { title: '创建人', width: 12 },
+    ];
+    const worksheet = newSheet(headers);
+    const rows = items.map((record) => [
+      record.quote_number,
+      TYPE_LABELS[record.quote_type] || record.quote_type,
+      record.client_name,
+      record.project_name,
+      record.total_amount,
+      record.status,
+      record.created_at,
+      record.created_by_name,
+    ]);
+    writeTable(worksheet, 0, headers, rows, { moneyCols: [4] });
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, '报价记录');
     XLSX.writeFile(workbook, filename);

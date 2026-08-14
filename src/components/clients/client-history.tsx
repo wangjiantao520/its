@@ -23,7 +23,8 @@ import {
   RefreshCw,
   Loader2,
 } from 'lucide-react';
-import * as XLSX from 'xlsx';
+import * as XLSX from 'xlsx-js-style';
+import { newSheet, writeTable, type HeaderSpec } from '@/lib/excel-style';
 import { apiFetch } from '@/lib/api-fetch';
 
 // 响应数据可能是 { items, total } 或直接数组
@@ -104,12 +105,30 @@ export function ClientHistory({ clientId, token }: ClientHistoryProps) {
 
   // Export a single quote as Excel
   const handleExport = (record: QuoteRecord) => {
-    const data = [
-      { 报价单号: record.quote_no, 报价类型: record.quote_type, 项目名称: record.project_name },
-      { 总价: record.total_amount, 税额: record.tax_amount, 不含税金额: record.net_amount },
-      { 状态: STATUS_LABELS[record.status] ?? record.status, 创建时间: record.created_at, 创建人: record.created_by },
+    const headers: HeaderSpec[] = [
+      { title: '报价单号', width: 22 },
+      { title: '报价类型', width: 12 },
+      { title: '项目名称', width: 26 },
+      { title: '不含税金额', width: 14 },
+      { title: '税额', width: 12 },
+      { title: '总价', width: 14 },
+      { title: '状态', width: 10 },
+      { title: '创建时间', width: 20 },
+      { title: '创建人', width: 12 },
     ];
-    const ws = XLSX.utils.json_to_sheet(data);
+    const rows: Array<Array<string | number>> = [[
+      record.quote_no,
+      record.quote_type,
+      record.project_name,
+      record.net_amount ?? 0,
+      record.tax_amount ?? 0,
+      record.total_amount,
+      STATUS_LABELS[record.status] ?? record.status,
+      record.created_at,
+      record.created_by,
+    ]];
+    const ws = newSheet(headers);
+    writeTable(ws, 0, headers, rows, { moneyCols: [3, 4, 5] });
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, '报价记录');
     XLSX.writeFile(wb, `${record.quote_no}_${record.project_name}.xlsx`);

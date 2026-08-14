@@ -4,8 +4,9 @@
  * 从 engineering/page.tsx 抽取，不依赖 React state。
  */
 
-import * as XLSX from 'xlsx';
+import * as XLSX from 'xlsx-js-style';
 import { convertToChineseCurrency, type EngineeringQuoteExportData } from '@/lib/export-utils';
+import { newSheet, put, HEADER_FILL, HEADER_FONT, CENTER, BORDER_ALL, ZEBRA_FILL } from '@/lib/excel-style';
 
 export interface LaborPriceLevel {
   id: number;
@@ -153,8 +154,24 @@ export function downloadQuotaTemplate(type: QuotaType): void {
         ['I-2', 2, '施工安装', '摄像机安装', '', '包括定位、固定、接线', 6, '台', 150, '含辅料'],
       ];
 
-  const ws = XLSX.utils.aoa_to_sheet([headers, ...sampleRows]);
-  ws['!cols'] = headers.map(() => ({ wch: 16 }));
+  const ws = newSheet(headers.map((h) => ({ title: h, width: 16 })));
+  // 表头样式行
+  headers.forEach((h, i) => put(ws, 0, i, h, {
+    fill: HEADER_FILL,
+    font: HEADER_FONT,
+    alignment: CENTER,
+    border: BORDER_ALL,
+  }));
+  // 示例行
+  sampleRows.forEach((row, r) => {
+    row.forEach((val, c) => {
+      put(ws, r + 1, c, val, {
+        border: BORDER_ALL,
+        alignment: CENTER,
+        ...(r % 2 === 1 ? { fill: ZEBRA_FILL } : {}),
+      });
+    });
+  });
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, isSelf ? '自施工定额' : '智能化定额');

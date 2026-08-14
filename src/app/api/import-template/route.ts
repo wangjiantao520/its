@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import * as XLSX from 'xlsx-js-style';
 import { requireApiAuth } from '@/lib/api-auth-server';
+import { BORDER_ALL, ZEBRA_FILL } from '@/lib/excel-style';
 
 type TemplateColumn = readonly [header: string, key: string, width: number];
 
@@ -67,7 +68,18 @@ function fillHeaderStyle(sheet: XLSX.WorkSheet, columns: TemplateColumn[], row =
         font: { bold: true, color: { rgb: 'FFFFFF' } },
         fill: { patternType: 'solid', fgColor: { rgb: '1E40AF' } },
         alignment: { vertical: 'center', horizontal: 'center' },
+        border: BORDER_ALL,
       };
+    }
+  }
+}
+
+// 示例数据行：边框 + 斑马纹（紧跟表头后的第一行）
+function fillExampleRowStyle(sheet: XLSX.WorkSheet, columns: TemplateColumn[], row: number): void {
+  for (let index = 0; index < columns.length; index += 1) {
+    const cell = sheet[XLSX.utils.encode_cell({ r: row, c: index })];
+    if (cell) {
+      cell.s = { border: BORDER_ALL, fill: ZEBRA_FILL, alignment: { vertical: 'center' } };
     }
   }
 }
@@ -89,6 +101,7 @@ export async function GET(request: NextRequest) {
     const sheet = XLSX.utils.aoa_to_sheet([header, ...dataRows]);
     sheet['!cols'] = columns.map(([, , width]) => ({ wch: width }));
     fillHeaderStyle(sheet, columns);
+    dataRows.forEach((_, r) => fillExampleRowStyle(sheet, columns, r + 1));
 
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, sheet, sheetName);

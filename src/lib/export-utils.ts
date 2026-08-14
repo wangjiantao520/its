@@ -45,6 +45,17 @@ export interface MaintenanceQuoteExportData {
     subtotalSpareParts: number;
     subtotal: number;
   }>;
+  serviceList?: Array<{
+    name: string;
+    description: string;
+    unit: string;
+    quantity: number;
+    unitPrice: number;
+    timesPerYear: number;
+    settledByActual: boolean;
+    yearCost: number;
+    totalCost: number;
+  }>;
   summary: {
     totalInspection: number;
     totalOnsite: number;
@@ -59,6 +70,8 @@ export interface MaintenanceQuoteExportData {
     yearsDiscountAmount: number;
     bulkDiscountAmount: number;
     subtotal: number;
+    serviceYearTotal?: number;
+    serviceTotal?: number;
     tax: number;
     grandTotal: number;
     grandTotalRMB: string;
@@ -122,6 +135,47 @@ export function generateMaintenanceQuoteHTML(data: MaintenanceQuoteExportData): 
       <td style="border: 1px solid #333; padding: 8px; text-align: right;">¥${eq.subtotal.toFixed(2)}</td>
     </tr>
   `).join('');
+
+  // 按次服务项清单（可选）
+  const serviceList = data.serviceList ?? [];
+  const serviceTableHtml = serviceList.length > 0 ? `
+  <div class="subtitle">三（补充）、按次服务项</div>
+  <table>
+    <thead>
+      <tr>
+        <th style="border: 1px solid #333; padding: 8px; background-color: #f0f0f0;">序号</th>
+        <th style="border: 1px solid #333; padding: 8px; background-color: #f0f0f0;">服务类型</th>
+        <th style="border: 1px solid #333; padding: 8px; background-color: #f0f0f0;">服务内容</th>
+        <th style="border: 1px solid #333; padding: 8px; background-color: #f0f0f0;">数量</th>
+        <th style="border: 1px solid #333; padding: 8px; background-color: #f0f0f0;">单位</th>
+        <th style="border: 1px solid #333; padding: 8px; background-color: #f0f0f0;">单价（元）</th>
+        <th style="border: 1px solid #333; padding: 8px; background-color: #f0f0f0;">年预估次数</th>
+        <th style="border: 1px solid #333; padding: 8px; background-color: #f0f0f0;">年费用（元）</th>
+        <th style="border: 1px solid #333; padding: 8px; background-color: #f0f0f0;">${data.years}年总额（元）</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${serviceList.map((svc, index) => `
+        <tr>
+          <td style="border: 1px solid #333; padding: 8px; text-align: center;">${index + 1}</td>
+          <td style="border: 1px solid #333; padding: 8px;">${svc.name}</td>
+          <td style="border: 1px solid #333; padding: 8px;">${svc.description}</td>
+          <td style="border: 1px solid #333; padding: 8px; text-align: center;">${svc.quantity}</td>
+          <td style="border: 1px solid #333; padding: 8px; text-align: center;">${svc.unit}</td>
+          <td style="border: 1px solid #333; padding: 8px; text-align: right;">${svc.settledByActual ? '按实结算' : `¥${svc.unitPrice.toFixed(2)}`}</td>
+          <td style="border: 1px solid #333; padding: 8px; text-align: center;">${svc.settledByActual ? '—' : svc.timesPerYear}</td>
+          <td style="border: 1px solid #333; padding: 8px; text-align: right;">¥${svc.yearCost.toFixed(2)}</td>
+          <td style="border: 1px solid #333; padding: 8px; text-align: right;">¥${svc.totalCost.toFixed(2)}</td>
+        </tr>
+      `).join('')}
+      <tr>
+        <td colspan="7" style="border: 1px solid #333; padding: 8px; text-align: right; font-weight: bold;">服务项小计（${data.years}年）</td>
+        <td style="border: 1px solid #333; padding: 8px; text-align: right; font-weight: bold;">¥${(data.summary.serviceYearTotal ?? 0).toFixed(2)}</td>
+        <td style="border: 1px solid #333; padding: 8px; text-align: right; font-weight: bold;">¥${(data.summary.serviceTotal ?? 0).toFixed(2)}</td>
+      </tr>
+    </tbody>
+  </table>
+` : '';
 
   return `
 <!DOCTYPE html>
@@ -241,6 +295,8 @@ export function generateMaintenanceQuoteHTML(data: MaintenanceQuoteExportData): 
     </tbody>
   </table>
 
+  ${serviceTableHtml}
+
   <div class="subtitle">四、费用明细</div>
   <table>
     <tr>
@@ -299,6 +355,12 @@ export function generateMaintenanceQuoteHTML(data: MaintenanceQuoteExportData): 
       <td style="border: 1px solid #333; padding: 8px; font-weight: bold;">不含税小计</td>
       <td style="border: 1px solid #333; padding: 8px; text-align: right; font-weight: bold;">¥${data.summary.subtotal.toFixed(2)}</td>
     </tr>
+    ${(data.summary.serviceTotal ?? 0) > 0 ? `
+    <tr>
+      <td style="border: 1px solid #333; padding: 8px; font-weight: bold;">按次服务项（${data.years}年）</td>
+      <td style="border: 1px solid #333; padding: 8px; text-align: right; font-weight: bold;">¥${(data.summary.serviceTotal ?? 0).toFixed(2)}</td>
+    </tr>
+    ` : ''}
     <tr>
       <td style="border: 1px solid #333; padding: 8px;">增值税（13%）</td>
       <td style="border: 1px solid #333; padding: 8px; text-align: right;">¥${data.summary.tax.toFixed(2)}</td>

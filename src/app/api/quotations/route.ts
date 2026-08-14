@@ -67,7 +67,7 @@ export async function POST(request: NextRequest) {
         INSERT INTO quotation_records (user_id, client_name, client_region, project_name, quote_type, total_amount, device_count, quote_data)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb) RETURNING id
       `, [auth.session.userId ?? -1, optionalText(body.client_name), optionalText(body.client_region), optionalText(body.project_name), optionalText(body.quote_type) ?? 'full',
-        amount.toFixed(2), nonNegative(body.device_count, devices.length), body.quote_data === undefined || body.quote_data === null ? null : JSON.stringify(body.quote_data)]);
+        amount.toFixed(2), nonNegative(body.device_count, devices.length), body.quote_data === undefined || body.quote_data === null ? null : body.quote_data]);
       const quotationId = inserted.rows[0]?.id;
       if (quotationId === undefined) throw new Error('报价记录保存失败');
       await insertDevices(database, quotationId, devices);
