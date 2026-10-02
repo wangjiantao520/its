@@ -66,7 +66,6 @@ import {
 } from 'lucide-react';
 // 旧数据结构（保持向后兼容）
 import {
-  MOCK_DEVICE_QUOTAS,
   DeviceQuota,
   MaintenanceQuoteResult,
   calculateMaintenanceQuote,
@@ -532,8 +531,8 @@ export default function MaintenanceQuotePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   
-  // 使用新的完整数据结构的标志
-  const [useFullData, setUseFullData] = useState(true);
+  // 维保报价统一使用数据库设备定额和完整计算模型，避免把示例数据作为真实报价依据。
+  const useFullData = true;
   
   // 设备分类筛选 - 支持多选
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
@@ -1687,18 +1686,9 @@ export default function MaintenanceQuotePage() {
           </TabsTrigger>
         </TabsList>
         
-        {/* 数据模式切换 */}
-        <div className="flex items-center justify-between bg-white p-3 rounded-lg border border-slate-200">
-          <div className="flex items-center gap-2">
-            <Switch
-              checked={useFullData}
-              onCheckedChange={setUseFullData}
-            />
-            <Label className="font-medium">使用完整计算逻辑</Label>
-            <Badge variant="outline" className={useFullData ? "bg-green-50 text-green-700 border-green-200" : "bg-slate-50 text-slate-600"}>
-              {useFullData ? "新版 (完整65列)" : "旧版 (兼容)"}
-            </Badge>
-          </div>
+        <div className="flex items-center gap-2 bg-white p-3 rounded-lg border border-slate-200">
+          <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">完整报价模型</Badge>
+          <span className="text-sm text-slate-600">使用数据库设备定额和四地区报价公式</span>
         </div>
 
         {/* 新建报价 */}
@@ -2168,9 +2158,7 @@ export default function MaintenanceQuotePage() {
                   )}
                   
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 max-h-48 overflow-y-auto p-1">
-                    {useFullData ? (
-                      // 新版：使用完整设备数据（按分类筛选 - 多选）
-                      (() => {
+                    {(() => {
                         const filteredDevices = selectedCategories.length === 0 
                           ? (dbDataLoading ? [] : dbDeviceQuotas)
                           : (dbDataLoading ? [] : dbDeviceQuotas).filter((d: any) => {
@@ -2212,26 +2200,7 @@ export default function MaintenanceQuotePage() {
                             ))}
                           </>
                         );
-                      })()
-                    ) : (
-                      // 旧版：保持向后兼容
-                      MOCK_DEVICE_QUOTAS.map((quota, idx) => (
-                        <Button
-                          key={quota.id || `mock-${idx}`}
-                          variant="outline"
-                          className="justify-start text-left h-auto py-2 px-3"
-                          onClick={() => handleAddDevice(quota)}
-                        >
-                          <div className="flex flex-col items-start">
-                            <span className="font-medium text-sm">{quota.name}</span>
-                            <span className="text-xs text-slate-500">{quota.model}</span>
-                            <Badge variant="outline" className="mt-1 text-xs">
-                              {MAINTENANCE_LEVEL_CONFIG[quota.level].name}
-                            </Badge>
-                          </div>
-                        </Button>
-                      ))
-                    )}
+                      })()}
                   </div>
                 </div>
 
