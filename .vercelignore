@@ -1,7 +1,14 @@
 # Keep local-only project notes and reference documents out of deployment uploads.
 .dsh/
+.claude/
+.cozeproj/
+.coze
+.mcp.json
 docs/
 .worktrees/
+trae-agent/
+output/
+*.DS_Store
 node_modules/
 .next/
 .git/
