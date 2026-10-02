@@ -4,6 +4,11 @@
 .cozeproj/
 .coze
 .mcp.json
+AGENTS.md
+CLAUDE.md
+README.md
+DOCKER.md
+assets/
 docs/
 .worktrees/
 trae-agent/
