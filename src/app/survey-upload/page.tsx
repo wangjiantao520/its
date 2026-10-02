@@ -1,42 +1,61 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Upload, FileSpreadsheet, Download, Trash2, CheckCircle2, Calculator, Save, History } from 'lucide-react';
-import { parseSurveyExcel, generateQuoteFromSurvey, type SurveyFormData, type QuoteResult } from '@/lib/survey-parser';
-import type { FullDeviceQuota } from '@/lib/device-quota-full';
+import { Upload, FileSpreadsheet, Trash2, Save, History, ArrowRight, AlertCircle } from 'lucide-react';
+import { parseSurveyExcel, type SurveyFormData } from '@/lib/survey-parser';
 import { apiFetch } from '@/lib/api-fetch';
 import { toast } from 'sonner';
+
+interface SurveyQuoteSummary {
+  quotationId: string;
+  quoteNumber: string | null;
+  totalPrice: number;
+  deviceCount: number;
+  contractYears: number;
+  updatedAt: string;
+}
 
 interface SurveyRecord {
   id: string;
   survey_data: SurveyFormData;
-  quote_result: QuoteResult | null;
+  quote_result: SurveyQuoteSummary | null;
   contract_years: number;
   created_at: string;
 }
 
 const SurveyUploadPage = () => {
+  const router = useRouter();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadSuccess, setUploadSuccess] = useState(false);
   const [formData, setFormData] = useState<SurveyFormData | null>(null);
-  const [quoteResult, setQuoteResult] = useState<QuoteResult | null>(null);
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [contractYears, setContractYears] = useState<1 | 2 | 3>(1);
   const [saving, setSaving] = useState(false);
+  const [recordSaved, setRecordSaved] = useState(false);
+  const [savedRecordId, setSavedRecordId] = useState<string | null>(null);
   const [records, setRecords] = useState<SurveyRecord[]>([]);
+  const [recordsLoading, setRecordsLoading] = useState(true);
+  const [recordsError, setRecordsError] = useState('');
 
   const loadRecords = async () => {
+    setRecordsLoading(true);
+    setRecordsError('');
     try {
       const result = await apiFetch<SurveyRecord[]>('/api/survey-records');
       if (result.success) setRecords(result.data || []);
+      else setRecordsError(result.error || '加载查勘记录失败');
     } catch (error) {
       console.error('加载查勘记录失败:', error);
+      setRecordsError('无法连接服务器，查勘记录未能加载');
+    } finally {
+      setRecordsLoading(false);
     }
   };
 
@@ -44,29 +63,55 @@ const SurveyUploadPage = () => {
     void loadRecords();
   }, []);
 
-  const handleSaveRecord = async () => {
+  const persistSurveyRecord = async (): Promise<string | null> => {
     if (!formData) {
       toast.error('没有可保存的查勘数据');
-      return;
+      return null;
     }
+    if (savedRecordId) return savedRecordId;
+
+    const result = await apiFetch<{ id: string }>('/api/survey-records', {
+      method: 'POST',
+      body: JSON.stringify({
+        survey_data: formData,
+        quote_result: null,
+        contract_years: contractYears,
+      }),
+    });
+    if (!result.success || !result.data?.id) {
+      toast.error(result.error || '保存失败');
+      return null;
+    }
+    setSavedRecordId(result.data.id);
+    setRecordSaved(true);
+    return result.data.id;
+  };
+
+  const handleSaveRecord = async () => {
     setSaving(true);
     try {
-      const result = await apiFetch('/api/survey-records', {
-        method: 'POST',
-        body: JSON.stringify({
-          survey_data: formData,
-          quote_result: quoteResult,
-          contract_years: contractYears,
-        }),
-      });
-      if (result.success) {
-        toast.success('查勘记录已保存');
+      const id = await persistSurveyRecord();
+      if (id) {
+        toast.success('已保存识别出的查勘信息');
         await loadRecords();
-      } else {
-        toast.error(result.error || '保存失败');
       }
     } catch (error) {
       toast.error('保存失败: ' + String(error));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleContinueToQuote = async () => {
+    if (!formData) return;
+    setSaving(true);
+    try {
+      const id = await persistSurveyRecord();
+      if (!id) return;
+      await loadRecords();
+      router.push(`/maintenance?surveyRecordId=${encodeURIComponent(id)}`);
+    } catch (error) {
+      toast.error('进入报价流程失败: ' + String(error));
     } finally {
       setSaving(false);
     }
@@ -76,11 +121,25 @@ const SurveyUploadPage = () => {
     const file = e.target.files?.[0];
     if (file) {
       setSelectedFile(file);
+      setFormData(null);
+      setUploadSuccess(false);
+      setRecordSaved(false);
+      setSavedRecordId(null);
+      setErrorMessage('');
     }
+    e.currentTarget.value = '';
   };
 
   const handleUpload = async () => {
     if (!selectedFile) return;
+    if (!/\.(xlsx|xls)$/i.test(selectedFile.name)) {
+      setErrorMessage('仅支持 .xlsx 或 .xls 格式');
+      return;
+    }
+    if (selectedFile.size === 0 || selectedFile.size > 10 * 1024 * 1024) {
+      setErrorMessage('文件不能为空，且不能超过 10MB');
+      return;
+    }
     
     setIsUploading(true);
     setErrorMessage('');
@@ -94,7 +153,7 @@ const SurveyUploadPage = () => {
       setUploadSuccess(true);
     } catch (error) {
       console.error('解析失败:', error);
-      setErrorMessage('文件解析失败，请检查文件格式');
+      setErrorMessage(error instanceof Error ? error.message : '文件解析失败，请检查文件格式');
     } finally {
       setIsUploading(false);
     }
@@ -104,16 +163,9 @@ const SurveyUploadPage = () => {
     setSelectedFile(null);
     setUploadSuccess(false);
     setFormData(null);
-  };
-
-  const handleGenerateQuote = () => {
-    if (!formData) {
-      toast.error('请先上传或填写记录表数据');
-      return;
-    }
-    
-    const quote = generateQuoteFromSurvey(formData, '城区', '5×8', '3级', contractYears);
-    setQuoteResult(quote);
+    setRecordSaved(false);
+    setSavedRecordId(null);
+    setErrorMessage('');
   };
 
   return (
@@ -121,7 +173,7 @@ const SurveyUploadPage = () => {
       <div className="max-w-6xl mx-auto space-y-6">
         <div className="text-center">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">维保查勘问询信息记录表</h1>
-          <p className="text-gray-600">上传记录表并生成报价</p>
+          <p className="text-gray-600">识别查勘信息后可继续创建正式维保报价；设备清单需按实际情况确认</p>
         </div>
 
         <Tabs defaultValue="upload" className="w-full">
@@ -135,7 +187,7 @@ const SurveyUploadPage = () => {
             <Card>
               <CardHeader>
                 <CardTitle>上传维保查勘问询信息记录表</CardTitle>
-                <CardDescription>支持Excel格式文件上传</CardDescription>
+                <CardDescription>仅解析并保存可识别字段；原始 Excel 不会上传或保存在系统中</CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
                 <div className="flex items-center justify-center w-full">
@@ -143,9 +195,9 @@ const SurveyUploadPage = () => {
                     <div className="flex flex-col items-center justify-center pt-5 pb-6">
                       <FileSpreadsheet className="w-12 h-12 mb-4 text-gray-400" />
                       <p className="mb-2 text-sm text-gray-500">
-                        <span className="font-semibold">点击选择文件</span> 或拖放文件
+                        <span className="font-semibold">点击选择文件</span>
                       </p>
-                      <p className="text-xs text-gray-500">支持 .xlsx, .xls 格式</p>
+                      <p className="text-xs text-gray-500">当前读取 A 列字段名、B 列对应值，识别单位、联系人、岗位、电话和前期维保项</p>
                     </div>
                     <Input 
                       type="file" 
@@ -179,6 +231,13 @@ const SurveyUploadPage = () => {
                   </div>
                 )}
 
+                {errorMessage && (
+                  <div className="flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800" role="alert">
+                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                    <p>{errorMessage}</p>
+                  </div>
+                )}
+
                 <div className="flex justify-end space-x-3">
                   {selectedFile && !uploadSuccess && (
                     <Button 
@@ -192,26 +251,8 @@ const SurveyUploadPage = () => {
                   )}
                   {uploadSuccess && (
                     <>
-                      <div className="flex items-center space-x-4">
-                        <div className="flex items-center space-x-2">
-                          <span className="text-sm text-gray-600">合同年限：</span>
-                          <select 
-                            value={contractYears}
-                            onChange={(e) => setContractYears(parseInt(e.target.value) as 1 | 2 | 3)}
-                            className="border border-gray-300 rounded-md px-3 py-1 text-sm"
-                          >
-                            <option value={1}>1年期</option>
-                            <option value={2}>2年期（95折）</option>
-                            <option value={3}>3年期（9折）</option>
-                          </select>
-                        </div>
-                      </div>
                       <Button onClick={handleReset}>
                         重新上传
-                      </Button>
-                      <Button onClick={handleGenerateQuote} className="bg-green-600 hover:bg-green-700">
-                        <Download className="w-4 h-4 mr-2" />
-                        生成报价
                       </Button>
                     </>
                   )}
@@ -227,25 +268,30 @@ const SurveyUploadPage = () => {
                   <div className="flex items-center justify-between">
                     <div>
                       <CardTitle>数据预览</CardTitle>
-                      <CardDescription>解析后的记录表数据</CardDescription>
+                      <CardDescription>仅展示解析器成功识别的字段；未识别内容不会自动补成“否”或 0</CardDescription>
                     </div>
                     {formData && (
                       <div className="flex items-center space-x-4">
                         <div className="flex items-center space-x-2">
-                          <span className="text-sm text-gray-600">合同年限：</span>
+                          <span className="text-sm text-gray-600">合同年限（带入报价）：</span>
                           <select 
                             value={contractYears}
-                            onChange={(e) => setContractYears(parseInt(e.target.value) as 1 | 2 | 3)}
+                            disabled={recordSaved}
+                            onChange={(e) => { setContractYears(parseInt(e.target.value) as 1 | 2 | 3); setRecordSaved(false); setSavedRecordId(null); }}
                             className="border border-gray-300 rounded-md px-3 py-1 text-sm"
                           >
-                            <option value={1}>1年期</option>
-                            <option value={2}>2年期（95折）</option>
-                            <option value={3}>3年期（9折）</option>
+                            <option value={1}>1年</option>
+                            <option value={2}>2年</option>
+                            <option value={3}>3年</option>
                           </select>
                         </div>
-                        <Button onClick={handleGenerateQuote} className="bg-green-600 hover:bg-green-700">
-                          <Calculator className="w-4 h-4 mr-2" />
-                          生成报价
+                        <Button variant="outline" onClick={() => void handleSaveRecord()} disabled={saving || recordSaved}>
+                          <Save className="w-4 h-4 mr-2" />
+                          {saving ? '保存中…' : recordSaved ? '已保存' : '保存识别信息'}
+                        </Button>
+                        <Button onClick={() => void handleContinueToQuote()} disabled={saving}>
+                          <ArrowRight className="w-4 h-4 mr-2" />
+                          {saving ? '正在准备…' : '保存并创建正式报价'}
                         </Button>
                       </div>
                     )}
@@ -265,12 +311,28 @@ const SurveyUploadPage = () => {
                           </TableHeader>
                           <TableBody>
                             <TableRow>
+                              <TableCell>单位名称</TableCell>
+                              <TableCell>{formData.basicInfo.companyName || '未识别'}</TableCell>
+                            </TableRow>
+                            <TableRow>
+                              <TableCell>对接人</TableCell>
+                              <TableCell>{formData.basicInfo.contactPerson || '未识别'}</TableCell>
+                            </TableRow>
+                            <TableRow>
+                              <TableCell>对接人岗位</TableCell>
+                              <TableCell>{formData.basicInfo.contactPosition || '未识别'}</TableCell>
+                            </TableRow>
+                            <TableRow>
+                              <TableCell>联系电话</TableCell>
+                              <TableCell>{formData.basicInfo.contactPhone || '未识别'}</TableCell>
+                            </TableRow>
+                            <TableRow>
                               <TableCell>前期是否有维保服务</TableCell>
-                              <TableCell>{formData.basicInfo.previousService ? '是' : '否'}</TableCell>
+                              <TableCell>{formData.basicInfo.previousService === null ? '未识别' : formData.basicInfo.previousService ? '是' : '否'}</TableCell>
                             </TableRow>
                             <TableRow>
                               <TableCell>备注</TableCell>
-                              <TableCell>{formData.basicInfo.remarks || '-'}</TableCell>
+                              <TableCell>{formData.basicInfo.remarks || '未识别'}</TableCell>
                             </TableRow>
                           </TableBody>
                         </Table>
@@ -278,84 +340,16 @@ const SurveyUploadPage = () => {
 
                       <div>
                         <h3 className="text-lg font-semibold mb-3 text-gray-800">二、维保范围</h3>
-                        <div className="grid grid-cols-2 gap-4">
-                          <Card>
-                            <CardHeader className="pb-2">
-                              <CardTitle className="text-sm">1、计算机及移动办公类</CardTitle>
-                            </CardHeader>
-                            <CardContent>
-                              <p className="text-sm text-gray-500">设备数量：{formData.scope.computers.filter(Boolean).length}</p>
-                            </CardContent>
-                          </Card>
-                          <Card>
-                            <CardHeader className="pb-2">
-                              <CardTitle className="text-sm">2、文印及图文处理类</CardTitle>
-                            </CardHeader>
-                            <CardContent>
-                              <p className="text-sm text-gray-500">设备数量：{formData.scope.printing.filter(Boolean).length}</p>
-                            </CardContent>
-                          </Card>
-                          <Card>
-                            <CardHeader className="pb-2">
-                              <CardTitle className="text-sm">3、会议及音视频类</CardTitle>
-                            </CardHeader>
-                            <CardContent>
-                              <p className="text-sm text-gray-500">设备数量：{formData.scope.avConference.filter(Boolean).length}</p>
-                            </CardContent>
-                          </Card>
-                          <Card>
-                            <CardHeader className="pb-2">
-                              <CardTitle className="text-sm">4、网络通信类</CardTitle>
-                            </CardHeader>
-                            <CardContent>
-                              <p className="text-sm text-gray-500">设备数量：{formData.scope.network.filter(Boolean).length}</p>
-                            </CardContent>
-                          </Card>
-                          <Card>
-                            <CardHeader className="pb-2">
-                              <CardTitle className="text-sm">5、安防监控及出入管理类</CardTitle>
-                            </CardHeader>
-                            <CardContent>
-                              <p className="text-sm text-gray-500">设备数量：{formData.scope.security.filter(Boolean).length}</p>
-                            </CardContent>
-                          </Card>
-                          <Card>
-                            <CardHeader className="pb-2">
-                              <CardTitle className="text-sm">6、机房及动力保障类</CardTitle>
-                            </CardHeader>
-                            <CardContent>
-                              <p className="text-sm text-gray-500">设备数量：{formData.scope.roomPower.filter(Boolean).length}</p>
-                            </CardContent>
-                          </Card>
-                          <Card>
-                            <CardHeader className="pb-2">
-                              <CardTitle className="text-sm">7、办公环境及后勤保障类</CardTitle>
-                            </CardHeader>
-                            <CardContent>
-                              <p className="text-sm text-gray-500">设备数量：{formData.scope.officeEnvironment.filter(Boolean).length}</p>
-                            </CardContent>
-                          </Card>
-                          <Card>
-                            <CardHeader className="pb-2">
-                              <CardTitle className="text-sm">8、服务器及存储类</CardTitle>
-                            </CardHeader>
-                            <CardContent>
-                              <p className="text-sm text-gray-500">设备数量：{formData.scope.servers.filter(Boolean).length}</p>
-                            </CardContent>
-                          </Card>
-                          <Card>
-                            <CardHeader className="pb-2">
-                              <CardTitle className="text-sm">9、自助及专用业务类</CardTitle>
-                            </CardHeader>
-                            <CardContent>
-                              <p className="text-sm text-gray-500">设备数量：{formData.scope.selfService.filter(Boolean).length}</p>
-                            </CardContent>
-                          </Card>
+                        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                          <p>设备范围、逐台设备和数量没有从该文件中可靠识别。系统会带入客户信息与合同年限；请在维保报价页按实际设备选择定额并计算金额。</p>
+                          <Button variant="outline" className="mt-3" onClick={() => void handleContinueToQuote()} disabled={saving}>
+                            保存并带入客户信息，继续报价 <ArrowRight className="ml-2 h-4 w-4" />
+                          </Button>
                         </div>
                       </div>
 
                       <div>
-                        <h3 className="text-lg font-semibold mb-3 text-gray-800">四、甲方核心维保诉求</h3>
+                        <h3 className="text-lg font-semibold mb-3 text-gray-800">三、甲方核心维保诉求</h3>
                         <Table>
                           <TableHeader>
                             <TableRow>
@@ -366,14 +360,14 @@ const SurveyUploadPage = () => {
                           <TableBody>
                             <TableRow>
                               <TableCell>是否需驻点服务</TableCell>
-                              <TableCell>{formData.requirements.isResident ? '是' : '否'}</TableCell>
+                              <TableCell>{formData.requirements.isResident === null ? '未识别' : formData.requirements.isResident ? '是' : '否'}</TableCell>
                             </TableRow>
                           </TableBody>
                         </Table>
                       </div>
 
                       <div>
-                        <h3 className="text-lg font-semibold mb-3 text-gray-800">五、预算与合作模式</h3>
+                        <h3 className="text-lg font-semibold mb-3 text-gray-800">四、预算与合作模式</h3>
                         <Table>
                           <TableHeader>
                             <TableRow>
@@ -384,15 +378,15 @@ const SurveyUploadPage = () => {
                           <TableBody>
                             <TableRow>
                               <TableCell>期望的维保付费模式</TableCell>
-                              <TableCell>{formData.budget.paymentMode || '-'}</TableCell>
+                              <TableCell>{formData.budget.paymentMode || '未识别'}</TableCell>
                             </TableRow>
                             <TableRow>
                               <TableCell>按次计费提供质保</TableCell>
-                              <TableCell>{formData.budget.singlePrice ? '是' : '否'}</TableCell>
+                              <TableCell>{formData.budget.singlePrice === null ? '未识别' : formData.budget.singlePrice ? '是' : '否'}</TableCell>
                             </TableRow>
                             <TableRow>
                               <TableCell>质保期要求</TableCell>
-                              <TableCell>{formData.budget.qualityGuarantee ? '是' : '否'}</TableCell>
+                              <TableCell>{formData.budget.qualityGuarantee === null ? '未识别' : formData.budget.qualityGuarantee ? '是' : '否'}</TableCell>
                             </TableRow>
                           </TableBody>
                         </Table>
@@ -407,93 +401,7 @@ const SurveyUploadPage = () => {
                 </CardContent>
               </Card>
 
-              {quoteResult && (
-                <Card className="border-green-500">
-                  <CardHeader className="bg-green-50">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <CardTitle className="text-green-800 flex items-center space-x-2">
-                          <CheckCircle2 className="w-6 h-6" />
-                          <span>报价结果</span>
-                        </CardTitle>
-                        <CardDescription className="text-green-600">
-                          根据记录表生成的维保报价单
-                        </CardDescription>
-                      </div>
-                      <Button onClick={() => void handleSaveRecord()} disabled={saving} className="bg-green-600 hover:bg-green-700">
-                        {saving ? '保存中...' : (
-                          <>
-                            <Save className="w-4 h-4 mr-2" />
-                            保存查勘记录
-                          </>
-                        )}
-                      </Button>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-6 pt-6">
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <Card>
-                        <CardHeader className="pb-2">
-                          <CardTitle className="text-sm">合同年限</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <p className="text-2xl font-bold text-blue-600">
-                            {quoteResult.contractYears}年
-                            {quoteResult.contractYears === 2 && ' (95折)'}
-                            {quoteResult.contractYears === 3 && ' (9折)'}
-                          </p>
-                        </CardContent>
-                      </Card>
-                      <Card>
-                        <CardHeader className="pb-2">
-                          <CardTitle className="text-sm">设备数量</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <p className="text-2xl font-bold text-blue-600">
-                            {quoteResult.deviceCount}台
-                          </p>
-                        </CardContent>
-                      </Card>
-                      <Card>
-                        <CardHeader className="pb-2">
-                          <CardTitle className="text-sm">总报价</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <p className="text-2xl font-bold text-green-600">
-                            ¥{quoteResult.totalPrice.toFixed(2)}
-                          </p>
-                        </CardContent>
-                      </Card>
-                    </div>
 
-                    <div>
-                      <h3 className="text-lg font-semibold mb-3 text-gray-800">设备清单</h3>
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>序号</TableHead>
-                            <TableHead>设备名称</TableHead>
-                            <TableHead>分档</TableHead>
-                            <TableHead>单价（元/年）</TableHead>
-                            <TableHead>小计</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {quoteResult.selectedDevices.map((item: FullDeviceQuota, index: number) => (
-                            <TableRow key={index}>
-                              <TableCell>{index + 1}</TableCell>
-                              <TableCell>{item.name}</TableCell>
-                              <TableCell>{item.level}档</TableCell>
-                              <TableCell>¥{(item.year1TotalPrice || item.cityPrice || 0).toFixed(2)}</TableCell>
-                              <TableCell>¥{(item.year1TotalPrice || item.cityPrice || 0).toFixed(2)}</TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
             </div>
           </TabsContent>
 
@@ -512,7 +420,17 @@ const SurveyUploadPage = () => {
                 </div>
               </CardHeader>
               <CardContent>
-                {records.length === 0 ? (
+                {recordsError ? (
+                  <div className="flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800" role="alert">
+                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                    <div>
+                      <p>{recordsError}</p>
+                      <Button variant="outline" size="sm" className="mt-3" onClick={() => void loadRecords()}>重试</Button>
+                    </div>
+                  </div>
+                ) : recordsLoading ? (
+                  <div className="py-12 text-center text-gray-500" role="status">正在加载查勘记录…</div>
+                ) : records.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-12 text-gray-500">
                     <History className="w-16 h-16 mb-4 opacity-50" />
                     <p>暂无已保存的查勘记录</p>
@@ -523,9 +441,8 @@ const SurveyUploadPage = () => {
                       <TableRow>
                         <TableHead>客户名称</TableHead>
                         <TableHead>联系人</TableHead>
-                        <TableHead>合同年限</TableHead>
-                        <TableHead>设备数量</TableHead>
-                        <TableHead>总报价</TableHead>
+                        <TableHead>合同年限（记录）</TableHead>
+                        <TableHead>报价状态</TableHead>
                         <TableHead>保存时间</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -535,8 +452,9 @@ const SurveyUploadPage = () => {
                           <TableCell>{record.survey_data?.basicInfo?.companyName || '-'}</TableCell>
                           <TableCell>{record.survey_data?.basicInfo?.contactPerson || '-'}</TableCell>
                           <TableCell>{record.contract_years}年</TableCell>
-                          <TableCell>{record.quote_result?.deviceCount ?? '-'} 台</TableCell>
-                          <TableCell>{record.quote_result ? `¥${record.quote_result.totalPrice.toFixed(2)}` : '-'}</TableCell>
+                          <TableCell>{record.quote_result
+                            ? `已生成正式报价${record.quote_result.quoteNumber ? ` ${record.quote_result.quoteNumber}` : ''}：${record.quote_result.deviceCount} 台 / ¥${Number(record.quote_result.totalPrice).toFixed(2)}`
+                            : '仅保存查勘信息'}</TableCell>
                           <TableCell>{new Date(record.created_at).toLocaleString('zh-CN')}</TableCell>
                         </TableRow>
                       ))}

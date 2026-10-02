@@ -7,8 +7,8 @@ import { reviewDeviceSuggestion } from '@/lib/device-suggestion-store';
 import type { DeviceSuggestionPriceData } from '@/lib/device-suggestions';
 
 const priceDataSchema = z.object({
-  category: z.string(),
-  name: z.string().min(1, '设备名称不能为空'),
+  category: z.string().trim().min(1, '设备类别不能为空'),
+  name: z.string().trim().min(1, '设备名称不能为空'),
   brand: z.string(),
   model: z.string(),
   specification: z.string(),
@@ -23,7 +23,7 @@ const priceDataSchema = z.object({
   eGearFaultCount: z.coerce.number().finite().nonnegative(),
   faultProcessingDays: z.coerce.number().finite().nonnegative(),
   inspectionDays: z.coerce.number().finite().nonnegative(),
-  onSiteCount: z.coerce.number().finite().nonnegative(),
+  onSiteCount: z.coerce.number().int().nonnegative(),
   inspectionLaborFee: z.coerce.number().finite().nonnegative(),
   visitServiceFee: z.coerce.number().finite().nonnegative(),
   trafficFee: z.coerce.number().finite().nonnegative(),
@@ -32,6 +32,7 @@ const priceDataSchema = z.object({
   consumableFee: z.coerce.number().finite().nonnegative(),
   sparePartReserve: z.coerce.number().finite().nonnegative(),
   sparePartFee: z.coerce.number().finite().nonnegative(),
+  cityPrice: z.coerce.number().finite().positive('城区基准年价必须大于 0'),
 });
 
 const baseSchema = {

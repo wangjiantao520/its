@@ -23,6 +23,10 @@ export interface QuoteItem {
   itemType: 'selfConstruction' | 'intelligent' | 'custom' | 'labor';
   itemId: string;
   quantity: number;
+  // 报价创建时保存定额快照，避免后续定额调整改变历史报价。
+  quotaName?: string;
+  quotaUnit?: string;
+  quotaPrice?: number;
   // 归属位置（楼层）
   location?: string;
   // 采购价与加价率

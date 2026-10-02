@@ -3,13 +3,22 @@ import { z } from 'zod';
 
 import { requireApiAuth } from '@/lib/api-auth-server';
 import { getDatabase } from '@/lib/database/client';
-import { updateDeviceImportStatus } from '@/lib/device-import-store';
+import { reviewDeviceImport } from '@/lib/device-import-store';
 
-const reviewSchema = z.object({
+const reviewBaseSchema = {
   id: z.union([z.string(), z.number()]),
-  action: z.enum(['approve', 'reject']),
-  comment: z.string().optional(),
-});
+  comment: z.string().max(2000).optional(),
+};
+
+const reviewSchema = z.discriminatedUnion('action', [
+  z.object({
+    ...reviewBaseSchema,
+    action: z.literal('approve'),
+    cityPrice: z.coerce.number().finite().positive('城区基准年价必须大于 0'),
+    replaceExisting: z.boolean().optional(),
+  }),
+  z.object({ ...reviewBaseSchema, action: z.literal('reject') }),
+]);
 
 export async function POST(request: NextRequest) {
   const auth = await requireApiAuth(request, ['admin']);
@@ -30,19 +39,26 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const reviewed = await updateDeviceImportStatus(
-      getDatabase(),
-      String(parsed.data.id),
-      parsed.data.action === 'approve' ? 'approved' : 'rejected',
-      auth.session.name || auth.session.username || auth.session.role,
-      parsed.data.comment,
-    );
-    if (!reviewed) {
-      return NextResponse.json({ success: false, error: '记录不存在' }, { status: 404 });
+    const result = await reviewDeviceImport(getDatabase(), {
+      id: String(parsed.data.id),
+      action: parsed.data.action,
+      reviewedBy: auth.session.name || auth.session.username || auth.session.role,
+      cityPrice: parsed.data.action === 'approve' ? parsed.data.cityPrice : undefined,
+      replaceExisting: parsed.data.action === 'approve' ? parsed.data.replaceExisting : undefined,
+      reviewComment: parsed.data.comment,
+    });
+    if (!result.ok) {
+      const status = result.error === '记录不存在' ? 404 : 409;
+      return NextResponse.json({ success: false, error: result.error }, { status });
     }
     return NextResponse.json({
       success: true,
-      message: parsed.data.action === 'approve' ? '已通过审核' : '已拒绝',
+      message: parsed.data.action === 'approve'
+        ? (result.quotaAction === 'updated' ? '已审核并更新原有定额' : '已审核并写入设备定额')
+        : '已拒绝申请',
+      data: parsed.data.action === 'approve'
+        ? { quotaId: result.quotaId, quotaAction: result.quotaAction }
+        : undefined,
     });
   } catch (error) {
     console.error('审核设备导入失败:', error);

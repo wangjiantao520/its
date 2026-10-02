@@ -36,10 +36,9 @@ export interface ShareLink {
 export interface QuoteShareDialogProps {
   open: boolean;
   onClose: () => void;
-  quoteId: string;
   quoteNumber: string;
-  onGenerateLink?: (expiry: string) => Promise<ShareLink>;
-  onRevokeLink?: (linkId: string) => Promise<void>;
+  onGenerateLink: (expiry: string) => Promise<ShareLink>;
+  onRevokeLink: (linkId: string) => Promise<void>;
   existingLinks?: ShareLink[];
   isLoading?: boolean;
 }
@@ -124,7 +123,6 @@ function CustomExpiryDialog({ open, onClose, onConfirm }: CustomExpiryDialogProp
 export function QuoteShareDialog({
   open,
   onClose,
-  quoteId,
   quoteNumber,
   onGenerateLink,
   onRevokeLink,
@@ -137,32 +135,20 @@ export function QuoteShareDialog({
   const [copied, setCopied] = useState(false);
   const [revokingId, setRevokingId] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [localLinks, setLocalLinks] = useState<ShareLink[]>(existingLinks);
 
   const allLinks = existingLinks.length > 0 ? existingLinks : localLinks;
 
   const handleGenerate = async (expiry: string) => {
     setGenerating(true);
+    setActionError(null);
     try {
-      if (onGenerateLink) {
-        const link = await onGenerateLink(expiry);
-        setGeneratedLink(link);
-        setLocalLinks((prev) => [link, ...prev]);
-      } else {
-        // Mock link for demo
-        const mockLink: ShareLink = {
-          id: `link-${Date.now()}`,
-          token: Math.random().toString(36).substring(2),
-          createdAt: new Date().toISOString(),
-          expiresAt: expiry.includes('T')
-            ? expiry
-            : new Date(Date.now() + parseInt(expiry) * 24 * 60 * 60 * 1000).toISOString(),
-          viewCount: 0,
-          isActive: true,
-        };
-        setGeneratedLink(mockLink);
-        setLocalLinks((prev) => [mockLink, ...prev]);
-      }
+      const link = await onGenerateLink(expiry);
+      setGeneratedLink(link);
+      setLocalLinks((prev) => [link, ...prev]);
+    } catch {
+      setActionError('生成分享链接失败，请检查网络和权限后重试。');
     } finally {
       setGenerating(false);
     }
@@ -177,11 +163,12 @@ export function QuoteShareDialog({
 
   const handleRevoke = async (linkId: string) => {
     setRevokingId(linkId);
+    setActionError(null);
     try {
-      if (onRevokeLink) {
-        await onRevokeLink(linkId);
-      }
+      await onRevokeLink(linkId);
       setLocalLinks((prev) => prev.map((l) => (l.id === linkId ? { ...l, isActive: false } : l)));
+    } catch {
+      setActionError('停用分享链接失败，请重试。');
     } finally {
       setRevokingId(null);
     }
@@ -238,7 +225,7 @@ export function QuoteShareDialog({
                   size="sm"
                   className="mt-1"
                   onClick={() => handleGenerate(selectedExpiry)}
-                  disabled={generating}
+                  disabled={generating || isLoading}
                 >
                   {generating ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -249,6 +236,7 @@ export function QuoteShareDialog({
                 </Button>
               )}
             </div>
+            {actionError && <p role="alert" className="text-sm text-destructive">{actionError}</p>}
 
             {/* Generated link */}
             {generatedLink && (
@@ -338,7 +326,7 @@ export function QuoteShareDialog({
                             size="sm"
                             className="h-8 w-8 p-0 text-destructive hover:text-destructive"
                             onClick={() => handleRevoke(link.id)}
-                            disabled={revokingId === link.id}
+                            disabled={revokingId === link.id || isLoading}
                             title="Revoke link"
                           >
                             {revokingId === link.id ? (

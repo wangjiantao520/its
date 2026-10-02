@@ -16,6 +16,8 @@ export type ImportStatus = 'pending' | 'approved' | 'rejected';
 // 完整的设备清单导入数据结构（包含 Excel 的全部字段）
 export interface DeviceImportItem extends Partial<FullDeviceQuota> {
   id: string;
+  /** 已批准并写入 device_quotas 时记录，便于追溯申请对应的定额行。 */
+  approvedQuotaId?: string;
   // 基础信息（必填）
   category: string; // 设备分类
   name: string; // 设备名称
@@ -102,6 +104,7 @@ export interface DeviceImportItem extends Partial<FullDeviceQuota> {
 
   // 报价相关
   cityPrice?: number;
+  sparePartFee?: number;
   faultHandlingFeeDetail?: number;
   bulkDiscountNote?: string;
   serviceTimeNote?: string;
@@ -124,9 +127,9 @@ export interface DeviceImportItem extends Partial<FullDeviceQuota> {
 
   // 审核相关
   submittedBy: string;
-  submittedAt: Date;
+  submittedAt: Date | string;
   status: ImportStatus;
   reviewedBy?: string;
-  reviewedAt?: Date;
+  reviewedAt?: Date | string;
   reviewComment?: string;
 }

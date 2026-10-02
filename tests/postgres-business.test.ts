@@ -87,6 +87,7 @@ class RouteDatabase implements DatabaseClient {
   readonly shares: Array<Record<string, unknown>> = [];
   readonly quotations: Array<Record<string, unknown>> = [];
   readonly quotationDevices: Array<Record<string, unknown>> = [];
+  readonly surveyRecords: Array<Record<string, unknown>> = [];
   readonly versions: Array<Record<string, unknown>> = [];
   transactionCount = 0;
   summaryBarrierTarget = 0;
@@ -185,10 +186,25 @@ class RouteDatabase implements DatabaseClient {
       return rows(this.shares.slice(offset, offset + limit));
     }
     if (sql.startsWith('SELECT COUNT(*)::text AS total FROM quote_shares')) return rows([{ total: String(this.shares.length) }]);
+    if (sql.startsWith('SELECT id, contract_years FROM survey_records WHERE id = $1')) {
+      const surveyRecord = this.surveyRecords.find((row) => Number(row.id) === Number(params[0])
+        && (!sql.includes('AND user_id = $2') || String(row.user_id) === String(params[1])));
+      return rows(surveyRecord ? [{ id: surveyRecord.id, contract_years: surveyRecord.contract_years }] : []);
+    }
     if (sql.includes('INSERT INTO quotation_records')) {
       const id = this.quotations.length + 301;
-      const quotation = { id: String(id), user_id: String(params[0]), client_name: params[1], client_region: params[2], project_name: params[3], quote_type: params[4], total_amount: String(params[5]), device_count: params[6], quote_data: params[7] ? JSON.parse(String(params[7])) : null, status: 'draft', created_at: '2026-08-04T04:00:00.000Z', updated_at: '2026-08-04T04:00:00.000Z', name: String(params[0]) === '11' ? '成员甲' : '成员乙', username: String(params[0]) === '11' ? 'member-a' : 'member-b' };
+      const quoteData = typeof params[7] === 'string' ? JSON.parse(params[7]) : params[7] ?? null;
+      const quotation = { id: String(id), user_id: String(params[0]), client_name: params[1], client_region: params[2], project_name: params[3], quote_type: params[4], total_amount: String(params[5]), device_count: params[6], quote_data: quoteData, survey_record_id: params[8] ?? null, status: 'draft', created_at: '2026-08-04T04:00:00.000Z', updated_at: '2026-08-04T04:00:00.000Z', name: String(params[0]) === '11' ? '成员甲' : '成员乙', username: String(params[0]) === '11' ? 'member-a' : 'member-b' };
       this.quotations.push(quotation); return rows([{ id: String(id) }]);
+    }
+    if (sql.startsWith('UPDATE survey_records SET quote_result = jsonb_build_object')) {
+      const surveyRecord = this.surveyRecords.find((row) => Number(row.id) === Number(params[0]));
+      if (!surveyRecord) return rows([]);
+      surveyRecord.quote_result = {
+        quotationId: params[1], quoteNumber: params[2], totalPrice: Number(params[3]),
+        deviceCount: Number(params[4]), contractYears: Number(params[5]), updatedAt: '2026-08-04T04:00:00.000Z',
+      };
+      return rows([{ id: String(surveyRecord.id) }]);
     }
     if (sql.includes('INSERT INTO quotation_devices')) {
       const id = this.quotationDevices.length + 1; this.quotationDevices.push({ id: String(id), quotation_id: String(params[0]), device_name: params[1] }); return rows([{ id: String(id) }]);
@@ -466,6 +482,45 @@ test('quotation create/list/detail/delete remains isolated between two members',
     assert.equal((await quotationDetailRoutes.GET(request('/api/quotations/301', 'member-b-token'), { params: Promise.resolve({ id: '301' }) })).status, 403);
     assert.equal((await quotationDetailRoutes.DELETE(request('/api/quotations/301', 'member-b-token', 'DELETE'), { params: Promise.resolve({ id: '301' }) })).status, 403);
     assert.equal((await quotationDetailRoutes.DELETE(request('/api/quotations/301', 'member-a-token', 'DELETE'), { params: Promise.resolve({ id: '301' }) })).status, 200);
+  } finally { delete globalDatabase.__itsPostgresDatabaseClient__; }
+});
+
+test('formal quotations link to an owned survey record and update its quote summary atomically', async () => {
+  const database = new RouteDatabase();
+  database.surveyRecords.push(
+    { id: 901, user_id: '11', contract_years: 2, quote_result: null },
+    { id: 902, user_id: '22', contract_years: 1, quote_result: null },
+  );
+  const globalDatabase = globalThis as typeof globalThis & { __itsPostgresDatabaseClient__?: DatabaseClient };
+  globalDatabase.__itsPostgresDatabaseClient__ = database;
+  try {
+    const created = await quotationRoutes.POST(request('/api/quotations', 'member-a-token', 'POST', {
+      client_name: '客户甲',
+      total_amount: 4800,
+      device_count: 1,
+      survey_record_id: 901,
+      quote_data: { quoteNumber: 'WB20261002-123' },
+      devices: [{ device_name: '服务器', quantity: 4, unit_price: 1200, total_price: 4800 }],
+    }));
+    assert.equal(created.status, 201);
+    assert.equal(database.quotations[0]?.survey_record_id, 901);
+    assert.deepEqual(database.surveyRecords[0]?.quote_result, {
+      quotationId: '301',
+      quoteNumber: 'WB20261002-123',
+      totalPrice: 4800,
+      deviceCount: 4,
+      contractYears: 2,
+      updatedAt: '2026-08-04T04:00:00.000Z',
+    });
+
+    const beforeDeniedAttempt = database.quotations.length;
+    const denied = await quotationRoutes.POST(request('/api/quotations', 'member-a-token', 'POST', {
+      client_name: '无权客户',
+      survey_record_id: 902,
+      devices: [],
+    }));
+    assert.equal(denied.status, 404);
+    assert.equal(database.quotations.length, beforeDeniedAttempt);
   } finally { delete globalDatabase.__itsPostgresDatabaseClient__; }
 });
 

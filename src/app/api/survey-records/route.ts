@@ -75,9 +75,32 @@ export async function GET(request: NextRequest) {
   if (!auth.ok) return auth.response;
 
   try {
-    const result = await getDatabase().query<SurveyRow>(
-      'SELECT * FROM survey_records ORDER BY created_at DESC, id DESC',
-    );
+    const isAdmin = auth.session.role === 'admin';
+    const requestedId = request.nextUrl.searchParams.get('id');
+    let result: { rows: SurveyRow[] };
+    if (requestedId !== null) {
+      if (!/^\d+$/.test(requestedId) || !Number.isSafeInteger(Number(requestedId)) || Number(requestedId) < 1) {
+        return NextResponse.json({ success: false, error: '无效的查勘记录ID' }, { status: 400 });
+      }
+      result = isAdmin
+        ? await getDatabase().query<SurveyRow>(
+          'SELECT * FROM survey_records WHERE id = $1 ORDER BY created_at DESC, id DESC',
+          [requestedId],
+        )
+        : await getDatabase().query<SurveyRow>(
+          'SELECT * FROM survey_records WHERE id = $1 AND user_id = $2 ORDER BY created_at DESC, id DESC',
+          [requestedId, auth.session.userId ?? -1],
+        );
+    } else {
+      result = isAdmin
+        ? await getDatabase().query<SurveyRow>(
+          'SELECT * FROM survey_records ORDER BY created_at DESC, id DESC',
+        )
+        : await getDatabase().query<SurveyRow>(
+          'SELECT * FROM survey_records WHERE user_id = $1 ORDER BY created_at DESC, id DESC',
+          [auth.session.userId ?? -1],
+        );
+    }
     return NextResponse.json({ success: true, data: result.rows.map(serialize) });
   } catch (error) {
     console.error('获取查勘记录失败:', error);

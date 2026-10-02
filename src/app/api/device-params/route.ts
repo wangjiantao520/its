@@ -157,16 +157,16 @@ export async function POST(request: NextRequest) {
           (category, name, brand, model, specification, maintenance_tier,
            annual_fault_count, a_gear_fault_count, b_gear_fault_count, c_gear_fault_count,
            d_gear_fault_count, e_gear_fault_count, fault_processing_days, inspection_days,
-           on_site_count, inspection_labor_fee, visit_service_fee, traffic_fee,
+           on_site_count, inspection_labor_fee, visit_service_fee, city_price, traffic_fee,
            fault_handling_fee, tool_amortization, consumable_fee, spare_part_reserve, spare_part_fee)
           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
-                  $15, $16, $17, $18, $19, $20, $21, $22, $23) RETURNING id`;
+                  $15, $16, $17, $18, $19, $20, $21, $22, $23, $24) RETURNING id`;
         params = [
           data.category, data.name, data.brand, data.model, data.specification, data.maintenance_tier,
           data.annual_fault_count, data.a_gear_fault_count, data.b_gear_fault_count,
           data.c_gear_fault_count, data.d_gear_fault_count, data.e_gear_fault_count,
           data.fault_processing_days, data.inspection_days, data.on_site_count,
-          data.inspection_labor_fee, data.visit_service_fee, data.traffic_fee,
+          data.inspection_labor_fee, data.visit_service_fee, data.city_price, data.traffic_fee,
           data.fault_handling_fee, data.tool_amortization, data.consumable_fee,
           data.spare_part_reserve, data.spare_part_fee,
         ];

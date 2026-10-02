@@ -13,11 +13,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useUser } from '@/contexts/user-context';
 import { DeviceImportItem, type MaintenanceLevel, type EngineerLevel, type DepreciationLevel } from '@/lib/device-imports';
-import { FULL_DEVICE_QUOTAS } from '@/lib/complete-device-data';
 import { DEVICE_GRADE_OPTIONS, DEPRECIATION_GRADE_OPTIONS, type DeviceGrade, type DepreciationGrade } from '@/lib/device-grade';
 import { parseDeviceImportRows } from '@/lib/device-import-parser';
 import { apiFetch } from '@/lib/api-fetch';
-import { Upload, Trash2, CheckCircle2, XCircle, Clock, Download, FileSpreadsheet, Loader2 } from 'lucide-react';
+import { Upload, Trash2, CheckCircle2, XCircle, Clock, Download, FileSpreadsheet, Loader2, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 
 const DEVICE_CATEGORIES = [
@@ -69,6 +68,8 @@ export default function DeviceImportPage() {
     contractYears: 1
   });
   const [importRecords, setImportRecords] = useState<DeviceImportItem[]>([]);
+  const [importRecordsLoading, setImportRecordsLoading] = useState(true);
+  const [importRecordsError, setImportRecordsError] = useState('');
   const [activeTab, setActiveTab] = useState('form');
   const [secondaryPasswordOpen, setSecondaryPasswordOpen] = useState(false);
   const [secondaryPassword, setSecondaryPassword] = useState('');
@@ -78,11 +79,20 @@ export default function DeviceImportPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const loadImportRecords = async () => {
+    setImportRecordsLoading(true);
+    setImportRecordsError('');
     try {
       const result = await apiFetch<DeviceImportItem[]>('/api/device-imports?mine=true');
-      if (result.success) setImportRecords(result.data || []);
+      if (!result.success) {
+        setImportRecordsError(result.error || '加载导入记录失败');
+        return;
+      }
+      setImportRecords(result.data || []);
     } catch (error) {
       console.error('加载导入记录失败:', error);
+      setImportRecordsError(error instanceof Error ? error.message : '加载导入记录失败');
+    } finally {
+      setImportRecordsLoading(false);
     }
   };
 
@@ -152,16 +162,7 @@ export default function DeviceImportPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           secondaryPassword,
-          devices: devices.map((d) => ({
-            category: d.category,
-            name: d.name,
-            model: d.model || '',
-            level: d.level || 'B',
-            engineerLevel: d.engineerLevel || '初级',
-            deviceCount: d.deviceCount || 1,
-            needSparePart: d.needSparePart || false,
-            contractYears: d.contractYears || 1,
-          })),
+          devices: devices.map((device) => ({ ...device })),
         }),
       });
       const result = await response.json();
@@ -237,7 +238,7 @@ export default function DeviceImportPage() {
       case 'pending':
         return <Badge variant="secondary" className="flex items-center gap-1"><Clock className="w-3 h-3" /> 待审核</Badge>;
       case 'approved':
-        return <Badge variant="default" className="flex items-center gap-1 bg-green-600"><CheckCircle2 className="w-3 h-3" /> 已通过</Badge>;
+        return <Badge variant="default" className="flex items-center gap-1 bg-green-600"><CheckCircle2 className="w-3 h-3" /> 已通过并入库</Badge>;
       case 'rejected':
         return <Badge variant="destructive" className="flex items-center gap-1"><XCircle className="w-3 h-3" /> 已拒绝</Badge>;
       default:
@@ -297,7 +298,7 @@ export default function DeviceImportPage() {
           <Card>
             <CardHeader>
               <CardTitle>添加设备</CardTitle>
-              <CardDescription>填写设备详细信息，所有字段都要填写才能申请导入</CardDescription>
+              <CardDescription>填写设备详细信息，带 * 的字段为必填；提交后进入管理员审核</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               {/* 第一组：基础信息 */}
@@ -848,11 +849,28 @@ export default function DeviceImportPage() {
         <TabsContent value="records">
           <Card>
             <CardHeader>
-              <CardTitle>导入记录</CardTitle>
-              <CardDescription>查看设备清单导入审核状态</CardDescription>
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <CardTitle>导入记录</CardTitle>
+                  <CardDescription>查看设备清单审核与定额入库状态</CardDescription>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => void loadImportRecords()} disabled={importRecordsLoading}>
+                  <RefreshCw className={`mr-2 h-4 w-4 ${importRecordsLoading ? 'animate-spin' : ''}`} />
+                  刷新
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
-              {importRecords.length === 0 ? (
+              {importRecordsLoading ? (
+                <div className="flex items-center justify-center gap-2 py-8 text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" /> 正在加载记录…
+                </div>
+              ) : importRecordsError ? (
+                <div className="space-y-3 py-8 text-center">
+                  <p className="text-sm text-red-600">{importRecordsError}</p>
+                  <Button variant="outline" onClick={() => void loadImportRecords()}>重试</Button>
+                </div>
+              ) : importRecords.length === 0 ? (
                 <div className="text-center py-8 text-gray-500">
                   暂无导入记录
                 </div>
@@ -869,6 +887,7 @@ export default function DeviceImportPage() {
                       <TableHead>状态</TableHead>
                       <TableHead>审核人</TableHead>
                       <TableHead>审核意见</TableHead>
+                      <TableHead>入库定额ID</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -879,10 +898,11 @@ export default function DeviceImportPage() {
                         <TableCell>{record.deviceCount}</TableCell>
                         <TableCell>{record.contractYears}年</TableCell>
                         <TableCell>{record.submittedBy}</TableCell>
-                        <TableCell>{record.submittedAt.toLocaleString()}</TableCell>
+                        <TableCell>{new Date(record.submittedAt).toLocaleString('zh-CN')}</TableCell>
                         <TableCell>{getStatusBadge(record.status)}</TableCell>
                         <TableCell>{record.reviewedBy || '-'}</TableCell>
                         <TableCell>{record.reviewComment || '-'}</TableCell>
+                        <TableCell>{record.approvedQuotaId || '-'}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>

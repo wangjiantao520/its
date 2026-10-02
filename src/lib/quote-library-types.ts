@@ -73,6 +73,31 @@ export interface QuoteData {
   };
 }
 
+export function parseQuoteData(value: unknown): QuoteData {
+  let candidate = value;
+  if (typeof candidate === 'string') {
+    try {
+      candidate = JSON.parse(candidate) as unknown;
+    } catch {
+      throw new Error('报价数据不是有效的 JSON');
+    }
+  }
+  if (candidate === null || typeof candidate !== 'object' || Array.isArray(candidate)) {
+    throw new Error('报价数据格式无效');
+  }
+  const record = candidate as Record<string, unknown>;
+  if (record.template !== QUOTE_LIBRARY_TEMPLATE_VERSION) {
+    throw new Error('报价数据模板版本不匹配');
+  }
+  const summary = record.summary;
+  if (summary === null || typeof summary !== 'object' || Array.isArray(summary)) {
+    throw new Error('报价数据缺少 summary');
+  }
+  const items = (summary as Record<string, unknown>).items;
+  if (!Array.isArray(items)) throw new Error('报价数据缺少明细列表');
+  return candidate as QuoteData;
+}
+
 /** 附件类别 */
 export type QuoteLibraryAttachmentCategory = 'survey_photo' | 'other';
 
@@ -81,12 +106,20 @@ export interface QuoteLibraryAttachment {
   category: QuoteLibraryAttachmentCategory;
   original_name: string;
   stored_path: string;
-  /** 可访问的相对 URL，例如 /uploads/quote-library/... */
+  /** 受权限检查的附件 API 路由 */
   url: string;
   mime_type?: string | null;
   file_size?: number | null;
   uploaded_by?: number | string | null;
   created_at: string;
+}
+
+export interface QuoteLibraryStagedUpload {
+  path: string;
+  original_name: string;
+  file_size: number;
+  mime_type: string | null;
+  category: QuoteLibraryAttachmentCategory;
 }
 
 export interface QuoteLibraryRecord {
@@ -128,12 +161,22 @@ export const OTHER_FILE_MIME = [
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   'application/vnd.ms-excel',
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   'image/jpeg',
   'image/png',
   'image/webp',
+  'image/svg+xml',
   'application/zip',
   'application/x-zip-compressed',
-  // CAD 常见 MIME（部分浏览器识别为 octet-stream，通过扩展名兜底）
+  // CAD 常见 MIME（部分浏览器仍识别为 octet-stream，通过扩展名兜底）
+  'application/acad',
+  'application/dxf',
+  'application/x-dwg',
+  'image/vnd.dwg',
+  'image/vnd.dxf',
+  'image/x-dwg',
+  'image/x-dxf',
   'application/octet-stream',
 ];
 

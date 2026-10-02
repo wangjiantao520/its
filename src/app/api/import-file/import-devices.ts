@@ -19,6 +19,7 @@ export interface DeviceImportRecord {
   year1TotalPrice: number;
   year2TotalPrice: number;
   year3TotalPrice: number;
+  cityPrice: number;
   urbanPrice: number;
   townPrice: number;
   ruralPrice: number;
@@ -41,7 +42,7 @@ export interface DeviceImportResult {
 const IMPORT_BATCH_SIZE = 100;
 const writableColumns = [
   'category', 'name', 'brand', 'model', 'level', 'engineer_level',
-  'annual_failure_count', 'year_fault_rate', 'inspection_labor_fee', 'visit_service_fee',
+  'annual_failure_count', 'year_fault_rate', 'inspection_labor_fee', 'visit_service_fee', 'city_price',
   'traffic_fee', 'fault_handling_fee', 'tool_amortization', 'consumable_fee',
   'spare_part_reserve', 'spare_part_fee', 'year1_total_price',
   'year2_total_price', 'year3_total_price', 'urban_price', 'town_price',
@@ -66,13 +67,23 @@ function numericValue(value: unknown, rowNumber: number, columnName: string): nu
 
 export function parseDeviceRows(rows: readonly (readonly unknown[])[]): DeviceImportRecord[] {
   if (rows.length < 2) return [];
+  const headers = (rows[0] ?? []).map((value) => normalizedString(value).toLowerCase());
+  const cityPriceColumn = headers.findIndex((header) =>
+    header === 'city_price' || header === 'cityprice' || header.includes('城区基准年价') || header.includes('城区年价')
+  );
   const devices: DeviceImportRecord[] = [];
   for (let index = 1; index < rows.length; index += 1) {
     const row = rows[index] ?? [];
     if (row.every((value) => normalizedString(value) === '')) continue;
+    if (cityPriceColumn < 0) {
+      throw new Error('设备定额模板缺少城区基准年价列，请下载新版模板并填写真实年价后重试');
+    }
     const category = normalizedString(row[0]) || '未分类';
     const name = normalizedString(row[1]);
     if (!name) throw new Error(`第 ${index + 1} 行缺少设备名称`);
+    const cityPrice = numericValue(row[cityPriceColumn], index + 1, '城区基准年价');
+    if (cityPrice <= 0) throw new Error(`第 ${index + 1} 行的城区基准年价必须大于 0`);
+    const regionColumn = cityPriceColumn + 1;
     devices.push({
       category,
       name,
@@ -92,11 +103,12 @@ export function parseDeviceRows(rows: readonly (readonly unknown[])[]): DeviceIm
       year1TotalPrice: numericValue(row[15], index + 1, '第一年总价'),
       year2TotalPrice: numericValue(row[16], index + 1, '第二年总价'),
       year3TotalPrice: numericValue(row[17], index + 1, '第三年总价'),
-      urbanPrice: numericValue(row[18], index + 1, '市区价格'),
-      townPrice: numericValue(row[19], index + 1, '乡镇价格'),
-      ruralPrice: numericValue(row[20], index + 1, '农村价格'),
-      unit: normalizedString(row[21]) || '台',
-      note: normalizedString(row[22]),
+      cityPrice,
+      urbanPrice: numericValue(row[regionColumn], index + 1, '市区价格'),
+      townPrice: numericValue(row[regionColumn + 1], index + 1, '乡镇价格'),
+      ruralPrice: numericValue(row[regionColumn + 2], index + 1, '农村价格'),
+      unit: normalizedString(row[regionColumn + 3]) || '台',
+      note: normalizedString(row[regionColumn + 4]),
     });
   }
 
@@ -127,8 +139,8 @@ function deviceParams(device: DeviceImportRecord): unknown[] {
   return [
     device.category, device.name, device.brand, device.model, device.level,
     device.engineerLevel, device.annualFailureCount, device.annualFailureCount,
-    device.inspectionLaborFee,
-    device.visitServiceFee, device.trafficFee, device.faultHandlingFee,
+    device.inspectionLaborFee, device.visitServiceFee, device.cityPrice,
+    device.trafficFee, device.faultHandlingFee,
     device.toolAmortization, device.consumableFee, device.sparePartReserve,
     device.sparePartFee, device.year1TotalPrice, device.year2TotalPrice,
     device.year3TotalPrice, device.urbanPrice, device.townPrice,
@@ -176,6 +188,7 @@ async function importBatch(
         year_fault_rate = extras.year_fault_rate::double precision,
         inspection_labor_fee = extras.inspection_labor_fee::numeric,
         visit_service_fee = extras.visit_service_fee::numeric,
+        city_price = extras.city_price::numeric,
         traffic_fee = extras.traffic_fee::numeric,
         fault_handling_fee = extras.fault_handling_fee::numeric,
         tool_amortization = extras.tool_amortization::numeric,
@@ -201,6 +214,7 @@ async function importBatch(
       INSERT INTO device_quotas (
         category, name, brand, model, level, engineer_level,
         annual_failure_count, year_fault_rate, inspection_labor_fee, visit_service_fee,
+        city_price,
         traffic_fee, fault_handling_fee, tool_amortization, consumable_fee,
         spare_part_reserve, spare_part_fee, year1_total_price,
         year2_total_price, year3_total_price, urban_price, town_price,

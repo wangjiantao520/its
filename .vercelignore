@@ -1,0 +1,12 @@
+# Keep local-only project notes and reference documents out of deployment uploads.
+.dsh/
+docs/
+.worktrees/
+node_modules/
+.next/
+.git/
+.vercel/
+.env*
+data/
+coverage/
+dist/

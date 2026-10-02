@@ -203,7 +203,7 @@ export default function AIConfigPage() {
   const [editingModel, setEditingModel] = useState<Partial<AIModelConfig>>({});
   const [selectedProvider, setSelectedProvider] = useState<string>('doubao');
   const [testingModel, setTestingModel] = useState<number | null>(null);
-  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [testResult, setTestResult] = useState<{ modelId: number; success: boolean; message: string } | null>(null);
   const [fetchingModels, setFetchingModels] = useState(false);
   const [fetchedModels, setFetchedModels] = useState<string[]>([]);
 
@@ -403,9 +403,9 @@ export default function AIConfigPage() {
       });
 
       const data = await res.json();
-      setTestResult({ success: res.ok, message: data.message || data.error || '测试完成' });
+      setTestResult({ modelId: model.id, success: res.ok, message: data.message || data.error || '测试完成' });
     } catch (error) {
-      setTestResult({ success: false, message: '测试请求失败' });
+      setTestResult({ modelId: model.id, success: false, message: '测试请求失败' });
     } finally {
       setTestingModel(null);
     }
@@ -676,7 +676,7 @@ export default function AIConfigPage() {
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>
-                  {testingModel === model.id && testResult && (
+                  {testResult?.modelId === model.id && (
                     <div className={`flex items-center gap-2 text-sm ${testResult.success ? 'text-green-600' : 'text-red-600'}`}>
                       {testResult.success ? <CheckCircle2 className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
                       {testResult.message}

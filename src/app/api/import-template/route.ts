@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import * as XLSX from 'xlsx-js-style';
 import { requireApiAuth } from '@/lib/api-auth-server';
-import { BORDER_ALL, ZEBRA_FILL } from '@/lib/excel-style';
+import { BORDER_ALL } from '@/lib/excel-style';
 
 type TemplateColumn = readonly [header: string, key: string, width: number];
 
@@ -16,18 +16,10 @@ const deviceColumns: TemplateColumn[] = [
   ['耗材费(元)', 'consumable_fee', 12], ['备件风险准备金(元)', 'spare_part_reserve', 16],
   ['备件费(元)', 'spare_part_fee', 12], ['第1年总价(元)', 'year1_total_price', 14],
   ['第2年总价(元)', 'year2_total_price', 14], ['第3年总价(元)', 'year3_total_price', 14],
+  ['城区基准年价(元/台·年)', 'city_price', 18],
   ['城区价格(元)', 'urban_price', 14], ['镇区价格(元)', 'town_price', 14],
   ['乡村价格(元)', 'rural_price', 14], ['单位', 'unit', 10], ['备注', 'note', 30],
 ] as const;
-
-const deviceExample: Record<string, string | number> = {
-  category: '计算机终端类', name: '台式计算机', brand: '联想', model: 'ThinkCentre M720Q',
-  level: 'A', engineer_level: '中级', annual_fault_count: 2, inspection_fee: 50,
-  visit_service_fee: 100, traffic_fee: 30, fault_handling_fee: 80, tool_amortization: 10,
-  consumable_fee: 20, spare_part_reserve: 15, spare_part_fee: 50, year1_total_price: 500,
-  year2_total_price: 450, year3_total_price: 400, urban_price: 500, town_price: 550,
-  rural_price: 600, unit: '台', note: '示例数据，导入前请删除本行',
-};
 
 // 云数据中心定额库模板（maintenance_device_quotas）
 // 列与 maintenance_device_quotas 表结构对齐
@@ -39,24 +31,16 @@ const maintenanceDeviceColumns: TemplateColumn[] = [
   ['网络类型', 'network_type', 12], ['备注', 'remark', 30],
 ] as const;
 
-const maintenanceDeviceExample: Record<string, string | number> = {
-  category: '内网-网络系统', name: '内网核心交换机', brand: 'H3C', model: 'S12500R-48C6D',
-  specification: '48口万兆+6口100G', unit: '台', quantity: 1, original_price: 280000,
-  maintenance_rate: 6, annual_fee: 16800, network_type: '内网', remark: '示例数据，导入前请删除本行',
-};
-
-const templates: Record<string, { sheetName: string; filename: string; columns: TemplateColumn[]; example: Record<string, string | number> }> = {
+const templates: Record<string, { sheetName: string; filename: string; columns: TemplateColumn[] }> = {
   device_quotas: {
     sheetName: '设备定额模板',
     filename: 'device-quota-template.xlsx',
     columns: deviceColumns,
-    example: deviceExample,
   },
   maintenance_device_quotas: {
     sheetName: '云数据中心定额库模板',
     filename: 'maintenance-device-template.xlsx',
     columns: maintenanceDeviceColumns,
-    example: maintenanceDeviceExample,
   },
 };
 
@@ -74,34 +58,20 @@ function fillHeaderStyle(sheet: XLSX.WorkSheet, columns: TemplateColumn[], row =
   }
 }
 
-// 示例数据行：边框 + 斑马纹（紧跟表头后的第一行）
-function fillExampleRowStyle(sheet: XLSX.WorkSheet, columns: TemplateColumn[], row: number): void {
-  for (let index = 0; index < columns.length; index += 1) {
-    const cell = sheet[XLSX.utils.encode_cell({ r: row, c: index })];
-    if (cell) {
-      cell.s = { border: BORDER_ALL, fill: ZEBRA_FILL, alignment: { vertical: 'center' } };
-    }
-  }
-}
-
 export async function GET(request: NextRequest) {
   const auth = await requireApiAuth(request, ['admin']);
   if (!auth.ok) return auth.response;
 
   const type = request.nextUrl.searchParams.get('type') ?? 'device_quotas';
   const template = templates[type] ?? templates.device_quotas;
-  const { sheetName, filename, columns, example } = template;
+  const { sheetName, filename, columns } = template;
 
   try {
     const header = columns.map(([label]) => label);
-    const dataRows: (string | number)[][] = [
-      columns.map(([, key]) => example[key] ?? ''),
-    ];
-
-    const sheet = XLSX.utils.aoa_to_sheet([header, ...dataRows]);
+    const sheet = XLSX.utils.aoa_to_sheet([header]);
     sheet['!cols'] = columns.map(([, , width]) => ({ wch: width }));
     fillHeaderStyle(sheet, columns);
-    dataRows.forEach((_, r) => fillExampleRowStyle(sheet, columns, r + 1));
+    sheet['!freeze'] = { xSplit: 0, ySplit: 1, topLeftCell: 'A2', activePane: 'bottomLeft', state: 'frozen' };
 
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, sheet, sheetName);

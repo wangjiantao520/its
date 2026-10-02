@@ -19,8 +19,6 @@ import {
   type EngineeringQuoteExportData,
 } from '@/lib/export-utils';
 import {
-  SELF_CONSTRUCTION_QUOTA,
-  INTELLIGENT_PROJECT_QUOTA,
   type SelfConstructionItem,
   type IntelligentItem,
 } from '@/lib/self-construction-quota';
@@ -51,6 +49,21 @@ import type {
 import { downloadQuotaTemplate, buildEngineeringExportDataFromQuote } from './engineering-helpers';
 import { apiFetch } from '@/lib/api-fetch';
 import type { DeviceSuggestionItem } from '@/lib/device-suggestions';
+
+async function fetchAllQuotaRows(endpoint: string): Promise<Record<string, unknown>[]> {
+  const rows: Record<string, unknown>[] = [];
+  let page = 1;
+
+  while (true) {
+    const result = await apiFetch<Record<string, unknown>[]>(`${endpoint}?page=${page}&limit=200`);
+    if (!result.success || !Array.isArray(result.data)) {
+      throw new Error(result.error || '定额接口返回的数据格式不正确');
+    }
+    rows.push(...result.data);
+    if (result.data.length < 200) return rows;
+    page += 1;
+  }
+}
 
 export default function EngineeringPage() {
   const [customerName, setCustomerName] = useState('');
@@ -90,14 +103,23 @@ export default function EngineeringPage() {
         }
       }
     } catch { /* 忽略损坏的存储 */ }
-    // 自动恢复上次保存的报价单（保存时把 ID 存 localStorage，跨会话保留）
+    // 发现上次保存的报价单时先询问，避免打开新报价后意外编辑旧草稿。
     try {
       const quoteId = localStorage.getItem('its_engineering_quote_id');
       if (quoteId) {
         const numericId = Number(quoteId);
         if (Number.isFinite(numericId) && numericId > 0) {
           setTimeout(() => {
-            void handleLoadQuote({ id: numericId } as EngineeringQuote);
+            toast('发现上次编辑的工程报价', {
+              description: '需要继续编辑之前保存的草稿吗？',
+              duration: 12000,
+              action: {
+                label: '恢复草稿',
+                onClick: () => {
+                  void fetchLiveQuoteQuotas().then(() => handleLoadQuote({ id: numericId } as EngineeringQuote));
+                },
+              },
+            });
           }, 150);
         }
       }
@@ -169,6 +191,12 @@ export default function EngineeringPage() {
   const [dbIntelligentProject, setDbIntelligentProject] = useState<IntelligentItem[]>([]);
   const [isLoadingQuotas, setIsLoadingQuotas] = useState(false);
 
+  // 报价表单使用当前数据库定额；数据库管理分页列表只用于管理界面展示。
+  const [quoteSelfConstruction, setQuoteSelfConstruction] = useState<SelfConstructionItem[]>([]);
+  const [quoteIntelligentProject, setQuoteIntelligentProject] = useState<IntelligentItem[]>([]);
+  const [isLoadingQuoteQuotas, setIsLoadingQuoteQuotas] = useState(false);
+  const [quoteQuotaLoadError, setQuoteQuotaLoadError] = useState(false);
+
   // 定额库分页状态
   const [selfConstructionPage, setSelfConstructionPage] = useState(1);
   const [selfConstructionTotalPages, setSelfConstructionTotalPages] = useState(1);
@@ -177,6 +205,49 @@ export default function EngineeringPage() {
   const [intelligentTotalPages, setIntelligentTotalPages] = useState(1);
   const [intelligentTotal, setIntelligentTotal] = useState(0);
   const quotaPageSize = 10;
+
+  const fetchLiveQuoteQuotas = async () => {
+    setIsLoadingQuoteQuotas(true);
+    setQuoteQuotaLoadError(false);
+    try {
+      const [selfRows, intelligentRows] = await Promise.all([
+        fetchAllQuotaRows('/api/self-construction-quotas'),
+        fetchAllQuotaRows('/api/intelligent-project-quotas'),
+      ]);
+      setQuoteSelfConstruction(selfRows.map((row) => ({
+        id: String(row.id ?? ''),
+        category: String(row.category ?? ''),
+        name: String(row.name ?? ''),
+        unit: String(row.unit ?? ''),
+        quantity: Number(row.quantity ?? 1),
+        price: Number(row.price ?? 0),
+        remark: String(row.remark ?? ''),
+      })));
+      setQuoteIntelligentProject(intelligentRows.map((row) => ({
+        id: String(row.id ?? ''),
+        serialNumber: Number(row.serial_number ?? 0),
+        category: String(row.category ?? ''),
+        name: String(row.name ?? ''),
+        brandModel: String(row.brand_model ?? ''),
+        description: String(row.description ?? ''),
+        deductibleTaxRate: Number(row.deductible_tax_rate ?? 0),
+        unit: String(row.unit ?? ''),
+        price: Number(row.price ?? 0),
+        remark: String(row.remark ?? ''),
+      })));
+    } catch (error) {
+      console.error('读取报价定额失败:', error);
+      setQuoteQuotaLoadError(true);
+      toast.error('报价定额加载失败', { description: '暂时无法读取数据库中的定额，请重试后再添加定额项目。' });
+    } finally {
+      setIsLoadingQuoteQuotas(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'create') void fetchLiveQuoteQuotas();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
 
   // 定额库编辑对话框状态
   const [quotaEditDialogOpen, setQuotaEditDialogOpen] = useState(false);
@@ -874,6 +945,9 @@ export default function EngineeringPage() {
           itemType: (item.itemType || 'selfConstruction') as 'selfConstruction' | 'intelligent' | 'custom' | 'labor',
           itemId: item.itemId || (item.itemType === 'labor' ? `labor_${index + 1}` : `custom_${index + 1}`),
           quantity: item.quantity,
+          quotaName: typeof item.name === 'string' ? item.name : undefined,
+          quotaUnit: typeof item.unit === 'string' ? item.unit : undefined,
+          quotaPrice: item.price !== undefined && Number.isFinite(Number(item.price)) ? Number(item.price) : undefined,
           location: item.location || undefined,
           purchasePrice: item.purchasePrice ? Number(item.purchasePrice) : undefined,
           markupRate: item.markupRate ? Number(item.markupRate) : undefined,
@@ -1083,14 +1157,10 @@ export default function EngineeringPage() {
           ? item.customName || ''
           : item.itemType === 'labor'
             ? (item.laborLevelName || '人工') + '人工' + (item.laborDescription ? '(' + item.laborDescription + ')' : '')
-            : (item.itemType === 'selfConstruction'
-                ? SELF_CONSTRUCTION_QUOTA.find(q => q.id === item.itemId)?.name
-                : INTELLIGENT_PROJECT_QUOTA.find(q => q.id === item.itemId)?.name) || '';
+            : item.quotaName || getItemById(item.itemType, item.itemId)?.name || '';
         const unit = item.itemType === 'custom' ? item.customUnit || ''
           : item.itemType === 'labor' ? '人天'
-          : (item.itemType === 'selfConstruction'
-              ? SELF_CONSTRUCTION_QUOTA.find(q => q.id === item.itemId)?.unit
-              : INTELLIGENT_PROJECT_QUOTA.find(q => q.id === item.itemId)?.unit) || '';
+          : item.quotaUnit || getItemById(item.itemType, item.itemId)?.unit || '';
         return {
           name,
           unit,
@@ -1176,14 +1246,14 @@ export default function EngineeringPage() {
             location: item.location || '',
           };
         }
-        const quotaItem = item.itemType === 'selfConstruction'
-          ? SELF_CONSTRUCTION_QUOTA.find(q => q.id === item.itemId)
-          : INTELLIGENT_PROJECT_QUOTA.find(q => q.id === item.itemId);
-        if (!quotaItem) return { name: '', unit: '', quantity: 0, unitPrice: 0, amount: 0 };
+        const quotaItem = getItemById(item.itemType, item.itemId);
+        const quotaName = item.quotaName || quotaItem?.name;
+        const quotaUnit = item.quotaUnit || quotaItem?.unit;
+        if (!quotaName) return { name: '', unit: '', quantity: 0, unitPrice: 0, amount: 0 };
         const unitPrice = basePrice * (1 + managementFeeRate / 100 + profitRate / 100 + regulatoryFeeRate / 100);
         return {
-          name: quotaItem.name,
-          unit: quotaItem.unit,
+          name: quotaName,
+          unit: quotaUnit || '',
           quantity: item.quantity,
           unitPrice: unitPrice,
           amount: unitPrice * item.quantity,
@@ -1763,7 +1833,16 @@ export default function EngineeringPage() {
   };
 
   const addQuoteItem = (itemType: 'selfConstruction' | 'intelligent', itemId: string) => {
-    setQuoteItems([...quoteItems, { id: nextItemId, itemType, itemId, quantity: 1 }]);
+    const quota = getItemById(itemType, itemId);
+    setQuoteItems([...quoteItems, {
+      id: nextItemId,
+      itemType,
+      itemId,
+      quantity: 1,
+      quotaName: quota?.name,
+      quotaUnit: quota?.unit,
+      quotaPrice: quota?.price,
+    }]);
     setNextItemId(nextItemId + 1);
   };
 
@@ -1786,9 +1865,9 @@ export default function EngineeringPage() {
 
   const getItemById = (itemType: 'selfConstruction' | 'intelligent' | 'custom', itemId: string) => {
     if (itemType === 'selfConstruction') {
-      return SELF_CONSTRUCTION_QUOTA.find(item => item.id === itemId);
+      return quoteSelfConstruction.find(item => item.id === itemId);
     } else if (itemType === 'intelligent') {
-      return INTELLIGENT_PROJECT_QUOTA.find(item => item.id === itemId);
+      return quoteIntelligentProject.find(item => item.id === itemId);
     }
     return undefined; // custom类型没有定额项
   };
@@ -1993,6 +2072,7 @@ export default function EngineeringPage() {
     if (item.itemType === 'labor') {
       return (item.laborDays || 0) * (item.laborUnitPrice || 0);
     }
+    if (item.quotaPrice !== undefined) return item.quotaPrice;
     const quotaItem = getItemById(item.itemType, item.itemId);
     return quotaItem ? quotaItem.price : 0;
   };
@@ -2132,9 +2212,9 @@ export default function EngineeringPage() {
             itemType: item.itemType,
             itemId: item.itemId,
             quantity: item.quantity,
-            name: quotaItem?.name || '',
-            unit: quotaItem?.unit || '',
-            price: quotaItem?.price || 0,
+            name: item.quotaName || quotaItem?.name || '',
+            unit: item.quotaUnit || quotaItem?.unit || '',
+            price: item.quotaPrice ?? quotaItem?.price ?? 0,
             location: item.location || '',
             purchasePrice: item.purchasePrice || 0,
             markupRate: item.markupRate || 0,
@@ -2322,30 +2402,36 @@ export default function EngineeringPage() {
                   <CardDescription>添加工序和数量</CardDescription>
                 </div>
                 <div className="flex gap-2 flex-wrap">
-                  <Select onValueChange={(value) => addQuoteItem('selfConstruction', value)}>
+                  <Select onValueChange={(value) => addQuoteItem('selfConstruction', value)} disabled={isLoadingQuoteQuotas || quoteQuotaLoadError || quoteSelfConstruction.length === 0}>
                     <SelectTrigger className="w-[200px]">
-                      <SelectValue placeholder="添加自施工工序" />
+                      <SelectValue placeholder={isLoadingQuoteQuotas ? '正在加载自施工定额…' : quoteQuotaLoadError ? '定额加载失败' : quoteSelfConstruction.length === 0 ? '暂无自施工定额' : '添加自施工工序'} />
                     </SelectTrigger>
                     <SelectContent>
-                      {SELF_CONSTRUCTION_QUOTA.map((item) => (
+                      {quoteSelfConstruction.map((item) => (
                         <SelectItem key={item.id} value={item.id}>
                           {item.name}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
-                  <Select onValueChange={(value) => addQuoteItem('intelligent', value)}>
+                  <Select onValueChange={(value) => addQuoteItem('intelligent', value)} disabled={isLoadingQuoteQuotas || quoteQuotaLoadError || quoteIntelligentProject.length === 0}>
                     <SelectTrigger className="w-[200px]">
-                      <SelectValue placeholder="添加智能化项目" />
+                      <SelectValue placeholder={isLoadingQuoteQuotas ? '正在加载智能化定额…' : quoteQuotaLoadError ? '定额加载失败' : quoteIntelligentProject.length === 0 ? '暂无智能化定额' : '添加智能化项目'} />
                     </SelectTrigger>
                     <SelectContent>
-                      {INTELLIGENT_PROJECT_QUOTA.map((item) => (
+                      {quoteIntelligentProject.map((item) => (
                         <SelectItem key={item.id} value={item.id}>
                           {item.name}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
+                  {quoteQuotaLoadError && (
+                    <Button variant="outline" onClick={() => void fetchLiveQuoteQuotas()} disabled={isLoadingQuoteQuotas}>
+                      <RefreshCw className={`h-4 w-4 mr-1 ${isLoadingQuoteQuotas ? 'animate-spin' : ''}`} />
+                      重试加载定额
+                    </Button>
+                  )}
                   <Button variant="outline" onClick={addLaborQuoteItem} className="text-amber-700 border-amber-300 hover:bg-amber-50">
                     <Plus className="h-4 w-4 mr-1" />
                     人工天计价
@@ -2579,7 +2665,10 @@ export default function EngineeringPage() {
                     } else {
                       // 定额库明细行 - 原有逻辑
                       const quotaItem = getItemById(item.itemType, item.itemId);
-                      if (!quotaItem) {
+                      const quotaName = item.quotaName || quotaItem?.name || '';
+                      const quotaUnit = item.quotaUnit || quotaItem?.unit || '';
+                      const quotaPrice = getItemBasePrice(item);
+                      if (!quotaName) {
                         // 未入库设备行：反查失败，标记并允许补录
                         const missingSubtotal = (item.purchasePrice ?? item.customPrice ?? 0) * (item.quantity || 0);
                         const missingAmount = missingSubtotal * (1 + managementFeeRate / 100 + profitRate / 100 + regulatoryFeeRate / 100);
@@ -2664,7 +2753,7 @@ export default function EngineeringPage() {
                           </TableRow>
                         );
                       }
-                      const baseFee = quotaItem.price * item.quantity;
+                      const baseFee = quotaPrice * item.quantity;
                       const subtotal = baseFee * (1 + managementFeeRate / 100 + profitRate / 100 + regulatoryFeeRate / 100);
                       return (
                         <TableRow key={item.id}>
@@ -2682,8 +2771,8 @@ export default function EngineeringPage() {
                               {item.itemType === 'selfConstruction' ? '自施工' : '智能化'}
                             </span>
                           </TableCell>
-                          <TableCell>{quotaItem.name}</TableCell>
-                          <TableCell>{quotaItem.unit}</TableCell>
+                          <TableCell>{quotaName}</TableCell>
+                          <TableCell>{quotaUnit}</TableCell>
                           <TableCell>
                             <Input
                               type="number"
@@ -2692,7 +2781,7 @@ export default function EngineeringPage() {
                               className="w-full"
                             />
                           </TableCell>
-                          <TableCell>¥{quotaItem.price.toFixed(2)}</TableCell>
+                          <TableCell>¥{quotaPrice.toFixed(2)}</TableCell>
                           {tierMode ? (
                             <>
                               <TableCell>¥{(getItemBasePrice(item) * item.quantity * (1 + tierTaxRate / 100)).toFixed(2)}</TableCell>

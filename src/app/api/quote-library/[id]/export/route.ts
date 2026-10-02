@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireApiAuth } from '@/lib/api-auth-server';
 import { getDatabase } from '@/lib/database/client';
 import { dataToWorkbookBuffer } from '@/lib/quote-library-server-export';
+import { parseQuoteData } from '@/lib/quote-library-types';
 import type { QuoteData } from '@/lib/quote-library-types';
 
 interface Row extends Record<string, unknown> {
@@ -37,9 +38,7 @@ export async function GET(request: NextRequest, { params }: RouteContext) {
     if (auth.session.role !== 'admin' && !row.is_published) {
       return NextResponse.json({ success: false, error: '该报价资料未发布' }, { status: 403 });
     }
-    const quoteData: QuoteData = typeof row.quote_data === 'string'
-      ? (JSON.parse(row.quote_data) as QuoteData)
-      : row.quote_data;
+    const quoteData = parseQuoteData(row.quote_data);
     const buffer = dataToWorkbookBuffer(quoteData);
     const filename = `${row.client_name ?? '报价资料'}-${row.project_name ?? row.title}.xlsx`
       .replace(/[\\/:*?"<>|]/g, '_');

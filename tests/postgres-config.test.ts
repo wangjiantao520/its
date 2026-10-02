@@ -710,6 +710,47 @@ test('device parameter aggregate route uses PostgreSQL for list/create/update/de
   assert.equal(missing.status, 404);
 });
 
+test('creating a maintenance device quota requires and persists the city annual base price', async () => {
+  const { deviceParams, deviceParamById } = await loadRoutes();
+  installDatabase(new FakeConfigDatabase('admin', (text) => {
+    if (text.includes('SELECT value FROM system_settings')) return result([{ value: bcrypt.hashSync('admin', 4) }]);
+    throw new Error(`Unexpected SQL while rejecting a zero-price device: ${text}`);
+  }));
+  const missingPrice = await deviceParams.POST(apiRequest('/api/device-params', 'POST', {
+    type: 'device_quotas', data: { category: '网络设备', name: '测试交换机' }, secondaryPassword: 'admin',
+  }));
+  assert.equal(missingPrice.status, 400);
+
+  let insertText = '';
+  let insertParams: readonly unknown[] = [];
+  installDatabase(new FakeConfigDatabase('admin', (text, params) => {
+    if (text.includes('SELECT value FROM system_settings')) {
+      return result([{ value: bcrypt.hashSync('admin', 4) }]);
+    }
+    if (text.startsWith('INSERT INTO device_quotas')) {
+      insertText = text;
+      insertParams = params;
+      return result([{ id: '902' }], 1);
+    }
+    throw new Error(`Unexpected SQL: ${text}`);
+  }));
+  const created = await deviceParams.POST(apiRequest('/api/device-params', 'POST', {
+    type: 'device_quotas',
+    data: { category: '网络设备', name: '测试交换机', city_price: 675.25 },
+    secondaryPassword: 'admin',
+  }));
+
+  assert.equal(created.status, 200);
+  assert.match(insertText, /city_price/);
+  assert.equal(insertParams[17], 675.25);
+
+  installDatabase(new FakeConfigDatabase('admin'));
+  const zeroPriceUpdate = await deviceParamById.PUT(apiRequest('/api/device-params/902', 'PUT', {
+    type: 'device_quotas', id: '902', data: { city_price: 0 },
+  }));
+  assert.equal(zeroPriceUpdate.status, 400);
+});
+
 test('device parameter updates are partial, nullable, allowlisted, and reject empty patches', async () => {
   const { deviceParamById } = await loadRoutes();
   const laborDatabase = new FakeConfigDatabase('admin', (text, params) => {

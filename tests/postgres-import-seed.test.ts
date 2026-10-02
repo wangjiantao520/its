@@ -178,6 +178,36 @@ function workbookFile(rows: unknown[][], name = 'devices.xlsx'): File {
   });
 }
 
+const deviceImportHeaders = [
+  'category', 'name', 'brand', 'model', 'level', 'engineer_level', 'annual_failure_count',
+  'inspection_fee', 'visit_service_fee', 'traffic_fee', 'fault_handling_fee', 'tool_amortization',
+  'consumable_fee', 'spare_part_reserve', 'spare_part_fee', 'year1_total_price',
+  'year2_total_price', 'year3_total_price', 'city_price', 'urban_price', 'town_price',
+  'rural_price', 'unit', 'note',
+];
+
+function deviceImportRow(
+  category: string,
+  name: string,
+  brand: string,
+  model: string,
+  cityPrice = 500,
+): unknown[] {
+  const row: unknown[] = Array(deviceImportHeaders.length).fill('');
+  row[0] = category;
+  row[1] = name;
+  row[2] = brand;
+  row[3] = model;
+  row[4] = 'B';
+  row[5] = '中级';
+  row[6] = 1;
+  row[18] = cityPrice;
+  row[19] = cityPrice;
+  row[20] = cityPrice;
+  row[21] = cityPrice;
+  return row;
+}
+
 function uploadRequest(file?: File): NextRequest {
   const form = new FormData();
   if (file) form.set('file', file);
@@ -221,13 +251,34 @@ test('file imports reject missing, unsupported, and empty workbooks with explici
   assert.equal(database.transactionCount, 0);
 });
 
+test('downloadable device templates contain headers only and include the maintenance city-price field', async () => {
+  installDatabase(new ImportDatabase());
+  const [quotaTemplateRoute, memberTemplateRoute] = await Promise.all([
+    import('../src/app/api/import-template/route'),
+    import('../src/app/api/device-import-template/route'),
+  ]);
+  const quotaResponse = await quotaTemplateRoute.GET(request('/api/import-template?type=device_quotas', 'GET'));
+  const memberResponse = await memberTemplateRoute.GET(request('/api/device-import-template', 'GET'));
+
+  assert.equal(quotaResponse.status, 200);
+  assert.equal(memberResponse.status, 200);
+  const quotaWorkbook = XLSX.read(await quotaResponse.arrayBuffer(), { type: 'array' });
+  const quotaRows = XLSX.utils.sheet_to_json<unknown[]>(quotaWorkbook.Sheets[quotaWorkbook.SheetNames[0]], { header: 1 });
+  assert.equal(quotaRows.length, 1);
+  assert.ok(quotaRows[0]?.includes('城区基准年价(元/台·年)'));
+
+  const memberWorkbook = XLSX.read(await memberResponse.arrayBuffer(), { type: 'array' });
+  const memberRows = XLSX.utils.sheet_to_json<unknown[]>(memberWorkbook.Sheets[memberWorkbook.SheetNames[0]], { header: 1 });
+  assert.equal(memberRows.length, 1);
+});
+
 test('a valid workbook import uses one transaction and keeps the existing frontend response shape', async () => {
   const database = new ImportDatabase();
   installDatabase(database);
   const route = await import('../src/app/api/import-file/route');
   const response = await route.POST(uploadRequest(workbookFile([
-    ['category', 'name', 'brand', 'model', 'level', 'engineer_level', 'annual_failure_count'],
-    ['网络设备', '测试交换机', 'H3C', 'S1', 'A', '高级', 1],
+    deviceImportHeaders,
+    deviceImportRow('网络设备', '测试交换机', 'H3C', 'S1', 675.25),
   ])));
   const payload = await json(response);
 
@@ -237,17 +288,37 @@ test('a valid workbook import uses one transaction and keeps the existing fronte
   assert.equal(payload.updated, 0);
   assert.match(String(payload.message), /新增 1 条，更新 0 条/);
   assert.equal(database.transactionCount, 1);
-  assert.ok(database.queries.some(({ text }) => /INSERT INTO device_quotas/i.test(text) && /\$\d+/.test(text)));
+  const insert = database.queries.find(({ text }) => /INSERT INTO device_quotas/i.test(text));
+  assert.ok(insert && /\$\d+/.test(insert.text));
+  assert.match(insert.text, /city_price/);
+  assert.ok(insert.params.includes(675.25));
 });
 
 test('device parsing preserves different models that share a category and name', () => {
   const devices = parseDeviceRows([
-    ['category', 'name', 'brand', 'model'],
-    ['网络设备', '测试交换机', 'H3C', 'S1'],
-    ['网络设备', '测试交换机', 'H3C', 'S2'],
+    deviceImportHeaders,
+    deviceImportRow('网络设备', '测试交换机', 'H3C', 'S1'),
+    deviceImportRow('网络设备', '测试交换机', 'H3C', 'S2'),
   ]);
 
   assert.deepEqual(devices.map(({ model }) => model), ['S1', 'S2']);
+});
+
+test('device parsing requires an explicit positive city base price', () => {
+  assert.throws(
+    () => parseDeviceRows([
+      ['category', 'name', 'urban_price'],
+      ['网络设备', '测试交换机', 700],
+    ]),
+    /缺少城区基准年价列/,
+  );
+  assert.throws(
+    () => parseDeviceRows([
+      ['category', 'name', 'city_price'],
+      ['网络设备', '测试交换机', 0],
+    ]),
+    /城区基准年价必须大于 0/,
+  );
 });
 
 test('device import updates the matching model when category and name are shared', async () => {
@@ -259,8 +330,8 @@ test('device import updates the matching model when category and name are shared
   installDatabase(database);
   const route = await import('../src/app/api/import-file/route');
   const response = await route.POST(uploadRequest(workbookFile([
-    ['category', 'name', 'brand', 'model'],
-    ['网络设备', '测试交换机', 'H3C', 'S2'],
+    deviceImportHeaders,
+    deviceImportRow('网络设备', '测试交换机', 'H3C', 'S2'),
   ])));
   const update = database.queries.find(({ text }) => text.includes('UPDATE device_quotas'));
 
@@ -278,8 +349,8 @@ test('a database failure rolls back the whole uploaded workbook transaction', as
   let response: Response;
   try {
     response = await route.POST(uploadRequest(workbookFile([
-      ['category', 'name', 'brand'],
-      ['网络设备', '回滚交换机', 'H3C'],
+      deviceImportHeaders,
+      deviceImportRow('网络设备', '回滚交换机', 'H3C', ''),
     ])));
   } finally {
     console.error = originalError;
@@ -308,8 +379,8 @@ test('all mutation and status endpoints reject a non-administrator', async () =>
     importExcel.POST(request('/api/import-excel', 'POST', JSON.stringify({ url: 'https://example.com/a.xlsx' }))),
     initDb.GET(request('/api/init-db', 'GET')),
     quotas.POST(request('/api/quotas-seed', 'POST')),
-    config.GET(request('/api/seed-config', 'GET')),
-    maintenance.GET(request('/api/seed-maintenance-devices', 'GET')),
+    config.POST(request('/api/seed-config', 'POST')),
+    maintenance.POST(request('/api/seed-maintenance-devices', 'POST')),
   ]);
   assert.deepEqual(responses.map(({ status }) => status), [403, 403, 403, 403, 403, 403]);
 });
@@ -340,8 +411,8 @@ test('fake PostgreSQL keeps every seed endpoint idempotent across repeated calls
   ]);
   const calls = [
     () => quotas.POST(request('/api/quotas-seed', 'POST')),
-    () => config.GET(request('/api/seed-config', 'GET')),
-    () => maintenance.GET(request('/api/seed-maintenance-devices', 'GET')),
+    () => config.POST(request('/api/seed-config', 'POST')),
+    () => maintenance.POST(request('/api/seed-maintenance-devices', 'POST')),
   ];
   for (const call of calls) {
     assert.equal((await call()).status, 200);
@@ -357,7 +428,7 @@ test('config seed does not duplicate defaults already migrated under positive ID
   const database = new MigratedConfigDatabase();
   installDatabase(database);
   const route = await import('../src/app/api/seed-config/route');
-  const response = await route.GET(request('/api/seed-config', 'GET'));
+  const response = await route.POST(request('/api/seed-config', 'POST'));
   const payload = await json(response);
   assert.equal(response.status, 200);
   assert.deepEqual(payload.data, { rateImported: 6, slaImported: 2 });
@@ -380,16 +451,16 @@ test('live PostgreSQL import and repeated seeds are idempotent', {
 
   const form = new FormData();
   form.set('file', workbookFile([
-    ['category', 'name', 'brand'],
-    ['集成测试', 'PostgreSQL设备', 'H3C'],
+    deviceImportHeaders,
+    deviceImportRow('集成测试', 'PostgreSQL设备', 'H3C', 'PostgreSQL测试型号'),
   ]));
   const importResponse = await importFile.POST(request('/api/import-file', 'POST', form, token));
   assert.equal(importResponse.status, 200);
 
   const seedCalls = [
     () => quotas.POST(request('/api/quotas-seed', 'POST', undefined, token)),
-    () => config.GET(request('/api/seed-config', 'GET', undefined, token)),
-    () => maintenance.GET(request('/api/seed-maintenance-devices', 'GET', undefined, token)),
+    () => config.POST(request('/api/seed-config', 'POST', undefined, token)),
+    () => maintenance.POST(request('/api/seed-maintenance-devices', 'POST', undefined, token)),
   ];
   for (const call of seedCalls) {
     assert.equal((await call()).status, 200);

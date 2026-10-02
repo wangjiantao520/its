@@ -66,7 +66,6 @@ import {
 } from 'lucide-react';
 // 旧数据结构（保持向后兼容）
 import {
-  MOCK_DEVICE_QUOTAS,
   DeviceQuota,
   MaintenanceQuoteResult,
   calculateMaintenanceQuote,
@@ -83,9 +82,6 @@ import {
   EngineerLevel,
 } from '@/lib/maintenance-quota';
 // 新完整数据结构
-import {
-  getDeviceCategories,
-} from '@/lib/complete-device-data';
 import {
   calculateFullMaintenanceQuote,
   calculateFullDeviceQuote,
@@ -141,22 +137,40 @@ import { useAiQuote } from './use-ai-quote';
 import { apiFetch } from '@/lib/api-fetch';
 import type { DeviceSuggestionItem } from '@/lib/device-suggestions';
 
+interface SurveyRecordPrefill {
+  survey_data?: {
+    basicInfo?: {
+      companyName?: string;
+      contactPerson?: string;
+      contactPhone?: string;
+    };
+  };
+  contract_years?: number;
+}
+
 export default function MaintenanceQuotePage() {
   const { user } = useUser();
   // 动态设备数据（从数据库加载）
   const [dbDeviceQuotas, setDbDeviceQuotas] = useState<any[]>([]);
   const [dbDataLoading, setDbDataLoading] = useState(true);
+  const [dbDataLoadError, setDbDataLoadError] = useState(false);
 
   // 从数据库加载设备定额数据（政企设备定额 + 云数据中心设备）
   const loadDeviceData = async () => {
     try {
       setDbDataLoading(true);
+      setDbDataLoadError(false);
+      setDbDeviceQuotas([]);
       const [result1, result2] = await Promise.all([
         apiFetch<unknown[]>('/api/device-params?type=device_quotas'),
         apiFetch<unknown[]>('/api/device-params?type=maintenance_device_quotas')
       ]);
 
       const allData: any[] = [];
+
+      if (!result1.success || !result2.success) {
+        throw new Error(result1.error || result2.error || '设备定额接口读取失败');
+      }
 
       if (result1.success && Array.isArray(result1.data)) {
         allData.push(...result1.data);
@@ -215,6 +229,7 @@ export default function MaintenanceQuotePage() {
       }
     } catch (error) {
       console.error('加载设备数据失败:', error);
+      setDbDataLoadError(true);
     } finally {
       setDbDataLoading(false);
     }
@@ -492,6 +507,7 @@ export default function MaintenanceQuotePage() {
   const [clientName, setClientName] = useState('');
   const [projectName, setProjectName] = useState('');
   const [contractYears, setContractYears] = useState<string>('1');
+  const [surveyRecordId, setSurveyRecordId] = useState<string | null>(null);
   const [region, setRegion] = useState<RegionType>('城区');
   const [contactPerson, setContactPerson] = useState('');
   const [contactPhone, setContactPhone] = useState('');
@@ -502,10 +518,43 @@ export default function MaintenanceQuotePage() {
     setQuoteDate(new Date().toISOString().split('T')[0]);
   }, []);
 
+  // 查勘转报价只在 URL 中携带记录 ID；客户联系方式由受鉴权的 API 读取，避免出现在浏览器历史和 URL 日志里。
+  useEffect(() => {
+    const requestedId = new URLSearchParams(window.location.search).get('surveyRecordId');
+    if (!requestedId) return;
+    if (!/^\d+$/.test(requestedId) || !Number.isSafeInteger(Number(requestedId)) || Number(requestedId) < 1) {
+      toast.error('查勘记录链接无效');
+      return;
+    }
+
+    setSurveyRecordId(requestedId);
+    let active = true;
+    void (async () => {
+      const result = await apiFetch<SurveyRecordPrefill[]>(`/api/survey-records?id=${encodeURIComponent(requestedId)}`);
+      if (!active) return;
+      const surveyRecord = result.data?.[0];
+      if (!result.success || !surveyRecord) {
+        setSurveyRecordId(null);
+        toast.error(result.error || '查勘记录不存在或无权访问');
+        return;
+      }
+
+      const basicInfo = surveyRecord.survey_data?.basicInfo;
+      setClientName((current) => current || basicInfo?.companyName?.trim() || '');
+      setContactPerson((current) => current || basicInfo?.contactPerson?.trim() || '');
+      setContactPhone((current) => current || basicInfo?.contactPhone?.trim() || '');
+      const years = Number(surveyRecord.contract_years);
+      if (years === 1 || years === 2 || years === 3) setContractYears(String(years));
+      toast.success('查勘客户信息已带入；请核对信息并按实际设备选择定额');
+    })();
+
+    return () => { active = false; };
+  }, []);
+
   // 从数据库加载设备定额数据（挂载时）
   useEffect(() => {
     void loadDeviceData();
-    void autoRestoreLastQuote();
+    offerRestoreLastQuote();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -532,8 +581,8 @@ export default function MaintenanceQuotePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   
-  // 使用新的完整数据结构的标志
-  const [useFullData, setUseFullData] = useState(true);
+  // 维保报价统一使用数据库设备定额和完整计算模型，避免把示例数据作为真实报价依据。
+  const useFullData = true;
   
   // 设备分类筛选 - 支持多选
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
@@ -559,7 +608,7 @@ export default function MaintenanceQuotePage() {
 
   // 从动态数据获取设备分类
   const getDynamicDeviceCategories = () => {
-    if (dbDeviceQuotas.length === 0) return getDeviceCategories();
+    if (dbDeviceQuotas.length === 0) return [];
     // 对于云数据中心设备，只按内网/外网分类
     const categories = [...new Set(dbDeviceQuotas.map((d: any) => {
       // 如果有 network_type 字段，使用它作为分类（内网/外网）
@@ -734,11 +783,9 @@ export default function MaintenanceQuotePage() {
     }
   };
 
-  // 自动恢复上次保存的维保报价（保存时把 identity 存 localStorage，刷新后自动回显）
-  const autoRestoreLastQuote = async () => {
+  // 提供继续编辑上次报价的入口，但作为新报价复制，避免误关联到旧记录。
+  const restoreQuoteAsNew = async (savedIdentity: string) => {
     try {
-      const savedIdentity = localStorage.getItem('its_maintenance_quote_identity');
-      if (!savedIdentity) return;
       const match = /^quotation:(\d+)$/.exec(savedIdentity);
       if (!match) return;
       const detail = await apiFetch<any>(`/api/quotations/${match[1]}`);
@@ -749,11 +796,30 @@ export default function MaintenanceQuotePage() {
         setSelectedDevices(reusedDevices);
         setClientName(data.client_name || '');
         setProjectName(data.project_name || '');
-        setCurrentQuoteIdentity(savedIdentity);
+        setCurrentQuoteIdentity(null);
       }
       restoreServiceItems(data?.quote_data?.serviceItems);
+      toast.success('已复制上次报价内容，请核对后作为新报价提交');
     } catch (error) {
-      console.error('自动恢复上次报价失败:', error);
+      console.error('读取上次报价失败:', error);
+      toast.error('读取上次报价失败，请稍后重试');
+    }
+  };
+
+  const offerRestoreLastQuote = () => {
+    try {
+      const savedIdentity = localStorage.getItem('its_maintenance_quote_identity');
+      if (!savedIdentity || !/^quotation:(\d+)$/.test(savedIdentity)) return;
+      toast('发现上次保存的维保报价', {
+        description: '可以复制为新报价继续编辑，原报价不会被覆盖。',
+        duration: 12000,
+        action: {
+          label: '复制为新报价',
+          onClick: () => void restoreQuoteAsNew(savedIdentity),
+        },
+      });
+    } catch (error) {
+      console.error('读取上次报价标识失败:', error);
     }
   };
 
@@ -1480,8 +1546,12 @@ export default function MaintenanceQuotePage() {
             quoteNumber: newQuoteNumber,
             result: fullQuoteResult || quoteResult,
             devices: selectedDevices,
-            serviceItems
+            serviceItems,
+            surveyRecordId,
+            contactPerson,
+            contactPhone,
           },
+          survey_record_id: surveyRecordId,
           devices
         })
       });
@@ -1687,18 +1757,9 @@ export default function MaintenanceQuotePage() {
           </TabsTrigger>
         </TabsList>
         
-        {/* 数据模式切换 */}
-        <div className="flex items-center justify-between bg-white p-3 rounded-lg border border-slate-200">
-          <div className="flex items-center gap-2">
-            <Switch
-              checked={useFullData}
-              onCheckedChange={setUseFullData}
-            />
-            <Label className="font-medium">使用完整计算逻辑</Label>
-            <Badge variant="outline" className={useFullData ? "bg-green-50 text-green-700 border-green-200" : "bg-slate-50 text-slate-600"}>
-              {useFullData ? "新版 (完整65列)" : "旧版 (兼容)"}
-            </Badge>
-          </div>
+        <div className="flex items-center gap-2 bg-white p-3 rounded-lg border border-slate-200">
+          <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">完整报价模型</Badge>
+          <span className="text-sm text-slate-600">使用数据库设备定额和四地区报价公式</span>
         </div>
 
         {/* 新建报价 */}
@@ -2157,7 +2218,7 @@ export default function MaintenanceQuotePage() {
                               <span className="text-sm">
                                 {category}
                                 <span className="text-xs text-slate-500 ml-1">
-                                  ({categoryCount})
+                                  {dbDataLoading ? '(加载中…)' : dbDataLoadError ? '(读取失败)' : `(${categoryCount})`}
                                 </span>
                               </span>
                             </label>
@@ -2168,9 +2229,7 @@ export default function MaintenanceQuotePage() {
                   )}
                   
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 max-h-48 overflow-y-auto p-1">
-                    {useFullData ? (
-                      // 新版：使用完整设备数据（按分类筛选 - 多选）
-                      (() => {
+                    {(() => {
                         const filteredDevices = selectedCategories.length === 0 
                           ? (dbDataLoading ? [] : dbDeviceQuotas)
                           : (dbDataLoading ? [] : dbDeviceQuotas).filter((d: any) => {
@@ -2186,7 +2245,23 @@ export default function MaintenanceQuotePage() {
                           <>
                             {filteredDevices.length === 0 && (
                               <div className="col-span-full text-center py-4 text-slate-500 text-sm">
-                                {selectedCategories.length === 0 ? '请选择设备分类' : '所选分类下暂无设备'}
+                                {dbDataLoading
+                                  ? '正在加载设备定额…'
+                                  : dbDataLoadError
+                                    ? '设备定额读取失败，请重试'
+                                    : dbDeviceQuotas.length === 0
+                                      ? '设备定额库暂无可用设备，请联系管理员维护'
+                                      : selectedCategories.length === 0
+                                        ? '请选择设备分类'
+                                      : '所选分类下暂无设备'}
+                              </div>
+                            )}
+                            {dbDataLoadError && (
+                              <div className="col-span-full flex justify-center">
+                                <Button variant="outline" size="sm" onClick={() => void loadDeviceData()} disabled={dbDataLoading}>
+                                  {dbDataLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                  重试加载设备定额
+                                </Button>
                               </div>
                             )}
                             {filteredDevices.map((quota, idx) => (
@@ -2212,26 +2287,7 @@ export default function MaintenanceQuotePage() {
                             ))}
                           </>
                         );
-                      })()
-                    ) : (
-                      // 旧版：保持向后兼容
-                      MOCK_DEVICE_QUOTAS.map((quota, idx) => (
-                        <Button
-                          key={quota.id || `mock-${idx}`}
-                          variant="outline"
-                          className="justify-start text-left h-auto py-2 px-3"
-                          onClick={() => handleAddDevice(quota)}
-                        >
-                          <div className="flex flex-col items-start">
-                            <span className="font-medium text-sm">{quota.name}</span>
-                            <span className="text-xs text-slate-500">{quota.model}</span>
-                            <Badge variant="outline" className="mt-1 text-xs">
-                              {MAINTENANCE_LEVEL_CONFIG[quota.level].name}
-                            </Badge>
-                          </div>
-                        </Button>
-                      ))
-                    )}
+                      })()}
                   </div>
                 </div>
 

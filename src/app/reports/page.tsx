@@ -51,7 +51,7 @@ export default function ReportsPage() {
     <div className="space-y-6">
       <div><h1 className="text-2xl font-bold">报表统计</h1><p className="mt-1 text-muted-foreground">工程与维保报价实时统计</p></div>
       <div className="grid gap-4 md:grid-cols-4">
-        <Metric title="累计报价额" value={currency(stats.overview.totalAmount)} hint="全部有效报价" icon={<TrendingUp className="h-4 w-4" />} />
+        <Metric title="累计报价额" value={currency(stats.overview.totalAmount)} hint="全部报价记录（含草稿）" icon={<TrendingUp className="h-4 w-4" />} />
         <Metric title="平均报价额" value={currency(stats.overview.avgAmount)} hint="每笔平均" icon={<BarChart3 className="h-4 w-4" />} />
         <Metric title="工程报价" value={String(stats.overview.engineeringCount)} hint="笔" icon={<FileText className="h-4 w-4" />} />
         <Metric title="维保及综合报价" value={String(stats.overview.maintenanceCount)} hint="笔" icon={<Users className="h-4 w-4" />} />

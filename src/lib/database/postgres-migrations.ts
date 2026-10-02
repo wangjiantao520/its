@@ -50,6 +50,7 @@ const MIGRATION_FILES = [
   '007_system_parameters.sql',
   '008_engineering_quote_tiers.sql',
   '009_device_suggestions.sql',
+  '010_survey_quote_link_and_rls.sql',
 ] as const;
 
 function migrationDirectories(): string[] {

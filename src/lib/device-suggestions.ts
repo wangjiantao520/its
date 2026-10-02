@@ -63,4 +63,5 @@ export interface DeviceSuggestionPriceData {
   consumableFee: number;
   sparePartReserve: number;
   sparePartFee: number;
+  cityPrice: number;
 }

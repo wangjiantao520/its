@@ -33,6 +33,23 @@ const TYPE_LABELS: Record<string, string> = {
   quotation: '综合报价',
 };
 
+const STATUS_LABELS: Record<string, string> = {
+  draft: '草稿',
+  submitted: '已提交',
+  pending_review: '待审核',
+  approved: '已批准',
+  rejected: '已退回',
+  sent: '已发送',
+  archived: '已归档',
+};
+
+function formatDate(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? '—'
+    : date.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
+}
+
 export default function HistoryPage() {
   const router = useRouter();
   const { confirm, ConfirmDialog } = useConfirm();
@@ -45,9 +62,18 @@ export default function HistoryPage() {
   const loadRecords = useCallback(async () => {
     setLoading(true);
     try {
-      const result = await apiFetch<QuoteRecord[]>('/api/quotes?page_size=100');
-      if (!result.success) throw new Error(result.error || '加载失败');
-      if (result.data) setRecords(result.data);
+      const allRecords: QuoteRecord[] = [];
+      const pageSize = 100;
+      let page = 1;
+      while (true) {
+        const result = await apiFetch<QuoteRecord[]>(`/api/quotes?page=${page}&page_size=${pageSize}`);
+        if (!result.success) throw new Error(result.error || '加载失败');
+        const pageRecords = result.data || [];
+        allRecords.push(...pageRecords);
+        if (pageRecords.length < pageSize) break;
+        page += 1;
+      }
+      setRecords(allRecords);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '加载历史记录失败');
     } finally {
@@ -88,8 +114,8 @@ export default function HistoryPage() {
       record.client_name,
       record.project_name,
       record.total_amount,
-      record.status,
-      record.created_at,
+      STATUS_LABELS[record.status] || record.status,
+      formatDate(record.created_at),
       record.created_by_name,
     ]);
     writeTable(worksheet, 0, headers, rows, { moneyCols: [4] });
@@ -134,7 +160,7 @@ export default function HistoryPage() {
           ) : (
             <Table><TableHeader><TableRow><TableHead>报价单号</TableHead><TableHead>类型</TableHead><TableHead>客户</TableHead><TableHead>项目</TableHead><TableHead className="text-right">金额</TableHead><TableHead>状态</TableHead><TableHead>创建时间</TableHead><TableHead>创建人</TableHead><TableHead>操作</TableHead></TableRow></TableHeader>
               <TableBody>{filteredRecords.map((record) => (
-                <TableRow key={record.id}><TableCell className="font-mono">{record.quote_number}</TableCell><TableCell><Badge variant="outline">{TYPE_LABELS[record.quote_type] || record.quote_type}</Badge></TableCell><TableCell>{record.client_name}</TableCell><TableCell>{record.project_name}</TableCell><TableCell className="text-right font-semibold">¥{record.total_amount.toLocaleString('zh-CN')}</TableCell><TableCell><Badge variant="secondary">{record.status}</Badge></TableCell><TableCell>{record.created_at}</TableCell><TableCell>{record.created_by_name || '-'}</TableCell><TableCell><div className="flex gap-1">
+                <TableRow key={record.id}><TableCell className="font-mono">{record.quote_number}</TableCell><TableCell><Badge variant="outline">{TYPE_LABELS[record.quote_type] || record.quote_type}</Badge></TableCell><TableCell>{record.client_name}</TableCell><TableCell>{record.project_name}</TableCell><TableCell className="text-right font-semibold">¥{record.total_amount.toLocaleString('zh-CN')}</TableCell><TableCell><Badge variant="secondary">{STATUS_LABELS[record.status] || record.status}</Badge></TableCell><TableCell>{formatDate(record.created_at)}</TableCell><TableCell>{record.created_by_name || '-'}</TableCell><TableCell><div className="flex gap-1">
                   <Button variant="ghost" size="icon" title="查看" onClick={() => router.push(`/quotes/${encodeURIComponent(record.id)}`)}><Eye className="h-4 w-4" /></Button>
                   <Button variant="ghost" size="icon" title="复制编号" onClick={async () => { await navigator.clipboard.writeText(record.quote_number); toast.success('报价编号已复制'); }}><Copy className="h-4 w-4" /></Button>
                   <Button variant="ghost" size="icon" title="导出Excel" onClick={() => exportRecords([record], `${record.quote_number}.xlsx`)}><FileDown className="h-4 w-4" /></Button>

@@ -12,7 +12,7 @@ import { getDatabase, type DatabaseClient } from './database/client';
 import { getRequestSessionToken } from './request-session-token';
 
 const PASSWORDS: Record<string, string | undefined> = {
-  admin: process.env.ADMIN_PASSWORD || 'admin123',
+  admin: process.env.ADMIN_PASSWORD || (process.env.NODE_ENV === 'production' ? undefined : 'admin123'),
 };
 
 interface BuiltinMember {
@@ -29,7 +29,11 @@ const BUILTIN_MEMBERS: Record<string, BuiltinMember> = {
 };
 
 function builtinPassword(member: BuiltinMember): string {
-  if (member.passwordEnv && process.env[member.passwordEnv]) return process.env[member.passwordEnv] as string;
+  if (member.passwordEnv) {
+    return process.env[member.passwordEnv]
+      || (process.env.NODE_ENV === 'production' ? '' : member.fallback ?? '');
+  }
+  if (process.env.NODE_ENV === 'production') return '';
   return member.password ?? member.fallback ?? '';
 }
 
@@ -120,12 +124,9 @@ function isUniqueViolation(error: unknown): boolean {
 
 function validateAdminPassword(password: string): boolean {
   const expected = PASSWORDS.admin;
-  if (!expected) {
+  if (!expected || (process.env.NODE_ENV === 'production' && expected === 'admin123')) {
     console.error('[Auth] 管理员密码未配置: 请设置环境变量 ADMIN_PASSWORD');
     return false;
-  }
-  if (expected === 'admin123' && process.env.NODE_ENV === 'production') {
-    console.warn('[Auth] 警告：生产环境中正在使用默认密码！请设置环境变量 ADMIN_PASSWORD');
   }
   return password === expected;
 }

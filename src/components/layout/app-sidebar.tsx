@@ -107,6 +107,16 @@ const adminNavItems = [
     icon: ListFilter,
   },
   {
+    title: '设备清单导入',
+    url: '/device-import',
+    icon: Upload,
+  },
+  {
+    title: '历史记录',
+    url: '/history',
+    icon: History,
+  },
+  {
     title: '报价资料库',
     url: '/admin/quote-library',
     icon: Library,

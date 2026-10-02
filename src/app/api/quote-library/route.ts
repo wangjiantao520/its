@@ -6,10 +6,14 @@ import {
   buildStoredName,
   buildStoredPath,
   ensureDir,
-  toPublicUrl,
   uploadsDir,
   writeFile,
 } from '@/lib/quote-library-storage';
+import {
+  parseStagedQuoteLibraryUploads,
+  verifyQuoteLibraryObject,
+} from '@/lib/supabase-storage';
+import { parseQuoteData } from '@/lib/quote-library-types';
 import type {
   QuoteData,
   QuoteLibraryAttachment,
@@ -69,10 +73,7 @@ interface ListRow extends Record<string, unknown> {
 }
 
 function normalizeQuoteData(value: ListRow['quote_data']): QuoteData {
-  if (typeof value === 'string') {
-    try { return JSON.parse(value) as QuoteData; } catch { return { template: 'engineering-quote-v1', summary: { title: '', items: [], totals: { taxable_total: 0, tiejiang_taxable_total: 0, yidong_taxable_total: 0 } } }; }
-  }
-  return value;
+  return parseQuoteData(value);
 }
 
 function toRecord(row: ListRow, attachments?: QuoteLibraryAttachment[]): QuoteLibraryRecord {
@@ -204,8 +205,19 @@ export async function POST(request: NextRequest) {
     const otherFiles = form.getAll('other_files').filter((f): f is File => f instanceof File && f.size > 0);
     const allFiles = [...surveyPhotos.map((f) => ({ file: f, fallback: 'survey_photo' as const })),
                       ...otherFiles.map((f) => ({ file: f, fallback: 'other' as const }))];
+    if (process.env.VERCEL === '1' && allFiles.length > 0) {
+      return NextResponse.json({
+        success: false,
+        error: 'Vercel 环境必须配置 Supabase Storage 直传后才能上传附件',
+      }, { status: 503 });
+    }
+    const stagedResult = parseStagedQuoteLibraryUploads(form.get('remote_uploads'));
+    if (!stagedResult.ok) {
+      return NextResponse.json({ success: false, error: stagedResult.error }, { status: 400 });
+    }
+    const stagedUploads = stagedResult.uploads;
 
-    if (allFiles.length > MAX_ATTACHMENTS_PER_RECORD) {
+    if (allFiles.length + stagedUploads.length > MAX_ATTACHMENTS_PER_RECORD) {
       return NextResponse.json({ success: false, error: `附件数量不能超过 ${MAX_ATTACHMENTS_PER_RECORD} 个` }, { status: 400 });
     }
     for (const { file, fallback } of allFiles) {
@@ -219,6 +231,12 @@ export async function POST(request: NextRequest) {
       if (!allowSet.has(mime) && !(mime === '' && extOk) && !(mime === 'application/octet-stream' && extOk)) {
         return NextResponse.json({ success: false, error: `附件 ${file.name} 类型不支持` }, { status: 400 });
       }
+    }
+
+    try {
+      await Promise.all(stagedUploads.map((upload) => verifyQuoteLibraryObject(upload.path, upload.file_size)));
+    } catch {
+      return NextResponse.json({ success: false, error: '附件上传未完成或附件存储暂不可用' }, { status: 400 });
     }
 
     const database = getDatabase();
@@ -275,11 +293,42 @@ export async function POST(request: NextRequest) {
           category,
           original_name: file.name,
           stored_path: storedPath,
-          url: toPublicUrl(storedPath),
+          url: `/api/quote-library/attachments/${String(attachmentId)}`,
           mime_type: file.type || null,
           file_size: file.size,
           uploaded_by: auth.session.userId ?? null,
           created_at: createdAt ?? new Date().toISOString(),
+        });
+      }
+    }
+
+    for (const upload of stagedUploads) {
+      const result = await database.query<{ id: string | number | bigint; created_at: string }>(
+        `INSERT INTO quote_library_attachments
+           (library_id, category, original_name, stored_path, mime_type, file_size, uploaded_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, created_at`,
+        [
+          libraryId,
+          upload.category,
+          upload.original_name,
+          upload.path,
+          upload.mime_type,
+          upload.file_size,
+          auth.session.userId ?? null,
+        ],
+      );
+      const attachmentId = result.rows[0]?.id;
+      if (attachmentId !== undefined) {
+        attachmentRecords.push({
+          id: String(attachmentId),
+          category: upload.category,
+          original_name: upload.original_name,
+          stored_path: upload.path,
+          url: `/api/quote-library/attachments/${String(attachmentId)}`,
+          mime_type: upload.mime_type,
+          file_size: upload.file_size,
+          uploaded_by: auth.session.userId ?? null,
+          created_at: result.rows[0]?.created_at ?? new Date().toISOString(),
         });
       }
     }

@@ -9,10 +9,16 @@ import {
   ensureDir,
   resolveSafeAbsolutePath,
   safeUnlink,
-  toPublicUrl,
   uploadsDir,
   writeFile,
 } from '@/lib/quote-library-storage';
+import {
+  isSupabaseQuoteLibraryPath,
+  parseStagedQuoteLibraryUploads,
+  removeQuoteLibraryObjects,
+  verifyQuoteLibraryObject,
+} from '@/lib/supabase-storage';
+import { parseQuoteData } from '@/lib/quote-library-types';
 import type {
   QuoteData,
   QuoteLibraryAttachment,
@@ -79,10 +85,7 @@ function isObject(v: unknown): v is Record<string, unknown> {
   return v !== null && typeof v === 'object' && !Array.isArray(v);
 }
 function normalizeQuoteData(value: Row['quote_data']): QuoteData {
-  if (typeof value === 'string') {
-    try { return JSON.parse(value) as QuoteData; } catch { return { template: 'engineering-quote-v1', summary: { title: '', items: [], totals: { taxable_total: 0, tiejiang_taxable_total: 0, yidong_taxable_total: 0 } } }; }
-  }
-  return value;
+  return parseQuoteData(value);
 }
 
 function idFrom(value: string): number | null {
@@ -110,7 +113,7 @@ function toRecord(row: Row, attachments: AttachmentRow[]): QuoteLibraryRecord {
       category: a.category,
       original_name: a.original_name,
       stored_path: a.stored_path,
-      url: toPublicUrl(a.stored_path),
+      url: `/api/quote-library/attachments/${String(a.id)}`,
       mime_type: a.mime_type ?? null,
       file_size: a.file_size ? Number(a.file_size) : null,
       uploaded_by: a.uploaded_by === null || a.uploaded_by === undefined
@@ -181,6 +184,21 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
     if (!existing) return NextResponse.json({ success: false, error: '报价资料不存在' }, { status: 404 });
 
     const form = await request.formData();
+    const stagedResult = parseStagedQuoteLibraryUploads(form.get('remote_uploads'));
+    if (!stagedResult.ok) {
+      return NextResponse.json({ success: false, error: stagedResult.error }, { status: 400 });
+    }
+    const stagedUploads = stagedResult.uploads;
+    const surveyPhotos = form.getAll('survey_photos').filter((f): f is File => f instanceof File && f.size > 0);
+    const otherFiles = form.getAll('other_files').filter((f): f is File => f instanceof File && f.size > 0);
+    const allFiles = [...surveyPhotos.map((f) => ({ file: f, fallback: 'survey_photo' as const })),
+                      ...otherFiles.map((f) => ({ file: f, fallback: 'other' as const }))];
+    if (process.env.VERCEL === '1' && allFiles.length > 0) {
+      return NextResponse.json({
+        success: false,
+        error: 'Vercel 环境必须配置 Supabase Storage 直传后才能上传附件',
+      }, { status: 503 });
+    }
 
     let parsedQuote: QuoteData | undefined;
     const quoteDataRaw = asString(form.get('quote_data'));
@@ -202,43 +220,28 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
       ? asNumber(form.get('total_amount'))
       : (parsedQuote ? parsedQuote.summary.totals.taxable_total : Number(existing.row.total_amount));
 
-    // 处理附件删除
+    // 先验证附件和删除数量，避免验证失败时已移除现有附件。
     const removeIdsRaw = asString(form.get('remove_attachment_ids'));
     const removeIds = removeIdsRaw
       ? removeIdsRaw.split(',').map((s) => Number(s)).filter((n) => Number.isSafeInteger(n) && n > 0)
       : [];
 
-    if (removeIds.length > 0) {
-      const removed = await database.query<AttachmentRow>(
+    const selectedForRemoval = removeIds.length > 0
+      ? await database.query<AttachmentRow>(
         `SELECT id, stored_path FROM quote_library_attachments WHERE library_id = $1 AND id = ANY($2::bigint[])`,
         [id, removeIds],
-      );
-      await database.query(
-        `DELETE FROM quote_library_attachments WHERE library_id = $1 AND id = ANY($2::bigint[])`,
-        [id, removeIds],
-      );
-      for (const r of removed.rows) {
-        const abs = resolveSafeAbsolutePath(r.stored_path);
-        if (abs) await safeUnlink(abs);
-      }
-    }
-
-    // 处理新增附件
-    const surveyPhotos = form.getAll('survey_photos').filter((f): f is File => f instanceof File && f.size > 0);
-    const otherFiles = form.getAll('other_files').filter((f): f is File => f instanceof File && f.size > 0);
-    const allFiles = [...surveyPhotos.map((f) => ({ file: f, fallback: 'survey_photo' as const })),
-                      ...otherFiles.map((f) => ({ file: f, fallback: 'other' as const }))];
+      )
+      : { rows: [] as AttachmentRow[] };
 
     const existingCount = await database.query<{ total: string | number }>(
       'SELECT COUNT(*)::text AS total FROM quote_library_attachments WHERE library_id = $1',
       [id],
     );
-    const afterRemoval = Number(existingCount.rows[0]?.total ?? 0);
-    if (afterRemoval + allFiles.length > MAX_ATTACHMENTS_PER_RECORD) {
+    const afterRemoval = Math.max(0, Number(existingCount.rows[0]?.total ?? 0) - selectedForRemoval.rows.length);
+    if (afterRemoval + allFiles.length + stagedUploads.length > MAX_ATTACHMENTS_PER_RECORD) {
       return NextResponse.json({ success: false, error: `附件总数不能超过 ${MAX_ATTACHMENTS_PER_RECORD} 个` }, { status: 400 });
     }
 
-    const newAttachments: QuoteLibraryAttachment[] = [];
     for (const { file, fallback } of allFiles) {
       if (file.size > MAX_ATTACHMENT_SIZE_BYTES) {
         return NextResponse.json({ success: false, error: `附件 ${file.name} 超过 20MB 限制` }, { status: 400 });
@@ -250,7 +253,34 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
       if (!allowSet.has(mime) && !(mime === '' && extOk) && !(mime === 'application/octet-stream' && extOk)) {
         return NextResponse.json({ success: false, error: `附件 ${file.name} 类型不支持` }, { status: 400 });
       }
+    }
 
+    try {
+      await Promise.all(stagedUploads.map((upload) => verifyQuoteLibraryObject(upload.path, upload.file_size)));
+    } catch {
+      return NextResponse.json({ success: false, error: '附件上传未完成或附件存储暂不可用' }, { status: 400 });
+    }
+
+    // 处理附件删除
+    if (removeIds.length > 0) {
+      await database.query(
+        `DELETE FROM quote_library_attachments WHERE library_id = $1 AND id = ANY($2::bigint[])`,
+        [id, removeIds],
+      );
+      const remotePaths = selectedForRemoval.rows
+        .map((row) => row.stored_path)
+        .filter(isSupabaseQuoteLibraryPath);
+      await removeQuoteLibraryObjects(remotePaths);
+      for (const r of selectedForRemoval.rows) {
+        const abs = resolveSafeAbsolutePath(r.stored_path);
+        if (abs) await safeUnlink(abs);
+      }
+    }
+
+    // 处理新增附件
+    const newAttachments: QuoteLibraryAttachment[] = [];
+    for (const { file, fallback } of allFiles) {
+      const category = inferCategory(file, fallback);
       const storedName = buildStoredName(file.name);
       const storedPath = buildStoredPath(id, category, storedName);
       const absDir = uploadsDir(String(id), category);
@@ -273,11 +303,34 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
           category,
           original_name: file.name,
           stored_path: storedPath,
-          url: toPublicUrl(storedPath),
+          url: `/api/quote-library/attachments/${String(attachmentId)}`,
           mime_type: file.type || null,
           file_size: file.size,
           uploaded_by: auth.session.userId ?? null,
           created_at: createdAt ?? new Date().toISOString(),
+        });
+      }
+    }
+
+    for (const upload of stagedUploads) {
+      const result = await database.query<{ id: string | number | bigint; created_at: string }>(
+        `INSERT INTO quote_library_attachments
+           (library_id, category, original_name, stored_path, mime_type, file_size, uploaded_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, created_at`,
+        [id, upload.category, upload.original_name, upload.path, upload.mime_type, upload.file_size, auth.session.userId ?? null],
+      );
+      const attachmentId = result.rows[0]?.id;
+      if (attachmentId !== undefined) {
+        newAttachments.push({
+          id: String(attachmentId),
+          category: upload.category,
+          original_name: upload.original_name,
+          stored_path: upload.path,
+          url: `/api/quote-library/attachments/${String(attachmentId)}`,
+          mime_type: upload.mime_type,
+          file_size: upload.file_size,
+          uploaded_by: auth.session.userId ?? null,
+          created_at: result.rows[0]?.created_at ?? new Date().toISOString(),
         });
       }
     }
@@ -328,6 +381,10 @@ export async function DELETE(request: NextRequest, { params }: RouteContext) {
 
     await database.query('DELETE FROM quote_library_attachments WHERE library_id = $1', [id]);
     await database.query('DELETE FROM quote_library WHERE id = $1', [id]);
+
+    await removeQuoteLibraryObjects(
+      existing.attachments.map((attachment) => attachment.stored_path).filter(isSupabaseQuoteLibraryPath),
+    );
 
     // 删除物理文件：尝试移除整个 library_id 目录
     const dir = uploadsDir(String(id));

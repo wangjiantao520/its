@@ -45,18 +45,23 @@ interface DeviceQuota {
   on_site_count: number;
   // 金额相关字段
   inspection_labor_fee: number;
-  on_site_fee_annual: number;
+  visit_service_fee: number;
   traffic_fee: number;
   on_site_connection_labor_fee: number;
   spare_part_reserve: number;
+  spare_part_fee: number;
+  tool_amortization: number;
+  consumable_fee: number;
   city_price: number;
   fault_handling_fee_total: number;
+  fault_handling_fee: number;
   year1_total_price: number;
   year2_total_price: number;
   year3_total_price: number;
   urban_price: number;
   town_price: number;
   rural_price: number;
+  is_active: boolean;
 }
 
 // 自施工工序定额
@@ -205,8 +210,72 @@ export default function DatabaseManagementPage() {
   const [imports, setImports] = useState<DeviceImportItem[]>([]);
   const [selectedItem, setSelectedItem] = useState<DeviceImportItem | null>(null);
   const [reviewComment, setReviewComment] = useState('');
+  const [reviewCityPrice, setReviewCityPrice] = useState('');
+  const [replaceExistingImportQuota, setReplaceExistingImportQuota] = useState(false);
+  const [reviewSubmitting, setReviewSubmitting] = useState(false);
   const [isReviewDialogOpen, setIsReviewDialogOpen] = useState(false);
   const [dialogAction, setDialogAction] = useState<'approve' | 'reject' | null>(null);
+
+  const openImportReview = (item: DeviceImportItem, action: 'approve' | 'reject') => {
+    setSelectedItem(item);
+    setDialogAction(action);
+    setReviewComment('');
+    setReviewCityPrice(action === 'approve' && (item.cityPrice ?? 0) > 0 ? String(item.cityPrice) : '');
+    setReplaceExistingImportQuota(false);
+    setIsReviewDialogOpen(true);
+  };
+
+  const findImportQuota = (item: DeviceImportItem): DeviceQuota | undefined =>
+    deviceQuotas.find((quota) => quota.category === item.category
+      && quota.name === item.name && (quota.model || '') === (item.model || ''));
+
+  const handleImportReview = async () => {
+    if (!selectedItem || !dialogAction) return;
+    const cityPrice = Number(reviewCityPrice);
+    if (dialogAction === 'approve' && (!Number.isFinite(cityPrice) || cityPrice <= 0)) {
+      toast.error('请填写大于 0 的城区基准年价，避免生成零价定额');
+      return;
+    }
+
+    setReviewSubmitting(true);
+    try {
+      const result = await apiFetch<{ quotaId?: string; quotaAction?: 'created' | 'updated' }>(
+        '/api/device-imports/review',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            id: selectedItem.id,
+            action: dialogAction,
+            cityPrice: dialogAction === 'approve' ? cityPrice : undefined,
+            replaceExisting: dialogAction === 'approve' ? replaceExistingImportQuota : undefined,
+            comment: reviewComment || undefined,
+          }),
+        },
+      );
+      if (!result.success) {
+        toast.error(result.error || '审核失败');
+        if (result.status === 409) await loadData();
+        return;
+      }
+
+      if (dialogAction === 'approve') {
+        toast.success(result.data?.quotaAction === 'updated' ? '已审核并更新已有设备定额' : '已审核并写入设备定额');
+        await Promise.all([loadImports(), loadData()]);
+      } else {
+        toast.success('申请已拒绝');
+        await loadImports();
+      }
+      setIsReviewDialogOpen(false);
+      setSelectedItem(null);
+      setDialogAction(null);
+      setReviewComment('');
+      setReviewCityPrice('');
+    } catch (error) {
+      toast.error('审核失败: ' + String(error));
+    } finally {
+      setReviewSubmitting(false);
+    }
+  };
 
   const loadImports = async () => {
     try {
@@ -229,6 +298,7 @@ export default function DatabaseManagementPage() {
     cGearFaultCount: 0, dGearFaultCount: 0, eGearFaultCount: 0, faultProcessingDays: 0,
     inspectionDays: 0, onSiteCount: 0, inspectionLaborFee: 0, visitServiceFee: 0, trafficFee: 0,
     faultHandlingFee: 0, toolAmortization: 0, consumableFee: 0, sparePartReserve: 0, sparePartFee: 0,
+    cityPrice: 0,
   });
   const [suggestionSubmitting, setSuggestionSubmitting] = useState(false);
   const [copySearch, setCopySearch] = useState('');
@@ -355,7 +425,7 @@ export default function DatabaseManagementPage() {
           maintenance_tier: 'C档', annual_fault_count: 0, a_gear_fault_count: 0,
           b_gear_fault_count: 0, c_gear_fault_count: 0, d_gear_fault_count: 0,
           e_gear_fault_count: 0, fault_processing_days: 0, inspection_days: 0, on_site_count: 0,
-          inspection_labor_fee: 0, visit_service_fee: 0, traffic_fee: 0,
+          inspection_labor_fee: 0, visit_service_fee: 0, city_price: 0, traffic_fee: 0,
           fault_handling_fee: 0, tool_amortization: 0, consumable_fee: 0,
           spare_part_reserve: 0, spare_part_fee: 0, year1_total_price: 0,
           year2_total_price: 0, year3_total_price: 0, urban_price: 0,
@@ -643,6 +713,10 @@ export default function DatabaseManagementPage() {
             <div className="space-y-2">
               <Label>上门费(元)</Label>
               <Input type="number" value={editingItem.visit_service_fee || 0} onChange={(e) => updateEditingItem('visit_service_fee', parseFloat(e.target.value))} />
+            </div>
+            <div className="space-y-2">
+              <Label>城区基准年价(元/台·年) <span className="text-red-600">*</span></Label>
+              <Input type="number" min="0.01" step="0.01" value={editingItem.city_price || 0} onChange={(e) => updateEditingItem('city_price', parseFloat(e.target.value) || 0)} />
             </div>
             <div className="space-y-2">
               <Label>交通费(元)</Label>
@@ -1069,8 +1143,8 @@ export default function DatabaseManagementPage() {
                                   <p className="text-sm font-medium font-mono">{item.inspection_labor_fee ? `¥${item.inspection_labor_fee.toFixed(2)}` : '-'}</p>
                                 </div>
                                 <div className="space-y-1">
-                                  <span className="text-xs text-slate-500">到场服务费</span>
-                                  <p className="text-sm font-medium font-mono">{item.on_site_fee_annual ? `¥${item.on_site_fee_annual.toFixed(2)}` : '-'}</p>
+                                  <span className="text-xs text-slate-500">上门服务费</span>
+                                  <p className="text-sm font-medium font-mono">{item.visit_service_fee ? `¥${item.visit_service_fee.toFixed(2)}` : '-'}</p>
                                 </div>
                                 <div className="space-y-1">
                                   <span className="text-xs text-slate-500">交通费</span>
@@ -1911,7 +1985,7 @@ export default function DatabaseManagementPage() {
                     <CheckSquare className="w-5 h-5 text-blue-600" />
                     待审核清单
                   </CardTitle>
-                  <CardDescription>审核ITS成员提交的设备清单</CardDescription>
+                  <CardDescription>审核设备资料并纳入维保定额库；通过时必须核定城区基准年价</CardDescription>
                 </div>
                 {imports.filter(i => i.status === 'pending').length > 0 && (
                   <Badge variant="secondary" className="text-base px-3 py-1">
@@ -1928,7 +2002,7 @@ export default function DatabaseManagementPage() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>提交人</TableHead>
-                      <TableHead>项目名称</TableHead>
+                      <TableHead>设备名称</TableHead>
                       <TableHead>设备数量</TableHead>
                       <TableHead>提交时间</TableHead>
                       <TableHead>状态</TableHead>
@@ -1939,7 +2013,7 @@ export default function DatabaseManagementPage() {
                     {imports.filter(i => i.status === 'pending').map((item, index) => (
                       <TableRow key={item.id || `import-pending-${index}`}>
                         <TableCell className="font-medium">{item.submittedBy}</TableCell>
-                        <TableCell>{item.category}</TableCell>
+                        <TableCell>{item.name}</TableCell>
                         <TableCell>{item.deviceCount} 台</TableCell>
                         <TableCell>{new Date(item.submittedAt).toLocaleString('zh-CN')}</TableCell>
                         <TableCell>
@@ -1947,21 +2021,11 @@ export default function DatabaseManagementPage() {
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-2">
-                            <Button size="sm" variant="outline" onClick={() => {
-                              setSelectedItem(item);
-                              setDialogAction('approve');
-                              setReviewComment('');
-                              setIsReviewDialogOpen(true);
-                            }}>
+                            <Button size="sm" variant="outline" onClick={() => openImportReview(item, 'approve')}>
                               <CheckCircle2 className="w-4 h-4 mr-1 text-green-600" />
-                              通过
+                              通过并入库
                             </Button>
-                            <Button size="sm" variant="outline" onClick={() => {
-                              setSelectedItem(item);
-                              setDialogAction('reject');
-                              setReviewComment('');
-                              setIsReviewDialogOpen(true);
-                            }}>
+                            <Button size="sm" variant="outline" onClick={() => openImportReview(item, 'reject')}>
                               <X className="w-4 h-4 mr-1 text-red-600" />
                               拒绝
                             </Button>
@@ -1987,28 +2051,32 @@ export default function DatabaseManagementPage() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>提交人</TableHead>
-                      <TableHead>项目名称</TableHead>
+                      <TableHead>设备名称</TableHead>
                       <TableHead>设备数量</TableHead>
                       <TableHead>提交时间</TableHead>
                       <TableHead>状态</TableHead>
                       <TableHead>审核人</TableHead>
+                      <TableHead>入库定额ID</TableHead>
+                      <TableHead>审核意见</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {imports.filter(i => i.status !== 'pending').map((item, index) => (
                       <TableRow key={item.id || `import-history-${index}`}>
                         <TableCell className="font-medium">{item.submittedBy}</TableCell>
-                        <TableCell>{item.category}</TableCell>
+                        <TableCell>{item.name}</TableCell>
                         <TableCell>{item.deviceCount} 台</TableCell>
                         <TableCell>{new Date(item.submittedAt).toLocaleString('zh-CN')}</TableCell>
                         <TableCell>
                           {item.status === 'approved' ? (
-                            <Badge className="bg-green-600">已通过</Badge>
+                            <Badge className="bg-green-600">已通过并入库</Badge>
                           ) : (
                             <Badge className="bg-red-600">已拒绝</Badge>
                           )}
                         </TableCell>
                         <TableCell>{item.reviewedBy || '-'}</TableCell>
+                        <TableCell>{item.approvedQuotaId || '-'}</TableCell>
+                        <TableCell>{item.reviewComment || '-'}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -2082,7 +2150,7 @@ export default function DatabaseManagementPage() {
                                 faultProcessingDays: 0, inspectionDays: 0, onSiteCount: 0,
                                 inspectionLaborFee: 0, visitServiceFee: 0, trafficFee: 0,
                                 faultHandlingFee: 0, toolAmortization: 0, consumableFee: 0,
-                                sparePartReserve: 0, sparePartFee: 0,
+                                sparePartReserve: 0, sparePartFee: 0, cityPrice: 0,
                               });
                               setSuggestDialogOpen(true);
                             }}>
@@ -2210,13 +2278,14 @@ export default function DatabaseManagementPage() {
                               inspectionDays: q.inspection_days || 0,
                               onSiteCount: q.on_site_count || 0,
                               inspectionLaborFee: q.inspection_labor_fee || 0,
-                              visitServiceFee: q.on_site_fee_annual || 0,
+                              visitServiceFee: q.visit_service_fee || 0,
                               trafficFee: q.traffic_fee || 0,
-                              faultHandlingFee: q.fault_handling_fee_total || 0,
-                              toolAmortization: 0,
-                              consumableFee: 0,
+                              faultHandlingFee: q.fault_handling_fee_total || q.fault_handling_fee || 0,
+                              toolAmortization: q.tool_amortization || 0,
+                              consumableFee: q.consumable_fee || 0,
                               sparePartReserve: q.spare_part_reserve || 0,
-                              sparePartFee: 0,
+                              sparePartFee: q.spare_part_fee || 0,
+                              cityPrice: Number(q.city_price) || 0,
                             });
                             setCopySearch('');
                             toast.success(`已复制「${q.name}」的价格体系`);
@@ -2297,6 +2366,11 @@ export default function DatabaseManagementPage() {
               <div className="col-span-2 border-t pt-3 mt-1">
                 <h4 className="font-medium text-sm mb-1">费用配置</h4>
               </div>
+              <div className="space-y-2 col-span-2">
+                <Label>城区基准年价（元/台·年）<span className="text-red-600">*</span></Label>
+                <Input type="number" min="0.01" step="0.01" value={priceDataForm.cityPrice} onChange={(e) => updatePriceForm('cityPrice', parseFloat(e.target.value) || 0)} />
+                <p className="text-xs text-muted-foreground">当前维保报价算法以该值作为城区设备年价；新定额没有此价格会生成零价报价。</p>
+              </div>
               <div className="space-y-2">
                 <Label>巡检费(元)</Label>
                 <Input type="number" value={priceDataForm.inspectionLaborFee} onChange={(e) => updatePriceForm('inspectionLaborFee', parseFloat(e.target.value) || 0)} />
@@ -2356,7 +2430,7 @@ export default function DatabaseManagementPage() {
               取消
             </Button>
             <Button
-              disabled={suggestionSubmitting || (suggestAction === 'reject' && !suggestComment.trim())}
+              disabled={suggestionSubmitting || (suggestAction === 'reject' && !suggestComment.trim()) || (suggestAction === 'approve' && (!Number.isFinite(priceDataForm.cityPrice) || priceDataForm.cityPrice <= 0))}
               onClick={async () => {
                 if (!selectedSuggestion || !suggestAction) return;
                 setSuggestionSubmitting(true);
@@ -2368,20 +2442,22 @@ export default function DatabaseManagementPage() {
                     method: 'POST',
                     body: JSON.stringify(body),
                   });
-                  if (result.success) {
-                    toast.success(suggestAction === 'approve' ? '已通过并入库' : '已驳回');
-                    await loadSuggestions();
-                  } else {
+                  if (!result.success) {
                     toast.error(result.error || '审核失败');
+                    return;
+                  } else {
+                    toast.success(suggestAction === 'approve' ? '已通过并入库' : '已驳回');
+                    setSuggestDialogOpen(false);
+                    setSelectedSuggestion(null);
+                    setSuggestAction(null);
+                    setSuggestComment('');
+                    await loadSuggestions();
                   }
                 } catch (error) {
                   toast.error('审核失败: ' + String(error));
+                } finally {
+                  setSuggestionSubmitting(false);
                 }
-                setSuggestionSubmitting(false);
-                setSuggestDialogOpen(false);
-                setSelectedSuggestion(null);
-                setSuggestAction(null);
-                setSuggestComment('');
               }}
               className={suggestAction === 'approve' ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'}
             >
@@ -2472,13 +2548,47 @@ export default function DatabaseManagementPage() {
             <DialogDescription>
               {selectedItem && (
                 <>
-                  {dialogAction === 'approve' 
-                    ? `确认通过 ${selectedItem.submittedBy} 提交的 "${selectedItem.category}" 设备清单？`
-                    : `确认拒绝 ${selectedItem.submittedBy} 提交的 "${selectedItem.category}" 设备清单？`}
+                  {dialogAction === 'approve'
+                    ? `核对 ${selectedItem.submittedBy} 提交的“${selectedItem.name}”（${selectedItem.category}，${selectedItem.model || '未填型号'}），通过后将创建或更新可用于维保报价的设备定额。`
+                    : `确认拒绝 ${selectedItem.submittedBy} 提交的“${selectedItem.name}”（${selectedItem.category}，${selectedItem.deviceCount} 台）申请？`}
                 </>
               )}
             </DialogDescription>
           </DialogHeader>
+          {selectedItem && dialogAction === 'approve' && (
+            <div className="space-y-3 rounded-lg border bg-muted/30 p-4">
+              {findImportQuota(selectedItem) ? (
+                <div className="space-y-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+                  <p>定额库已存在相同分类、名称和型号的记录；本次申请不会新增重复设备。</p>
+                  <p>当前城区年价：¥{Number(findImportQuota(selectedItem)?.city_price ?? 0).toFixed(2)}</p>
+                  <label className="flex items-start gap-2 font-medium">
+                    <input
+                      type="checkbox"
+                      className="mt-1"
+                      checked={replaceExistingImportQuota}
+                      onChange={(event) => setReplaceExistingImportQuota(event.target.checked)}
+                    />
+                    确认将申请中的定额字段及城区年价更新到现有设备
+                  </label>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">当前定额库没有相同设备，将新建一条可供维保报价选择的定额。</p>
+              )}
+              <div className="space-y-2">
+                <Label htmlFor="reviewCityPrice">城区基准年价（元/台·年）<span className="text-red-600">*</span></Label>
+                <Input
+                  id="reviewCityPrice"
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={reviewCityPrice}
+                  onChange={(event) => setReviewCityPrice(event.target.value)}
+                  placeholder="请核对或录入经确认的年价"
+                />
+                <p className="text-xs text-muted-foreground">未提供有效价格时必须在此补充；零价设备不会入库。</p>
+              </div>
+            </div>
+          )}
           <div className="py-4">
             <Label>审核意见（可选）</Label>
             <Textarea
@@ -2489,38 +2599,18 @@ export default function DatabaseManagementPage() {
             />
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsReviewDialogOpen(false)}>
+            <Button variant="outline" onClick={() => setIsReviewDialogOpen(false)} disabled={reviewSubmitting}>
               取消
             </Button>
             <Button
-              onClick={async () => {
-                if (!selectedItem || !dialogAction) return;
-                try {
-                  const result = await apiFetch('/api/device-imports/review', {
-                    method: 'POST',
-                    body: JSON.stringify({
-                      id: selectedItem.id,
-                      action: dialogAction,
-                      comment: reviewComment || undefined,
-                    }),
-                  });
-                  if (result.success) {
-                    toast.success(dialogAction === 'approve' ? '清单已通过' : '清单已拒绝');
-                    await loadImports();
-                  } else {
-                    toast.error(result.error || '审核失败');
-                  }
-                } catch (error) {
-                  toast.error('审核失败: ' + String(error));
-                }
-                setIsReviewDialogOpen(false);
-                setSelectedItem(null);
-                setDialogAction(null);
-                setReviewComment('');
-              }}
+              onClick={() => void handleImportReview()}
+              disabled={reviewSubmitting || (dialogAction === 'approve' && (
+                !Number.isFinite(Number(reviewCityPrice)) || Number(reviewCityPrice) <= 0 ||
+                (Boolean(selectedItem && findImportQuota(selectedItem)) && !replaceExistingImportQuota)
+              ))}
               className={dialogAction === 'approve' ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'}
             >
-              确认
+              {reviewSubmitting ? '处理中…' : dialogAction === 'approve' ? '确认并入库' : '确认拒绝'}
             </Button>
           </DialogFooter>
         </DialogContent>

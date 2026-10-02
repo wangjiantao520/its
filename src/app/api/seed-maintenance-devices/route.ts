@@ -87,7 +87,7 @@ const maintenanceDevices = [
   { category: '外网-安全平台', name: '外网日志审计', brand: 'H3C', model: 'LogAudit 1000', specification: '50EPS', unit: '套', original_price: 50000, maintenance_rate: 0.12, network_type: '外网' },
 ];
 
-export async function GET(request: NextRequest) {
+export async function POST(request: NextRequest) {
   const auth = await requireApiAuth(request, ['admin']);
   if (!auth.ok) return auth.response;
 

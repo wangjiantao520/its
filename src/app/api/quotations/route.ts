@@ -4,12 +4,19 @@ import { getDatabase, type DatabaseClient } from '@/lib/database/client';
 
 interface IdRow extends Record<string, unknown> { id: string | number | bigint }
 interface CountRow extends Record<string, unknown> { total: string | number }
+interface SurveyRow extends Record<string, unknown> { id: string | number | bigint; contract_years: string | number }
 type DeviceInput = Record<string, unknown>;
 
 function optionalText(value: unknown): string | null { return typeof value === 'string' && value.trim() ? value.trim() : null; }
 function nonNegative(value: unknown, fallback: number): number | null {
   if (value === undefined || value === null || value === '') return fallback;
   const parsed = Number(value); return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+function positiveId(value: unknown): number | null {
+  if (typeof value !== 'number' && typeof value !== 'string') return null;
+  if (typeof value === 'string' && !/^\d+$/.test(value)) return null;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
 }
 function objectBody(value: unknown): Record<string, unknown> | null { return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null; }
 
@@ -62,17 +69,55 @@ export async function POST(request: NextRequest) {
     const invalidDevice = devices.some((device) => !optionalText(device.device_name) && !optionalText(device.name)
       || [nonNegative(device.quantity, 1), nonNegative(device.unit_price, 0), nonNegative(device.total_price, 0), nonNegative(device.maintenance_rate, 0), nonNegative(device.maintenance_fee, 0)].includes(null));
     if (invalidDevice) return NextResponse.json({ success: false, error: '设备名称不能为空，数量和金额必须是有效的非负数' }, { status: 400 });
+    const hasSurveyRecordId = body.survey_record_id !== undefined && body.survey_record_id !== null && body.survey_record_id !== '';
+    const surveyRecordId = hasSurveyRecordId ? positiveId(body.survey_record_id) : null;
+    if (hasSurveyRecordId && surveyRecordId === null) {
+      return NextResponse.json({ success: false, error: '查勘记录ID无效' }, { status: 400 });
+    }
+    const quoteData = objectBody(body.quote_data);
+    const quoteNumber = optionalText(quoteData?.quoteNumber);
+    const deviceCount = devices.reduce((count, device) => count + (nonNegative(device.quantity, 1) ?? 0), 0);
+    const amountString = amount.toFixed(2);
     const id = await getDatabase().transaction(async (database) => {
+      let surveyRecord: SurveyRow | undefined;
+      if (surveyRecordId !== null) {
+        const ownerClause = auth.session.role === 'admin' ? '' : ' AND user_id = $2';
+        const survey = await database.query<SurveyRow>(
+          `SELECT id, contract_years FROM survey_records WHERE id = $1${ownerClause} FOR UPDATE`,
+          auth.session.role === 'admin'
+            ? [surveyRecordId]
+            : [surveyRecordId, auth.session.userId ?? -1],
+        );
+        surveyRecord = survey.rows[0];
+        if (!surveyRecord) return null;
+      }
       const inserted = await database.query<IdRow>(`
-        INSERT INTO quotation_records (user_id, client_name, client_region, project_name, quote_type, total_amount, device_count, quote_data)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb) RETURNING id
+        INSERT INTO quotation_records (user_id, client_name, client_region, project_name, quote_type, total_amount, device_count, quote_data, survey_record_id)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9) RETURNING id
       `, [auth.session.userId ?? -1, optionalText(body.client_name), optionalText(body.client_region), optionalText(body.project_name), optionalText(body.quote_type) ?? 'full',
-        amount.toFixed(2), nonNegative(body.device_count, devices.length), body.quote_data === undefined || body.quote_data === null ? null : body.quote_data]);
+        amountString, nonNegative(body.device_count, devices.length), body.quote_data === undefined || body.quote_data === null ? null : body.quote_data, surveyRecordId]);
       const quotationId = inserted.rows[0]?.id;
       if (quotationId === undefined) throw new Error('报价记录保存失败');
       await insertDevices(database, quotationId, devices);
+      if (surveyRecordId !== null && surveyRecord) {
+        const updated = await database.query<IdRow>(`
+          UPDATE survey_records
+          SET quote_result = jsonb_build_object(
+            'quotationId', $2::text,
+            'quoteNumber', $3::text,
+            'totalPrice', $4::numeric,
+            'deviceCount', $5::numeric,
+            'contractYears', $6::integer,
+            'updatedAt', now()::text
+          )
+          WHERE id = $1
+          RETURNING id
+        `, [surveyRecordId, String(quotationId), quoteNumber, amountString, deviceCount, Number(surveyRecord.contract_years)]);
+        if (!updated.rows[0]) throw new Error('查勘记录报价状态更新失败');
+      }
       return quotationId;
     });
+    if (id === null) return NextResponse.json({ success: false, error: '查勘记录不存在或无权访问' }, { status: 404 });
     return NextResponse.json({ success: true, data: { message: '报价记录保存成功', id: String(id) } }, { status: 201 });
   } catch (error) {
     console.error('保存报价记录失败:', error);

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import * as XLSX from 'xlsx-js-style';
 import { requireApiAuth } from '@/lib/api-auth-server';
-import { BORDER_ALL, ZEBRA_FILL } from '@/lib/excel-style';
+import { BORDER_ALL } from '@/lib/excel-style';
 
 type TemplateColumn = readonly [header: string, key: string, width: number];
 
@@ -45,55 +45,14 @@ const columns: TemplateColumn[] = [
   ['核心维保内容', 'coreMaintenanceContent', 40],
 ] as const;
 
-const example: Record<string, string | number> = {
-  category: '计算机终端类',
-  name: '台式计算机',
-  model: 'ThinkCentre M720Q',
-  level: 'B',
-  engineerLevel: '初级',
-  deviceCount: 5,
-  needSparePart: '否',
-  teamExperienceWithFactor: 1.2,
-  teamExperienceSimilarFactor: 1.0,
-  teamExperienceWithoutFactor: 0.8,
-  securityLevel3Factor: 1.0,
-  supportModeOnsiteFactor: 1.0,
-  faultRecoveryTime24hFactor: 1.0,
-  inspectionLaborFee: 50,
-  inspectionPersonCount: 1,
-  inspectionDuration: 30,
-  inspectionTimesPerYear: 4,
-  inspectionContent: '巡检设备运行状态',
-  onSiteFeeAnnual: 100,
-  trafficFee: 30,
-  faultHandlingFeeTotal: 80,
-  inWarranty: '否',
-  depreciationLevelDescription: '一般',
-  toolAmortization: 10,
-  consumableFee: 20,
-  toolDetails: '螺丝刀、检测仪',
-  consumableDetails: '清洁剂、扎带',
-  sparePartReserve: 50,
-  sparePartBasis: '按设备价值5%预留',
-  cityPrice: 500,
-  faultHandlingFeeDetail: 80,
-  urbanPrice: 550,
-  townPrice: 750,
-  ruralPrice: 1000,
-  contractYears: 1,
-  coreMaintenanceContent: '硬件巡检、故障处理、备件支持',
-};
-
 export async function GET(request: NextRequest) {
   const auth = await requireApiAuth(request);
   if (!auth.ok) return auth.response;
 
   try {
-    const sheet = XLSX.utils.aoa_to_sheet([
-      columns.map(([header]) => header),
-      columns.map(([, key]) => example[key] ?? ''),
-    ]);
+    const sheet = XLSX.utils.aoa_to_sheet([columns.map(([header]) => header)]);
     sheet['!cols'] = columns.map(([, , width]) => ({ wch: width }));
+    sheet['!freeze'] = { xSplit: 0, ySplit: 1, topLeftCell: 'A2', activePane: 'bottomLeft', state: 'frozen' };
     for (let index = 0; index < columns.length; index += 1) {
       const cell = sheet[XLSX.utils.encode_cell({ r: 0, c: index })];
       if (cell) {
@@ -105,14 +64,6 @@ export async function GET(request: NextRequest) {
         };
       }
     }
-    // 示例行：边框 + 斑马纹
-    for (let index = 0; index < columns.length; index += 1) {
-      const cell = sheet[XLSX.utils.encode_cell({ r: 1, c: index })];
-      if (cell) {
-        cell.s = { border: BORDER_ALL, fill: ZEBRA_FILL, alignment: { vertical: 'center' } };
-      }
-    }
-
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, sheet, '设备清单导入模板');
     const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' }) as Buffer;

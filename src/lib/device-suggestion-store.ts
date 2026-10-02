@@ -116,14 +116,16 @@ async function insertIntoDeviceQuotas(
   await client.query(`
     INSERT INTO device_quotas
       (category, name, brand, model, specification, maintenance_tier,
+       level, engineer_level, city_price,
        annual_fault_count, a_gear_fault_count, b_gear_fault_count, c_gear_fault_count,
        d_gear_fault_count, e_gear_fault_count, fault_processing_days, inspection_days,
        on_site_count, inspection_labor_fee, visit_service_fee, traffic_fee,
        fault_handling_fee, tool_amortization, consumable_fee, spare_part_reserve, spare_part_fee)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
-            $15, $16, $17, $18, $19, $20, $21, $22, $23)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
+            $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)
   `, [
     price.category, price.name, price.brand, price.model, price.specification, price.maintenanceTier,
+    price.level, price.engineerLevel, price.cityPrice,
     price.annualFaultCount ?? 0, price.aGearFaultCount ?? 0, price.bGearFaultCount ?? 0,
     price.cGearFaultCount ?? 0, price.dGearFaultCount ?? 0, price.eGearFaultCount ?? 0,
     price.faultProcessingDays ?? 0, price.inspectionDays ?? 0, price.onSiteCount ?? 0,
@@ -145,7 +147,7 @@ export async function reviewDeviceSuggestion(
 ): Promise<{ ok: boolean; error?: string }> {
   return database.transaction(async (client) => {
     const existing = await client.query<SuggestionRow>(
-      'SELECT status FROM device_suggestions WHERE id = $1',
+      'SELECT status FROM device_suggestions WHERE id = $1 FOR UPDATE',
       [options.id],
     );
     if (!existing.rows[0]) return { ok: false, error: '补录请求不存在' };
@@ -153,13 +155,30 @@ export async function reviewDeviceSuggestion(
 
     if (options.action === 'approve') {
       if (!options.priceData) return { ok: false, error: '批准时必须提供价格体系' };
-      await insertIntoDeviceQuotas(client, options.priceData);
+      const price = options.priceData;
+      const category = price.category.trim();
+      const name = price.name.trim();
+      const model = price.model.trim();
+      if (!category || !name) return { ok: false, error: '设备类别和名称不能为空' };
+      const normalizedPrice = { ...price, category, name, model };
+      const duplicateKey = JSON.stringify([category, name, model]);
+      await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [duplicateKey]);
+      const existingQuota = await client.query<{ id: string | number | bigint }>(
+        `SELECT id FROM device_quotas
+         WHERE category = $1 AND name = $2 AND COALESCE(model, '') = $3
+         ORDER BY id FOR UPDATE`,
+        [category, name, model],
+      );
+      if (existingQuota.rows.length > 0) {
+        return { ok: false, error: '定额库已存在相同分类、名称和型号的设备，请在设备定额列表中维护现有记录' };
+      }
+      await insertIntoDeviceQuotas(client, normalizedPrice);
       await client.query(
         `UPDATE device_suggestions
          SET status = 'approved', price_data = $1, reviewed_by = $2,
              reviewed_at = now(), review_comment = $3
          WHERE id = $4`,
-        [JSON.stringify(options.priceData), options.reviewedBy, options.comment ?? null, options.id],
+        [JSON.stringify(normalizedPrice), options.reviewedBy, options.comment ?? null, options.id],
       );
     } else {
       await client.query(
