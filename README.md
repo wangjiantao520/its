@@ -1,5 +1,9 @@
 # projects
 
+## 部署
+
+- [Vercel 部署与 Supabase 配置](docs/DEPLOY_VERCEL.md)
+
 这是一个基于 [Next.js 16](https://nextjs.org) + [shadcn/ui](https://ui.shadcn.com) 的全栈应用项目
 
 ## 项目结构

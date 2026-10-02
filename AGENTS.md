@@ -126,6 +126,17 @@
 - UI 使用 shadcn/ui 组件库
 - 设计稿参见 `DESIGN.md`（深蓝主色 #1e40af，专业商务风格）
 
+## DSH 与 Codex 协作规则
+
+本项目在 DeepSeek Harness（DSH）中工作时，先加载项目 Skill：`its-engineering`。DSH 会话的工作目录必须是本项目根目录
+`/Users/wangjiantao/Desktop/综合/项目/ITS`；不得因 DSH 服务本身安装在其他目录而将其作为工作目录。
+
+- 只读排查、解释和小范围问题回答可以直接进行。
+- 涉及代码、项目配置、依赖、数据库迁移、架构取舍、外部系统或生产环境的实质改动，先在 DSH 中使用 `/plan` 完成可审查的计划；Plan Mode 未启用时，不得把一段普通回复冒充为已经获批的计划。
+- 计划获用户确认后，在修改前通过 `codex_supervise` 提交 `PHASE: PLAN` 审查包；完成改动和本地验证后，再提交 `PHASE: RESULT` 审查包。两个审查包都必须包含本项目的绝对 `WORKSPACE` 路径、范围、风险、实际变更和验证结果。
+- 仅在最新审查结论为 `VERDICT: APPROVE` 且相关检查没有失败时，才能报告完成。审查不可用、超时或返回 `REVISE` / `HANDOFF_TO_CODEX` 时，必须如实说明，不得自行视为批准。
+- 不得在审查包中传递 `.env`、API Key、数据库连接串、私有附件或无关会话内容。凭据、外部写入、生产访问和不可逆删除始终需要用户明确决定。
+
 ## 常见问题和预防
 
 - Next.js 启动时可能出现 `url.parse()` 弃用警告（来自 server.ts），不影响功能

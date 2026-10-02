@@ -15,6 +15,12 @@ import type {
   QuoteLibraryAttachment,
   QuoteLibraryAttachmentCategory,
 } from '@/lib/quote-library-types';
+import {
+  canUploadQuoteLibraryFilesDirectly,
+  cleanupStagedQuoteLibraryUploads,
+  uploadQuoteLibraryFilesDirectly,
+} from '@/lib/quote-library-direct-upload';
+import { MAX_ATTACHMENTS_PER_RECORD } from '@/lib/quote-library-types';
 
 interface AttachmentUploaderProps {
   libraryId?: string;
@@ -37,16 +43,34 @@ export function AttachmentUploader({ libraryId, initialAttachments, onChange, di
 
   const upload = async (category: QuoteLibraryAttachmentCategory, files: File[]) => {
     if (files.length === 0 || !libraryId) return;
+    if (attachments.length + files.length > MAX_ATTACHMENTS_PER_RECORD) {
+      toast.error(`附件总数不能超过 ${MAX_ATTACHMENTS_PER_RECORD} 个`);
+      return;
+    }
     setUploading((p) => ({ ...p, [category === 'survey_photo' ? 'survey' : 'other']: true }));
+    let stagedPaths: string[] = [];
     try {
       const form = new FormData();
-      for (const file of files) form.append(category === 'survey_photo' ? 'survey_photos' : 'other_files', file);
+      if (canUploadQuoteLibraryFilesDirectly()) {
+        const stagedUploads = await uploadQuoteLibraryFilesDirectly(category, files);
+        stagedPaths = stagedUploads.map((item) => item.path);
+        form.append('remote_uploads', JSON.stringify(stagedUploads));
+      } else {
+        for (const file of files) form.append(category === 'survey_photo' ? 'survey_photos' : 'other_files', file);
+      }
       form.append('remove_attachment_ids', '');
       const result = await apiFetch<{ new_attachments: QuoteLibraryAttachment[] }>(`/api/quote-library/${libraryId}`, {
         method: 'PATCH',
         body: form,
       });
-      if (!result.success || !result.data) throw new Error(result.error || '上传失败');
+      if (!result.success || !result.data) {
+        if (result.status >= 400 && result.status < 500 && stagedPaths.length > 0) {
+          await cleanupStagedQuoteLibraryUploads(stagedPaths).catch(() => undefined);
+          stagedPaths = [];
+        }
+        throw new Error(result.error || '上传失败');
+      }
+      stagedPaths = [];
       const added = result.data.new_attachments ?? [];
       const next = [...attachments, ...added];
       setAttachments(next);

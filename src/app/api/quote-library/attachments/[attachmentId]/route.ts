@@ -4,6 +4,10 @@ import fs from 'node:fs';
 import { requireApiAuth } from '@/lib/api-auth-server';
 import { getDatabase } from '@/lib/database/client';
 import { resolveSafeAbsolutePath } from '@/lib/quote-library-storage';
+import {
+  createQuoteLibrarySignedDownload,
+  isSupabaseQuoteLibraryPath,
+} from '@/lib/supabase-storage';
 
 interface AttachmentRow extends Record<string, unknown> {
   id: string | number | bigint;
@@ -42,6 +46,15 @@ export async function GET(request: NextRequest, { params }: RouteContext) {
     if (auth.session.role !== 'admin' && !row.is_published) {
       return NextResponse.json({ success: false, error: '附件所属资料未发布' }, { status: 403 });
     }
+
+    if (isSupabaseQuoteLibraryPath(row.stored_path)) {
+      const signedUrl = await createQuoteLibrarySignedDownload(row.stored_path, row.original_name || 'attachment');
+      return NextResponse.redirect(signedUrl, {
+        status: 307,
+        headers: { 'cache-control': 'private, no-store' },
+      });
+    }
+
     const abs = resolveSafeAbsolutePath(row.stored_path);
     if (!abs || !fs.existsSync(abs)) {
       return NextResponse.json({ success: false, error: '文件已丢失' }, { status: 404 });
