@@ -308,8 +308,8 @@ test('all mutation and status endpoints reject a non-administrator', async () =>
     importExcel.POST(request('/api/import-excel', 'POST', JSON.stringify({ url: 'https://example.com/a.xlsx' }))),
     initDb.GET(request('/api/init-db', 'GET')),
     quotas.POST(request('/api/quotas-seed', 'POST')),
-    config.GET(request('/api/seed-config', 'GET')),
-    maintenance.GET(request('/api/seed-maintenance-devices', 'GET')),
+    config.POST(request('/api/seed-config', 'POST')),
+    maintenance.POST(request('/api/seed-maintenance-devices', 'POST')),
   ]);
   assert.deepEqual(responses.map(({ status }) => status), [403, 403, 403, 403, 403, 403]);
 });
@@ -340,8 +340,8 @@ test('fake PostgreSQL keeps every seed endpoint idempotent across repeated calls
   ]);
   const calls = [
     () => quotas.POST(request('/api/quotas-seed', 'POST')),
-    () => config.GET(request('/api/seed-config', 'GET')),
-    () => maintenance.GET(request('/api/seed-maintenance-devices', 'GET')),
+    () => config.POST(request('/api/seed-config', 'POST')),
+    () => maintenance.POST(request('/api/seed-maintenance-devices', 'POST')),
   ];
   for (const call of calls) {
     assert.equal((await call()).status, 200);
@@ -357,7 +357,7 @@ test('config seed does not duplicate defaults already migrated under positive ID
   const database = new MigratedConfigDatabase();
   installDatabase(database);
   const route = await import('../src/app/api/seed-config/route');
-  const response = await route.GET(request('/api/seed-config', 'GET'));
+  const response = await route.POST(request('/api/seed-config', 'POST'));
   const payload = await json(response);
   assert.equal(response.status, 200);
   assert.deepEqual(payload.data, { rateImported: 6, slaImported: 2 });
@@ -388,8 +388,8 @@ test('live PostgreSQL import and repeated seeds are idempotent', {
 
   const seedCalls = [
     () => quotas.POST(request('/api/quotas-seed', 'POST', undefined, token)),
-    () => config.GET(request('/api/seed-config', 'GET', undefined, token)),
-    () => maintenance.GET(request('/api/seed-maintenance-devices', 'GET', undefined, token)),
+    () => config.POST(request('/api/seed-config', 'POST', undefined, token)),
+    () => maintenance.POST(request('/api/seed-maintenance-devices', 'POST', undefined, token)),
   ];
   for (const call of seedCalls) {
     assert.equal((await call()).status, 200);

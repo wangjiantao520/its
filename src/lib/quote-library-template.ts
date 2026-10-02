@@ -70,7 +70,8 @@ export function parseSummarySheet(rows: unknown[][]): QuoteSummary {
         const noteRow = dataRows[index] ?? [];
         const t = toText(noteRow[0]);
         if (t.startsWith('说明')) {
-          note = (t + ' ' + noteRow.slice(1).map(toText).filter(Boolean).join(' ')).trim();
+          const headingText = t.replace(/^说明[:：]\s*/, '').trim();
+          note = [headingText, ...noteRow.slice(1).map(toText)].filter(Boolean).join(' ');
         }
         index += 1;
       }
@@ -112,29 +113,22 @@ export function parsePointsSheet(rows: unknown[][]): QuoteFloorPoint[] {
   const floors: QuoteFloorPoint[] = [];
   for (const row of dataRows) {
     const first = toText(row[0]);
-    if (!first || first === '网线' || first === 'PVC') continue;
-    // 跳过纯数字合计行
-    const isAllNumbers = row.slice(1).every((v) => v === '' || Number.isFinite(Number(v)));
-    if (isAllNumbers && first) {
-      const counts: number[] = [];
-      for (let i = 1; i < row.length; i += 1) {
-        const cell = toText(row[i]);
-        if (cell === '') continue;
-        // AP 列以非数字开头（如 "AP1"），跳过该列数字
-        if (/^[A-Za-z]/.test(cell)) break;
-        counts.push(toNumber(cell));
-      }
-      const apText = row
-        .map((v) => toText(v))
-        .filter((t) => /^[A-Za-z]/.test(t) || /^\d+(\.\d+)?$/.test(t) === false)
-        .filter(Boolean)
-        .join(' ');
-      floors.push({
-        name: first,
-        counts,
-        ap: apText && !/^\d+(\.\d+)?$/.test(apText.split(' ')[0] ?? '') ? apText : undefined,
-      });
-    }
+    if (!first || ['网线', 'PVC', '楼层', '合计', '总计'].includes(first)) continue;
+
+    const cells = row.slice(1).map(toText);
+    const apIndex = cells.findIndex((cell) => (
+      cell !== '' && !Number.isFinite(Number(cell.replace(/,/g, '')))
+    ));
+    const countCells = apIndex < 0 ? cells : cells.slice(0, apIndex);
+    while (countCells.at(-1) === '') countCells.pop();
+    const ap = apIndex < 0 ? [] : cells.slice(apIndex).filter(Boolean);
+    if (!countCells.some(Boolean) && ap.length === 0) continue;
+
+    floors.push({
+      name: first,
+      counts: countCells.map(toNumber),
+      ...(ap.length > 0 ? { ap: ap.join(' ') } : {}),
+    });
   }
   return floors;
 }
@@ -183,7 +177,15 @@ export function parseQuoteTemplate(buffer: ArrayBuffer): QuoteData {
  *
  * 客户端和服务端均可调用（xlsx-js-style 不依赖 Node 内置模块）。
  */
-export function renderQuoteDataToWorkbook(data: QuoteData): XLSX.WorkBook {
+export interface QuoteWorkbookRenderOptions {
+  blankItemRows?: number;
+  includePointsTemplate?: boolean;
+}
+
+export function renderQuoteDataToWorkbook(
+  data: QuoteData,
+  options: QuoteWorkbookRenderOptions = {},
+): XLSX.WorkBook {
   const aoa: unknown[][] = [];
 
   aoa.push([data.summary.title, '', '', '', '', '', '', '', '', '', '', '']);
@@ -217,6 +219,13 @@ export function renderQuoteDataToWorkbook(data: QuoteData): XLSX.WorkBook {
       item.yidong_total ?? '',
       item.remark ?? '',
     ]);
+  }
+
+  const blankItemRows = typeof options.blankItemRows === 'number' && Number.isFinite(options.blankItemRows)
+    ? Math.min(100, Math.max(0, Math.floor(options.blankItemRows ?? 0)))
+    : 0;
+  for (let index = 0; index < blankItemRows; index += 1) {
+    aoa.push(new Array(12).fill(''));
   }
 
   aoa.push([
@@ -260,6 +269,14 @@ export function renderQuoteDataToWorkbook(data: QuoteData): XLSX.WorkBook {
       ]);
     }
     const pointsSheet = XLSX.utils.aoa_to_sheet(pointsAoa);
+    XLSX.utils.book_append_sheet(workbook, pointsSheet, 'Sheet2');
+  } else if (options.includePointsTemplate) {
+    const pointsAoa: unknown[][] = [
+      ['楼层', '网线数量', 'PVC数量', 'AP信息'],
+      ...Array.from({ length: 10 }, () => ['', '', '', '']),
+    ];
+    const pointsSheet = XLSX.utils.aoa_to_sheet(pointsAoa);
+    pointsSheet['!cols'] = [{ wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 30 }];
     XLSX.utils.book_append_sheet(workbook, pointsSheet, 'Sheet2');
   }
 

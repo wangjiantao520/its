@@ -5,10 +5,10 @@ import { getDatabase } from '@/lib/database/client';
 import { listDeviceSuggestions } from '@/lib/device-suggestion-store';
 
 export async function GET(request: NextRequest) {
-  const auth = await requireApiAuth(request);
+  const mine = request.nextUrl.searchParams.get('mine') === 'true';
+  const auth = await requireApiAuth(request, mine ? undefined : ['admin']);
   if (!auth.ok) return auth.response;
 
-  const mine = request.nextUrl.searchParams.get('mine') === 'true';
   const status = request.nextUrl.searchParams.get('status');
 
   try {

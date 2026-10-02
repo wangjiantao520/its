@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { rmSync } from 'node:fs';
 import { setTimeout as delay } from 'node:timers/promises';
 import test from 'node:test';
 
 const port = 5056;
 const baseUrl = `http://127.0.0.1:${port}`;
-const databasePath = `/tmp/its-system-e2e-${process.pid}.db`;
+const testDatabaseUrl = process.env.TEST_DATABASE_URL;
+const databaseSkip = testDatabaseUrl
+  ? undefined
+  : 'Set TEST_DATABASE_URL to an isolated disposable PostgreSQL database before running this test.';
 let server;
 let serverOutput = '';
 
@@ -58,6 +60,7 @@ async function chat(agentId, token, body) {
 }
 
 test.before(async () => {
+  if (!testDatabaseUrl) return;
   server = spawn('pnpm', ['exec', 'tsx', 'src/server.ts'], {
     cwd: process.cwd(),
     detached: true,
@@ -65,8 +68,10 @@ test.before(async () => {
       ...process.env,
       HOSTNAME: '127.0.0.1',
       PORT: String(port),
-      DB_PATH: databasePath,
+      DATABASE_URL: testDatabaseUrl,
       ADMIN_PASSWORD: 'admin123',
+      ITS_PASSWORD: 'demo123',
+      NODE_ENV: 'test',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -77,13 +82,9 @@ test.before(async () => {
 
 test.after(async () => {
   if (server?.pid && server.exitCode === null) process.kill(-server.pid, 'SIGTERM');
-  for (const suffix of ['', '-wal', '-shm', '.migrate.lock']) {
-    rmSync(`${databasePath}${suffix}`, { force: true });
-  }
-  rmSync('/tmp/backups', { recursive: true, force: true });
 });
 
-test('authentication, roles, ownership, sharing and validation work end to end', async () => {
+test('authentication, roles, ownership, sharing and validation work end to end', { skip: databaseSkip }, async () => {
   for (const path of ['/api/users', '/api/quotes', '/api/agent-sessions', '/api/dashboard/stats']) {
     const result = await api(path);
     assert.equal(result.response.status, 401, `${path} must reject anonymous access`);
@@ -113,6 +114,14 @@ test('authentication, roles, ownership, sharing and validation work end to end',
   const memberBToken = await login({ username: 'member_b', password: 'member123' });
   const forbiddenUsers = await api('/api/users', { token: memberAToken });
   assert.equal(forbiddenUsers.response.status, 403);
+
+  const deniedSuggestions = await api('/api/device-suggestions', { token: memberAToken });
+  assert.equal(deniedSuggestions.response.status, 403);
+  const ownSuggestions = await api('/api/device-suggestions?mine=true', { token: memberAToken });
+  assert.equal(ownSuggestions.response.status, 200);
+  assert.deepEqual(ownSuggestions.json.data, []);
+  const adminSuggestions = await api('/api/device-suggestions', { token: adminToken });
+  assert.equal(adminSuggestions.response.status, 200);
 
   for (const path of ['/api/dashboard', '/api/engineering-quotes/stats', '/api/agents']) {
     const result = await api(path, { token: adminToken });

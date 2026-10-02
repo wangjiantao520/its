@@ -95,7 +95,7 @@ async function seedConfig(database: DatabaseClient) {
   });
 }
 
-export async function GET(request: NextRequest) {
+export async function POST(request: NextRequest) {
   const auth = await requireApiAuth(request, ['admin']);
   if (!auth.ok) return auth.response;
 

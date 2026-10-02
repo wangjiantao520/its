@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { rmSync } from 'node:fs';
 import { setTimeout as delay } from 'node:timers/promises';
 import test from 'node:test';
 import { chromium } from 'playwright';
@@ -10,7 +9,10 @@ const baseUrl = `http://127.0.0.1:${port}`;
 let server;
 let browser;
 let serverOutput = '';
-const databasePath = `/tmp/its-sidebar-e2e-${process.pid}.db`;
+const testDatabaseUrl = process.env.TEST_DATABASE_URL;
+const databaseSkip = testDatabaseUrl
+  ? undefined
+  : 'Set TEST_DATABASE_URL to an isolated disposable PostgreSQL database before running this test.';
 
 async function waitForServer() {
   const deadline = Date.now() + 120_000;
@@ -73,10 +75,19 @@ function observeFailures(page, failures) {
 }
 
 test.before(async () => {
+  if (!testDatabaseUrl) return;
   server = spawn('pnpm', ['exec', 'tsx', 'src/server.ts'], {
     cwd: process.cwd(),
     detached: true,
-    env: { ...process.env, HOSTNAME: '127.0.0.1', PORT: String(port), DB_PATH: databasePath },
+    env: {
+      ...process.env,
+      HOSTNAME: '127.0.0.1',
+      PORT: String(port),
+      DATABASE_URL: testDatabaseUrl,
+      ADMIN_PASSWORD: 'admin123',
+      ITS_PASSWORD: 'demo123',
+      NODE_ENV: 'test',
+    },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   server.stdout.on('data', chunk => { serverOutput += chunk.toString(); });
@@ -90,12 +101,9 @@ test.after(async () => {
   if (server?.pid && server.exitCode === null) {
     process.kill(-server.pid, 'SIGTERM');
   }
-  for (const suffix of ['', '-wal', '-shm', '.migrate.lock']) {
-    rmSync(`${databasePath}${suffix}`, { force: true });
-  }
 });
 
-test('collapsed desktop sidebar is a safe clickable icon rail', async () => {
+test('collapsed desktop sidebar is a safe clickable icon rail', { skip: databaseSkip }, async () => {
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   await login(page);
   await page.locator('header [data-sidebar="trigger"]').click();
@@ -134,7 +142,7 @@ test('collapsed desktop sidebar is a safe clickable icon rail', async () => {
   await page.close();
 });
 
-test('mobile sidebar still opens as a drawer', async () => {
+test('mobile sidebar still opens as a drawer', { skip: databaseSkip }, async () => {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
   await login(page);
   await page.locator('header [data-sidebar="trigger"]').click();
@@ -144,7 +152,7 @@ test('mobile sidebar still opens as a drawer', async () => {
   await page.close();
 });
 
-test('admin routes render without blank pages, overflow, auth failures or server errors', async () => {
+test('admin routes render without blank pages, overflow, auth failures or server errors', { skip: databaseSkip }, async () => {
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   const failures = [];
   observeFailures(page, failures);
@@ -177,7 +185,7 @@ test('admin routes render without blank pages, overflow, auth failures or server
   await page.close();
 });
 
-test('member routes stay usable and admin routes remain inaccessible', async () => {
+test('member routes stay usable and admin routes remain inaccessible', { skip: databaseSkip }, async () => {
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
   const failures = [];
   observeFailures(page, failures);
